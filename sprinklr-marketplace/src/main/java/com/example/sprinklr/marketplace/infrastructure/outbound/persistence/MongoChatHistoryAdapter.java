@@ -27,32 +27,65 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
 
     @Override
     public List<Message> findRecentMessages(String conversationId, int limit) {
-        List<MessageDocument> documents = messageRepository
-                .findByConversationIdOrderByCreatedAtDesc(conversationId)
-                .take(limit)
-                .collectList()
-                .block(); // Safe to block here because ChatOrchestrator runs on boundedElastic
+        System.out.println("[MongoDB] Finding recent messages for conversation: " + conversationId + " (limit: " + limit + ")");
+        
+        try {
+            List<MessageDocument> documents = messageRepository
+                    .findByConversationIdOrderByCreatedAtDesc(conversationId)
+                    .take(limit)
+                    .collectList()
+                    .block(); // Safe to block here because ChatOrchestrator runs on boundedElastic
 
-        if (documents == null || documents.isEmpty()) {
+            if (documents == null) {
+                System.out.println("[MongoDB] Query returned null");
+                return List.of();
+            }
+            
+            System.out.println("[MongoDB] Found " + documents.size() + " messages");
+
+            if (documents.isEmpty()) {
+                System.out.println("[MongoDB] No messages found for conversation: " + conversationId);
+                return List.of();
+            }
+
+            // We fetched newest first, but the LLM needs chronological order (oldest first)
+            Collections.reverse(documents);
+
+            List<Message> result = documents.stream()
+                    .map(this::toDomainMessage)
+                    .toList();
+            
+            System.out.println("[MongoDB] Converted to " + result.size() + " domain messages");
+            return result;
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error finding messages for conversation " + conversationId + ": " + e.getMessage());
+            e.printStackTrace();
             return List.of();
         }
-
-        // We fetched newest first, but the LLM needs chronological order (oldest first)
-        Collections.reverse(documents);
-
-        return documents.stream()
-                .map(this::toDomainMessage)
-                .toList();
     }
 
     @Override
     public void saveMessage(Message message) {
-        MessageDocument document = toMessageDocument(message);
-        messageRepository.save(document).block();
+        System.out.println("[MongoDB] Saving message - ID: " + message.id() + 
+                ", Conversation: " + message.conversationId() + 
+                ", Role: " + message.role() + 
+                ", Content length: " + (message.content() != null ? message.content().length() : 0));
+        
+        try {
+            MessageDocument document = toMessageDocument(message);
+            messageRepository.save(document).block();
+            System.out.println("[MongoDB] Message saved successfully");
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error saving message: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     @Override
     public Conversation saveConversation(Conversation conversation) {
+        System.out.println("[MongoDB] Saving conversation - ID: " + conversation.id() + 
+                ", User: " + conversation.userId());
+        
         ConversationDocument doc = new ConversationDocument(
                 conversation.id(),
                 conversation.userId(),
@@ -60,23 +93,42 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
                 conversation.createdAt(),
                 conversation.updatedAt()
         );
-        conversationRepository.save(doc).block();
+        
+        try {
+            conversationRepository.save(doc).block();
+            System.out.println("[MongoDB] Conversation saved successfully");
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error saving conversation: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
         return conversation;
     }
 
     @Override
     public Optional<Conversation> findConversationById(String conversationId) {
-        ConversationDocument doc = conversationRepository.findById(conversationId).block();
-        if (doc == null) {
+        System.out.println("[MongoDB] Finding conversation - ID: " + conversationId);
+        
+        try {
+            ConversationDocument doc = conversationRepository.findById(conversationId).block();
+            if (doc == null) {
+                System.out.println("[MongoDB] Conversation not found: " + conversationId);
+                return Optional.empty();
+            }
+            
+            System.out.println("[MongoDB] Conversation found: " + conversationId);
+            return Optional.of(new Conversation(
+                    doc.id(),
+                    doc.userId(),
+                    doc.title(),
+                    doc.createdAt(),
+                    doc.updatedAt()
+            ));
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error finding conversation: " + e.getMessage());
+            e.printStackTrace();
             return Optional.empty();
         }
-        return Optional.of(new Conversation(
-                doc.id(),
-                doc.userId(),
-                doc.title(),
-                doc.createdAt(),
-                doc.updatedAt()
-        ));
     }
 
     // --- Mappers ---
