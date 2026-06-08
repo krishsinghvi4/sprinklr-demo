@@ -1,7 +1,7 @@
 # Product Context: Sprinklr Developer MarketPlace
 
 ## 📍 Current Implementation Status
-* **Last Updated:** June 8, 2026
+* **Last Updated:** June 8, 2026 (Updated)
 * **Currently Working On:** MCP tool invocation and LLM integration
 * **Completed Features:** 
   - ✅ Full-stack chat application (Spring Boot + React)
@@ -12,6 +12,7 @@
   - ✅ CORS configuration for development
   - ✅ Async/non-blocking HTTP operations
   - ✅ Comprehensive logging throughout stack
+  - ✅ LLM summary responses saved to MongoDB (FIXED)
 * **Known Issues/Blockers:** None. All core chat functionality is stable.
 
 ---
@@ -161,7 +162,16 @@ Frontend on localhost:5173, backend on localhost:8080. CORS configured in `WebFl
 
 ## 📋 Critical Changes Log
 
-**June 8, 2026**
+**June 8, 2026 (Latest)**
+- **FIXED:** LLM summary responses not being saved to MongoDB after tool invocation
+  - Problem: When MCP tools were invoked (e.g., "fetch jira systems"), the backend would stream the LLM summary to the frontend but never persist it to the database
+  - Solution: Added `createCapturingSummarySubscriber()` wrapper in ChatOrchestrator that:
+    - Accumulates streamed summary chunks as they arrive from LLM
+    - Forwards each chunk to frontend UI for real-time display
+    - Saves complete summary message to MongoDB when streaming completes
+  - Impact: Assistant responses now persist correctly and reload properly on page refresh
+
+**June 8, 2026 (Earlier)**
 - Removed `<React.StrictMode>` from main.tsx (fixed React double-invocation of state setters)
 - Added comprehensive SSE logging to chatService.ts
 - Added chunk count tracking to Chat.tsx
