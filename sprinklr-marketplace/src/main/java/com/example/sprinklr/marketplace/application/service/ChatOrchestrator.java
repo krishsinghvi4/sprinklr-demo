@@ -24,6 +24,7 @@ import reactor.core.scheduler.Schedulers;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Flow;
 
@@ -98,7 +99,11 @@ public class ChatOrchestrator implements ChatUseCase {
             Flow.Subscriber<String> responseSubscriber
     ) {//done to receive llm response in non blocking manner since llm generates text one at a time , everytime it geenrates onNext() called
        
+        System.out.println("[Orchestrator] Handling text-only response");
+        System.out.println("[Orchestrator] Response content: " + llmResponse.content());
+        
         Flux.just(llmResponse.content())
+                .doOnNext(chunk -> System.out.println("[Orchestrator] Sending chunk: " + chunk.substring(0, Math.min(50, chunk.length()))))
                 .subscribe(FlowAdapters.toSubscriber(responseSubscriber));
 
         Message assistantMessage = new Message(
@@ -164,12 +169,25 @@ public class ChatOrchestrator implements ChatUseCase {
 
     private String resolveConversationId(ChatRequest request) {
         if (request.conversationId() != null && !request.conversationId().isBlank()) {
-            return chatHistoryPort.findConversationById(request.conversationId())
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Conversation not found: " + request.conversationId()))
-                    .id();
+            // Check if conversation exists, if not create it
+            Optional<Conversation> existing = chatHistoryPort.findConversationById(request.conversationId());
+            if (existing.isPresent()) {
+                return existing.get().id();
+            } else {
+                // Create new conversation with the provided ID
+                Instant now = Instant.now();
+                Conversation conversation = new Conversation(
+                        request.conversationId(),
+                        request.userId(),
+                        null,
+                        now,
+                        now
+                );
+                return chatHistoryPort.saveConversation(conversation).id();
+            }
         }
 
+        // Create a new conversation with a generated ID
         Instant now = Instant.now();
         Conversation conversation = new Conversation(
                 newId(),
