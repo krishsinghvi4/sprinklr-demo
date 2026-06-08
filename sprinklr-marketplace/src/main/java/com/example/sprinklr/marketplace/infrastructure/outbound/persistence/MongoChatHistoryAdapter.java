@@ -14,11 +14,11 @@ import java.util.Optional;
 @Component
 public class MongoChatHistoryAdapter implements ChatHistoryPort {
 
-    private final MongoConversationRepository conversationRepository;
+    private final ConversationRepository conversationRepository;
     private final MongoMessageRepository messageRepository;
 
     public MongoChatHistoryAdapter(
-            MongoConversationRepository conversationRepository,
+            ConversationRepository conversationRepository,
             MongoMessageRepository messageRepository
     ) {
         this.conversationRepository = conversationRepository;
