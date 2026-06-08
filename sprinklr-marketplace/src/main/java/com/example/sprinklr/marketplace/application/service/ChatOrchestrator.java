@@ -161,9 +161,13 @@ public class ChatOrchestrator implements ChatUseCase {
         history.add(toolMessage);
 
         //history just stores the tool messages after executiing the tool
+        Flow.Subscriber<String> capturingSummarySubscriber = createCapturingSummarySubscriber(
+                conversationId,
+                responseSubscriber
+        );
         llmPort.streamSummary(
                 new LlmRequest(request.prompt(), history, NO_TOOLS),
-                responseSubscriber
+                capturingSummarySubscriber
         );
     }
 
@@ -216,6 +220,64 @@ public class ChatOrchestrator implements ChatUseCase {
     private ToolResult toToolResult(McpInvocationResult result) {
         String content = result.success() ? result.content() : result.errorMessage();
         return new ToolResult(result.toolCallId(), content);
+    }
+
+    /**
+     * Creates a wrapper subscriber that:
+     * 1. Captures all streamed summary chunks
+     * 2. Forwards them to the original responseSubscriber for UI display
+     * 3. Saves the complete summary to database when streaming completes
+     */
+    private Flow.Subscriber<String> createCapturingSummarySubscriber(
+            String conversationId,
+            Flow.Subscriber<String> originalSubscriber
+    ) {
+        return new Flow.Subscriber<String>() {
+            private final StringBuilder summaryBuffer = new StringBuilder();
+
+            @Override
+            public void onSubscribe(Flow.Subscription subscription) {
+                originalSubscriber.onSubscribe(subscription);
+            }
+
+            @Override
+            public void onNext(String chunk) {
+                // Capture the chunk for saving later
+                summaryBuffer.append(chunk);
+                // Forward to original subscriber for UI display
+                originalSubscriber.onNext(chunk);
+            }
+
+            @Override
+            public void onError(Throwable throwable) {
+                System.err.println("[Orchestrator] Summary stream error: " + throwable.getMessage());
+                originalSubscriber.onError(throwable);
+            }
+
+            @Override
+            public void onComplete() {
+                System.out.println("[Orchestrator] Summary stream complete. Total content: " + summaryBuffer.length() + " chars");
+                
+                // Save the complete summary message to database
+                String completeSummary = summaryBuffer.toString();
+                if (!completeSummary.isEmpty()) {
+                    Message assistantSummaryMessage = new Message(
+                            newId(),
+                            conversationId,
+                            MessageRole.ASSISTANT,
+                            completeSummary,
+                            List.of(),
+                            List.of(),
+                            Instant.now()
+                    );
+                    chatHistoryPort.saveMessage(assistantSummaryMessage);
+                    System.out.println("[Orchestrator] Saved assistant summary message: " + completeSummary.substring(0, Math.min(50, completeSummary.length())));
+                }
+                
+                // Signal completion to original subscriber
+                originalSubscriber.onComplete();
+            }
+        };
     }
 
     private void signalError(Flow.Subscriber<String> responseSubscriber, Throwable error) {
