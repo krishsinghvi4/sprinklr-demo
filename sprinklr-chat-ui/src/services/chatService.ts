@@ -1,9 +1,19 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { ChatRequest, Message } from '../types/chat'
 
-const API_BASE_URL = 'http://localhost:8080'
-const CHAT_ENDPOINT = `${API_BASE_URL}/api/v1/chat/stream`
-const HISTORY_ENDPOINT = `${API_BASE_URL}/api/v1/chat/history`
+const CHAT_ENDPOINT = '/api/v1/chat/stream'
+const HISTORY_ENDPOINT = '/api/v1/chat/history'
+
+function getAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  const token = localStorage.getItem('chat_token')
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  return headers
+}
 
 export async function streamChat(
   request: ChatRequest,
@@ -17,30 +27,29 @@ export async function streamChat(
     
     await fetchEventSource(CHAT_ENDPOINT, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: getAuthHeaders(),
       body: JSON.stringify(request),
+      openWhenHidden: true,
       onmessage: (event) => {
         if (event.data) {
           messageCount++
           totalChars += event.data.length
-          console.log(`[SSE Event #${messageCount}] Data: "${event.data.substring(0, 50)}..." (length: ${event.data.length})`)
           onChunk(event.data)
         }
       },
       onerror: (error) => {
         console.error('SSE Error:', error)
         onError(new Error('Failed to stream chat response'))
+        throw error
       },
       onopen: async (response) => {
-        console.log('[SSE] Connection opened, status:', response.status)
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
+          const message = `Chat request failed (HTTP ${response.status})`
+          onError(new Error(message))
+          throw new Error(message)
         }
       },
       onclose: () => {
-        console.log(`[SSE] Stream closed. Total events: ${messageCount}, total chars: ${totalChars}`)
         onComplete()
       },
     })
@@ -57,9 +66,7 @@ export async function fetchChatHistory(conversationId: string, limit: number = 5
       `${HISTORY_ENDPOINT}?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}`,
       {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
       }
     )
 
@@ -77,12 +84,16 @@ export async function fetchChatHistory(conversationId: string, limit: number = 5
     }
     
     // Map the backend message format to frontend Message format
-    const messages = data.messages.map((msg: any) => ({
-      id: msg.id,
-      role: msg.role,
-      content: msg.content || '',
-      timestamp: new Date(msg.createdAt),
-    }))
+    const messages = data.messages
+      .filter((msg: { role?: string; content?: string }) =>
+        (msg.role === 'user' || msg.role === 'assistant') && Boolean(msg.content?.trim())
+      )
+      .map((msg: { id: string; role: 'user' | 'assistant'; content: string; createdAt: string }) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content || '',
+        timestamp: new Date(msg.createdAt),
+      }))
     
     console.log(`Successfully loaded ${messages.length} messages`)
     return messages

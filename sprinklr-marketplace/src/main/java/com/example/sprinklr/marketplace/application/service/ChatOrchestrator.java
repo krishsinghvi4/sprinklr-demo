@@ -102,15 +102,24 @@ public class ChatOrchestrator implements ChatUseCase {
         System.out.println("[Orchestrator] Handling text-only response");
         System.out.println("[Orchestrator] Response content: " + llmResponse.content());
         
-        Flux.just(llmResponse.content())
-                .doOnNext(chunk -> System.out.println("[Orchestrator] Sending chunk: " + chunk.substring(0, Math.min(50, chunk.length()))))
-                .subscribe(FlowAdapters.toSubscriber(responseSubscriber));
+        String content = llmResponse.content();
+        responseSubscriber.onSubscribe(new Flow.Subscription() {
+            @Override
+            public void request(long n) {
+                responseSubscriber.onNext(content);
+                responseSubscriber.onComplete();
+            }
+
+            @Override
+            public void cancel() {
+            }
+        });
 
         Message assistantMessage = new Message(
                 newId(),
                 conversationId,
                 MessageRole.ASSISTANT,
-                llmResponse.content(),
+                content,
                 List.of(),
                 List.of(),
                 Instant.now()
