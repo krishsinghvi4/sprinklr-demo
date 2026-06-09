@@ -17,7 +17,7 @@ public record User(
 ) {
 
     private static final Pattern MICROSOFT_EMAIL = Pattern.compile(
-            ".+@(outlook\\.com|hotmail\\.com|live\\.com|msn\\.com|microsoft\\.com|office365\\.com|onmicrosoft\\.com)$",
+            ".+@(outlook\\.com|hotmail\\.com|live\\.com|msn\\.com|microsoft\\.com|office365\\.com|sprinklr\\.com|([a-zA-Z0-9-]+\\.)*onmicrosoft\\.com)$",
             Pattern.CASE_INSENSITIVE
     );
 
