@@ -1,0 +1,26 @@
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781005910938}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781005910950}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"preparing mail send","hypothesisId":"H2,H3","data":{"fromConfigured":true,"purpose":"SIGNUP"},"timestamp":1781005910950}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"mail send threw","hypothesisId":"H1,H3","data":{"exceptionType":"MailAuthenticationException","exceptionMessage":"Authentication failed"},"timestamp":1781005919444}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"console otp fallback used","hypothesisId":"H1","data":{"fallback":true,"purpose":"SIGNUP","reason":"MailAuthenticationException"},"timestamp":1781005919445}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781006334866}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781006334879}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"preparing mail send","hypothesisId":"H2,H3","data":{"fromConfigured":true,"purpose":"SIGNUP"},"timestamp":1781006334879}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"mail send threw","hypothesisId":"H1,H3","data":{"exceptionType":"MailAuthenticationException","exceptionMessage":"Authentication failed"},"timestamp":1781006343642}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"console otp fallback used","hypothesisId":"H1","data":{"fallback":true,"purpose":"SIGNUP","reason":"MailAuthenticationException"},"timestamp":1781006343643}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781006479315}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781006479319}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"preparing mail send","hypothesisId":"H2,H3","data":{"fromConfigured":true,"purpose":"SIGNUP"},"timestamp":1781006479338}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"mail send threw","hypothesisId":"H1,H3","data":{"exceptionType":"MailAuthenticationException","exceptionMessage":"Authentication failed"},"timestamp":1781006487721}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"console otp fallback used","hypothesisId":"H1","data":{"fallback":true,"purpose":"SIGNUP","reason":"MailAuthenticationException"},"timestamp":1781006487723}
+{"sessionId":"c28fed","location":"LoginPage.jsx:handleSubmit","message":"login failed","data":{"status":401,"apiMessage":"Invalid email or password"},"hypothesisId":"H5","timestamp":1781006805361}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781007422696}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781007422699}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"preparing mail send","hypothesisId":"H2,H3","data":{"fromConfigured":true,"purpose":"SIGNUP"},"timestamp":1781007422700}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"mail send threw","hypothesisId":"H1,H3","data":{"exceptionType":"MailAuthenticationException","exceptionMessage":"Authentication failed"},"timestamp":1781007431294}
+{"sessionId":"c28fed","location":"EmailService.java:sendOtpEmail","message":"console otp fallback used","hypothesisId":"H1","data":{"fallback":true,"purpose":"SIGNUP","reason":"MailAuthenticationException"},"timestamp":1781007431295}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781007698993}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781007699004}
+{"sessionId":"c28fed","location":"SignupPage.jsx:handleRegister","message":"register failed","data":{"status":409,"apiMessage":"Email is already registered"},"hypothesisId":"H5","timestamp":1781008004316}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781008020594}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781008020605}

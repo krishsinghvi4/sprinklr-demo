@@ -202,7 +202,9 @@ export default function Chat({ userId, conversationId }: ChatProps) {
           </div>
         ))}
 
-        {isLoading && messages[messages.length - 1]?.role === 'assistant' && (
+        {isLoading &&
+          messages[messages.length - 1]?.role === 'assistant' &&
+          !messages[messages.length - 1]?.content && (
           <div className="flex justify-start">
             <div className="flex gap-3">
               <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-300 flex items-center justify-center">

@@ -1,54 +1,22 @@
-import { useState, useEffect } from 'react'
-import Chat from './components/Chat'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import PrivateRoute from './components/PrivateRoute'
+import ChatPage from './pages/ChatPage'
+import LoginPage from './pages/LoginPage'
+import SignupPage from './pages/SignupPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
 
 function App() {
-  const [userId] = useState('user-' + Math.random().toString(36).substr(2, 9))
-  const [conversationId, setConversationId] = useState<string>('')
-
-  // Initialize conversation ID from localStorage on mount
-  useEffect(() => {
-    const storedConversationId = localStorage.getItem('conversationId')
-    if (storedConversationId) {
-      setConversationId(storedConversationId)
-    } else {
-      const newConversationId = 'conv-' + Math.random().toString(36).substr(2, 9)
-      localStorage.setItem('conversationId', newConversationId)
-      setConversationId(newConversationId)
-    }
-  }, [])
-
-  const handleNewConversation = () => {
-    const newConversationId = 'conv-' + Math.random().toString(36).substr(2, 9)
-    localStorage.setItem('conversationId', newConversationId)
-    setConversationId(newConversationId)
-  }
-
-  if (!conversationId) {
-    return <div>Loading...</div>
-  }
-
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
-      <header className="bg-white shadow-sm border-b border-gray-200">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex justify-between items-start">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Sprinklr Chat</h1>
-            <p className="text-xs text-gray-500 mt-1">
-              Conversation ID: {conversationId}
-            </p>
-          </div>
-          <button
-            onClick={handleNewConversation}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
-          >
-            New Chat
-          </button>
-        </div>
-      </header>
-      <main className="flex-1 overflow-hidden">
-        <Chat userId={userId} conversationId={conversationId} />
-      </main>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route element={<PrivateRoute />}>
+          <Route path="/" element={<ChatPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
   )
 }
 
