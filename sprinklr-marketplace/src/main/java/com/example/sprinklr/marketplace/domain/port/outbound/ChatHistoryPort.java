@@ -15,4 +15,6 @@ public interface ChatHistoryPort {
     Conversation saveConversation(Conversation conversation);
 
     Optional<Conversation> findConversationById(String conversationId);
+
+    Optional<Conversation> findConversationByIdAndUserId(String conversationId, String userId);
 }

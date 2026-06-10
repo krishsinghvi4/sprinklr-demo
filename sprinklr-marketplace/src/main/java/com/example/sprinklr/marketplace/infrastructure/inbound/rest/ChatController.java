@@ -7,6 +7,8 @@ import com.example.sprinklr.marketplace.domain.port.inbound.ChatUseCase;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ChatApiRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ChatHistoryResponse;
+import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -28,16 +31,27 @@ public class ChatController {
 
     private final ChatUseCase chatUseCase;
     private final ChatHistoryPort chatHistoryPort;
+    private final AuthenticatedUserResolver authenticatedUserResolver;
 
-    public ChatController(ChatUseCase chatUseCase, ChatHistoryPort chatHistoryPort) {
+    public ChatController(
+            ChatUseCase chatUseCase,
+            ChatHistoryPort chatHistoryPort,
+            AuthenticatedUserResolver authenticatedUserResolver
+    ) {
         this.chatUseCase = chatUseCase;
         this.chatHistoryPort = chatHistoryPort;
+        this.authenticatedUserResolver = authenticatedUserResolver;
     }
 
     @GetMapping(value = "/history", produces = MediaType.APPLICATION_JSON_VALUE)
     public ChatHistoryResponse getChatHistory(
             @RequestParam String conversationId,
             @RequestParam(defaultValue = "50") int limit) {
+        String userId = authenticatedUserResolver.requireUserId();
+        if (chatHistoryPort.findConversationByIdAndUserId(conversationId, userId).isEmpty()) {
+            return ChatHistoryResponse.fromMessages(List.of());
+        }
+
         List<Message> messages = chatHistoryPort.findRecentMessages(conversationId, limit);
         List<Message> displayMessages = messages.stream()
                 .filter(message -> message.role() == MessageRole.USER || message.role() == MessageRole.ASSISTANT)
@@ -48,10 +62,25 @@ public class ChatController {
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody ChatApiRequest apiRequest) {
+        String userId = authenticatedUserResolver.requireUserId();
+
+        if (apiRequest.conversationId() != null && !apiRequest.conversationId().isBlank()) {
+            boolean ownsConversation = chatHistoryPort
+                    .findConversationByIdAndUserId(apiRequest.conversationId(), userId)
+                    .isPresent();
+            boolean conversationExists = chatHistoryPort
+                    .findConversationById(apiRequest.conversationId())
+                    .isPresent();
+
+            if (conversationExists && !ownsConversation) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Conversation does not belong to this user");
+            }
+        }
+
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
 
         ChatRequest domainRequest = new ChatRequest(
-                apiRequest.userId(),
+                userId,
                 apiRequest.conversationId(),
                 apiRequest.prompt()
         );
