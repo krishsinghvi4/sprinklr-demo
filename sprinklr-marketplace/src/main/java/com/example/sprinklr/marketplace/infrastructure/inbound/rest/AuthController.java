@@ -74,27 +74,10 @@ public class AuthController {
         user = userRepository.save(user);
 
         // #region agent log
-        DebugLog.write("AuthController.java:register", "user saved, sending signup otp", "H4", "{\"userSaved\":true}");
+        DebugLog.write("AuthController.java:register", "user saved, queueing signup otp", "H4", "{\"userSaved\":true}");
         // #endregion
 
-        try {
-            otpService.generateAndSendOtp(request.email(), OtpPurpose.SIGNUP);
-        } catch (Exception e) {
-            // #region agent log
-            DebugLog.write(
-                    "AuthController.java:register",
-                    "otp send failed",
-                    "H1,H2,H3,H4",
-                    "{\"exceptionType\":\"" + e.getClass().getSimpleName()
-                            + "\",\"exceptionMessage\":\"" + (e.getMessage() == null ? "" : e.getMessage().replace("\"", "'"))
-                            + "\",\"causeType\":\""
-                            + (e.getCause() == null ? "none" : e.getCause().getClass().getSimpleName()) + "\"}"
-            );
-            // #endregion
-            userRepository.delete(user);
-            return ResponseEntity.badRequest()
-                    .body(new MessageResponse("Could not send OTP. Please check your email address."));
-        }
+        otpService.generateAndQueueOtp(request.email(), OtpPurpose.SIGNUP);
 
         return ResponseEntity.ok(new MessageResponse("OTP sent"));
     }
@@ -142,13 +125,9 @@ public class AuthController {
 
     @PostMapping("/forgot-password")
     public ResponseEntity<MessageResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
-        userRepository.findByEmail(request.email()).ifPresent(user -> {
-            try {
-                otpService.generateAndSendOtp(request.email(), OtpPurpose.FORGOT_PASSWORD);
-            } catch (Exception ignored) {
-                // Always return the same response to avoid revealing whether the email exists.
-            }
-        });
+        userRepository.findByEmail(request.email()).ifPresent(user ->
+                otpService.generateAndQueueOtp(request.email(), OtpPurpose.FORGOT_PASSWORD)
+        );
 
         return ResponseEntity.ok(new MessageResponse("If this email is registered, an OTP has been sent"));
     }

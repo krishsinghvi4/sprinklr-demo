@@ -48,3 +48,11 @@
 {"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781073898743}
 {"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781073898746}
 {"sessionId":"c28fed","location":"LoginPage.jsx:handleSubmit","message":"login failed","data":{"status":401,"apiMessage":"Invalid email or password"},"hypothesisId":"H5","timestamp":1781074179895}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, sending signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781078137540}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781078137544}
+{"sessionId":"c28fed","location":"OtpService.java:generateAndSendOtp","message":"otp saved, calling email service","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781081484558}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, queueing signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781082235430}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781082235444}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, queueing signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781082474125}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781082474138}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781082560940}
