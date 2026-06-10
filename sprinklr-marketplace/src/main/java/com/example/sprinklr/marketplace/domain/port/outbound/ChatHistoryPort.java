@@ -17,4 +17,10 @@ public interface ChatHistoryPort {
     Optional<Conversation> findConversationById(String conversationId);
 
     Optional<Conversation> findConversationByIdAndUserId(String conversationId, String userId);
+
+    List<Conversation> findConversationsByUserId(String userId);
+
+    Optional<String> findFirstUserMessageContent(String conversationId);
+
+    void touchConversation(String conversationId, String preview);
 }

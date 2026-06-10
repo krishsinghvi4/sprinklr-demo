@@ -1,8 +1,9 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source'
-import { ChatRequest, Message } from '../types/chat'
+import { ChatRequest, ConversationSummary, Message } from '../types/chat'
 
 const CHAT_ENDPOINT = '/api/v1/chat/stream'
 const HISTORY_ENDPOINT = '/api/v1/chat/history'
+const CONVERSATIONS_ENDPOINT = '/api/v1/chat/conversations'
 
 function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -56,6 +57,30 @@ export async function streamChat(
   } catch (error) {
     const err = error instanceof Error ? error : new Error('Unknown error')
     onError(err)
+  }
+}
+
+export async function fetchConversations(): Promise<ConversationSummary[]> {
+  try {
+    const response = await fetch(CONVERSATIONS_ENDPOINT, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    })
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch conversations: HTTP ${response.status}`)
+      return []
+    }
+
+    const data = await response.json()
+    if (!data.conversations || !Array.isArray(data.conversations)) {
+      return []
+    }
+
+    return data.conversations as ConversationSummary[]
+  } catch (error) {
+    console.warn('Error fetching conversations:', error)
+    return []
   }
 }
 

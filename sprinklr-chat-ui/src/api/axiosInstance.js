@@ -15,7 +15,11 @@ axiosInstance.interceptors.request.use((config) => {
 axiosInstance.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status
+    const url = error.config?.url || ''
+    const isAuthEndpoint = url.includes('/api/auth/')
+
+    if (status === 401 && !isAuthEndpoint) {
       localStorage.removeItem('chat_token')
       window.location.href = '/login'
     }
