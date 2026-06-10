@@ -76,6 +76,7 @@ public class ChatOrchestrator implements ChatUseCase {
                     Instant.now()
             );
             chatHistoryPort.saveMessage(userMessage);
+            chatHistoryPort.touchConversation(conversationId, request.prompt());
             history.add(userMessage);
 
             LlmResponse llmResponse = llmPort.complete(

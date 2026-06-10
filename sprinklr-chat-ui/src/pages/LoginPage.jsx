@@ -14,14 +14,18 @@ export default function LoginPage() {
   const [submitted, setSubmitted] = useState(false)
   const [loading, setLoading] = useState(false)
   const [formError, setFormError] = useState('')
+  const [fieldErrors, setFieldErrors] = useState({})
+  const [highlightCredentials, setHighlightCredentials] = useState(false)
 
-  const emailError = submitted && !email.trim() ? 'Email is required' : ''
-  const passwordError = submitted && !password ? 'Password is required' : ''
+  const emailError = fieldErrors.email || (submitted && !email.trim() ? 'Email is required' : '')
+  const passwordError = fieldErrors.password || (submitted && !password ? 'Password is required' : '')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSubmitted(true)
     setFormError('')
+    setFieldErrors({})
+    setHighlightCredentials(false)
 
     if (!email.trim() || !password) {
       return
@@ -34,17 +38,17 @@ export default function LoginPage() {
       navigate('/')
     } catch (error) {
       const status = error.response?.status
-
-      // #region agent log
-      fetch('http://127.0.0.1:7692/ingest/d71e150a-d060-44f4-ba2f-f84045f9e3f2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c28fed'},body:JSON.stringify({sessionId:'c28fed',location:'LoginPage.jsx:handleSubmit',message:'login failed',data:{status,apiMessage:error.response?.data?.message||null},hypothesisId:'H5',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      const apiMessage = error.response?.data?.message
 
       if (status === 401) {
-        setFormError('Incorrect email or password')
+        setFormError(apiMessage || 'Incorrect email or password')
+        setHighlightCredentials(true)
       } else if (status === 403) {
-        setFormError('Please verify your email. Check your inbox.')
+        setFormError(apiMessage || 'Please verify your email. Check your inbox.')
+      } else if (status === 400 && apiMessage?.toLowerCase().includes('email')) {
+        setFieldErrors({ email: apiMessage })
       } else {
-        setFormError('Something went wrong. Please try again.')
+        setFormError(apiMessage || 'Something went wrong. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -67,9 +71,13 @@ export default function LoginPage() {
             <input
               id="login-email"
               type="email"
-              className={`auth-input ${emailError ? 'auth-input-error' : ''}`}
+              className={`auth-input ${emailError || highlightCredentials ? 'auth-input-error' : ''}`}
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value)
+                if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }))
+                if (highlightCredentials) setHighlightCredentials(false)
+              }}
               autoComplete="email"
             />
             {emailError && <p className="auth-field-error">{emailError}</p>}
@@ -83,9 +91,13 @@ export default function LoginPage() {
               <input
                 id="login-password"
                 type={showPassword ? 'text' : 'password'}
-                className={`auth-input ${passwordError ? 'auth-input-error' : ''}`}
+                className={`auth-input ${passwordError || highlightCredentials ? 'auth-input-error' : ''}`}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value)
+                  if (fieldErrors.password) setFieldErrors((prev) => ({ ...prev, password: undefined }))
+                  if (highlightCredentials) setHighlightCredentials(false)
+                }}
                 autoComplete="current-password"
               />
               <button

@@ -11,6 +11,13 @@ export interface ChatRequest {
   prompt: string
 }
 
+export interface ConversationSummary {
+  id: string
+  preview: string
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ApiResponse {
   event: string
   data: string

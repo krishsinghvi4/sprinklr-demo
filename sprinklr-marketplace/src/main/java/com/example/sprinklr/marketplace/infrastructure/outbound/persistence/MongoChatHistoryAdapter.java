@@ -2,17 +2,21 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
 import com.example.sprinklr.marketplace.domain.model.Conversation;
 import com.example.sprinklr.marketplace.domain.model.Message;
+import com.example.sprinklr.marketplace.domain.model.MessageRole;
 import com.example.sprinklr.marketplace.domain.model.ToolCall;
 import com.example.sprinklr.marketplace.domain.model.ToolResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 @Component
 public class MongoChatHistoryAdapter implements ChatHistoryPort {
+
+    private static final int PREVIEW_MAX_LENGTH = 80;
 
     private final ConversationRepository conversationRepository;
     private final MongoMessageRepository messageRepository;
@@ -149,6 +153,83 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
             e.printStackTrace();
             return Optional.empty();
         }
+    }
+
+    @Override
+    public List<Conversation> findConversationsByUserId(String userId) {
+        try {
+            List<ConversationDocument> documents = conversationRepository
+                    .findByUserIdOrderByUpdatedAtDesc(userId)
+                    .collectList()
+                    .block();
+
+            if (documents == null || documents.isEmpty()) {
+                return List.of();
+            }
+
+            return documents.stream()
+                    .map(doc -> new Conversation(
+                            doc.id(),
+                            doc.userId(),
+                            doc.title(),
+                            doc.createdAt(),
+                            doc.updatedAt()
+                    ))
+                    .toList();
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error finding conversations for user: " + e.getMessage());
+            return List.of();
+        }
+    }
+
+    @Override
+    public Optional<String> findFirstUserMessageContent(String conversationId) {
+        try {
+            MessageDocument document = messageRepository
+                    .findFirstByConversationIdAndRoleOrderByCreatedAtAsc(conversationId, MessageRole.USER)
+                    .block();
+            if (document == null || document.content() == null || document.content().isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(document.content());
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error finding first user message: " + e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public void touchConversation(String conversationId, String preview) {
+        try {
+            ConversationDocument existing = conversationRepository.findById(conversationId).block();
+            if (existing == null) {
+                return;
+            }
+
+            String title = existing.title();
+            if ((title == null || title.isBlank()) && preview != null && !preview.isBlank()) {
+                title = truncatePreview(preview);
+            }
+
+            ConversationDocument updated = new ConversationDocument(
+                    existing.id(),
+                    existing.userId(),
+                    title,
+                    existing.createdAt(),
+                    Instant.now()
+            );
+            conversationRepository.save(updated).block();
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error touching conversation: " + e.getMessage());
+        }
+    }
+
+    private static String truncatePreview(String text) {
+        String normalized = text.trim().replaceAll("\\s+", " ");
+        if (normalized.length() <= PREVIEW_MAX_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, PREVIEW_MAX_LENGTH - 3) + "...";
     }
 
     // --- Mappers ---

@@ -1,12 +1,15 @@
 package com.example.sprinklr.marketplace.infrastructure.inbound.rest;
 
 import com.example.sprinklr.marketplace.domain.model.ChatRequest;
+import com.example.sprinklr.marketplace.domain.model.Conversation;
 import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.MessageRole;
 import com.example.sprinklr.marketplace.domain.port.inbound.ChatUseCase;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ChatApiRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ChatHistoryResponse;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ConversationListResponse;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ConversationSummaryDto;
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -28,6 +31,7 @@ import java.util.concurrent.Flow;
 public class ChatController {
 
     private static final long SSE_TIMEOUT_MS = 120_000L;
+    private static final int PREVIEW_MAX_LENGTH = 80;
 
     private final ChatUseCase chatUseCase;
     private final ChatHistoryPort chatHistoryPort;
@@ -41,6 +45,15 @@ public class ChatController {
         this.chatUseCase = chatUseCase;
         this.chatHistoryPort = chatHistoryPort;
         this.authenticatedUserResolver = authenticatedUserResolver;
+    }
+
+    @GetMapping(value = "/conversations", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ConversationListResponse listConversations() {
+        String userId = authenticatedUserResolver.requireUserId();
+        List<ConversationSummaryDto> conversations = chatHistoryPort.findConversationsByUserId(userId).stream()
+                .map(conversation -> toSummaryDto(conversation))
+                .toList();
+        return new ConversationListResponse(conversations);
     }
 
     @GetMapping(value = "/history", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -117,5 +130,28 @@ public class ChatController {
 
         chatUseCase.streamChat(domainRequest, subscriber);
         return emitter;
+    }
+
+    private ConversationSummaryDto toSummaryDto(Conversation conversation) {
+        String preview = conversation.title();
+        if (preview == null || preview.isBlank()) {
+            preview = chatHistoryPort.findFirstUserMessageContent(conversation.id())
+                    .map(this::truncatePreview)
+                    .orElse("New conversation");
+        }
+        return new ConversationSummaryDto(
+                conversation.id(),
+                preview,
+                conversation.createdAt(),
+                conversation.updatedAt()
+        );
+    }
+
+    private String truncatePreview(String text) {
+        String normalized = text.trim().replaceAll("\\s+", " ");
+        if (normalized.length() <= PREVIEW_MAX_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, PREVIEW_MAX_LENGTH - 3) + "...";
     }
 }
