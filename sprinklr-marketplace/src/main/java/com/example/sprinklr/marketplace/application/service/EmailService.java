@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.application.service;
 
+import com.example.sprinklr.marketplace.infrastructure.outbound.email.GraphMailClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpPurpose;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,74 +9,113 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-
 @Service
 public class EmailService {
 
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private final JavaMailSender mailSender;
+    private final GraphMailClient graphMailClient;
     private final String fromEmail;
+    private final String mailProvider;
     private final boolean consoleOtpFallback;
-    private final ExecutorService mailExecutor = Executors.newCachedThreadPool();
 
     public EmailService(
             JavaMailSender mailSender,
-            @Value("${spring.mail.username}") String fromEmail,
+            GraphMailClient graphMailClient,
+            @Value("${spring.mail.username:}") String fromEmail,
+            @Value("${app.mail.provider:auto}") String mailProvider,
             @Value("${app.mail.console-otp-fallback:false}") boolean consoleOtpFallback
     ) {
         this.mailSender = mailSender;
+        this.graphMailClient = graphMailClient;
         this.fromEmail = fromEmail;
+        this.mailProvider = mailProvider == null ? "auto" : mailProvider.trim().toLowerCase();
         this.consoleOtpFallback = consoleOtpFallback;
     }
 
     public void sendOtpEmail(String toEmail, String otp, OtpPurpose purpose) {
-        if (fromEmail == null || fromEmail.isBlank()) {
+        String subject = subjectFor(purpose);
+        String body = bodyFor(otp, purpose);
+
+        try {
+            sendEmail(toEmail, subject, body);
+            log.info("OTP email sent to {} via {}", toEmail, resolveProvider());
+        } catch (Exception exception) {
+            log.error("Failed to send OTP email to {}: {}", toEmail, rootMessage(exception), exception);
             if (consoleOtpFallback) {
-                logOtpFallback(toEmail, otp, purpose, "MAIL_USERNAME not configured");
+                logOtpFallback(toEmail, otp, purpose, rootMessage(exception));
                 return;
             }
-            throw new IllegalStateException("Mail username not configured");
+            throw new IllegalStateException("Failed to send OTP email: " + rootMessage(exception), exception);
         }
-
-        if (consoleOtpFallback) {
-            logOtpFallback(toEmail, otp, purpose, "dev console fallback enabled");
-            CompletableFuture.runAsync(() -> attemptSmtpSend(toEmail, otp, purpose), mailExecutor);
-            return;
-        }
-
-        attemptSmtpSend(toEmail, otp, purpose);
     }
 
-    private void attemptSmtpSend(String toEmail, String otp, OtpPurpose purpose) {
+    private void sendEmail(String toEmail, String subject, String body) {
+        String provider = resolveProvider();
+        if ("graph".equals(provider)) {
+            graphMailClient.sendEmail(toEmail, subject, body);
+            return;
+        }
+        if ("smtp".equals(provider)) {
+            sendViaSmtp(toEmail, subject, body);
+            return;
+        }
+        throw new IllegalStateException("No mail provider configured");
+    }
+
+    private String resolveProvider() {
+        if ("graph".equals(mailProvider)) {
+            if (!graphMailClient.isConfigured()) {
+                throw new IllegalStateException("MAIL_PROVIDER=graph but Azure Graph credentials are missing");
+            }
+            return "graph";
+        }
+        if ("smtp".equals(mailProvider)) {
+            if (fromEmail == null || fromEmail.isBlank()) {
+                throw new IllegalStateException("MAIL_PROVIDER=smtp but MAIL_USERNAME is not configured");
+            }
+            return "smtp";
+        }
+
+        if (graphMailClient.isConfigured()) {
+            return "graph";
+        }
+        if (fromEmail != null && !fromEmail.isBlank()) {
+            return "smtp";
+        }
+        throw new IllegalStateException("No mail provider configured");
+    }
+
+    private void sendViaSmtp(String toEmail, String subject, String body) {
         SimpleMailMessage message = new SimpleMailMessage();
         message.setFrom(fromEmail.trim());
         message.setTo(toEmail);
-        message.setSubject(subjectFor(purpose));
-        message.setText(bodyFor(otp, purpose));
-        try {
-            mailSender.send(message);
-            log.info("OTP email sent to {}", toEmail);
-        } catch (Exception exception) {
-            if (consoleOtpFallback) {
-                logOtpFallback(toEmail, otp, purpose, exception.getClass().getSimpleName());
-                return;
-            }
-            throw exception;
-        }
+        message.setSubject(subject);
+        message.setText(body);
+        mailSender.send(message);
     }
 
     private void logOtpFallback(String toEmail, String otp, OtpPurpose purpose, String reason) {
         log.warn(
-                "SMTP unavailable ({}). Console OTP fallback — purpose={}, recipient={}, otp={}",
+                "Mail delivery failed ({}). Console OTP fallback — purpose={}, recipient={}, otp={}",
                 reason,
                 purpose,
                 toEmail,
                 otp
         );
+    }
+
+    private String rootMessage(Throwable exception) {
+        Throwable current = exception;
+        String message = current.getMessage();
+        while (current.getCause() != null) {
+            current = current.getCause();
+            if (current.getMessage() != null && !current.getMessage().isBlank()) {
+                message = current.getMessage();
+            }
+        }
+        return message == null ? exception.getClass().getSimpleName() : message;
     }
 
     private String subjectFor(OtpPurpose purpose) {

@@ -106,6 +106,26 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
     }
 
     @Override
+    public Optional<Conversation> findConversationByIdAndUserId(String conversationId, String userId) {
+        try {
+            ConversationDocument doc = conversationRepository.findByIdAndUserId(conversationId, userId).block();
+            if (doc == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new Conversation(
+                    doc.id(),
+                    doc.userId(),
+                    doc.title(),
+                    doc.createdAt(),
+                    doc.updatedAt()
+            ));
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error finding conversation for user: " + e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    @Override
     public Optional<Conversation> findConversationById(String conversationId) {
         System.out.println("[MongoDB] Finding conversation - ID: " + conversationId);
         

@@ -2,32 +2,41 @@ import { useState, useEffect } from 'react'
 import Chat from '../components/Chat'
 import { useAuth } from '../context/AuthContext'
 
+function conversationStorageKey(userId: string) {
+  return `conversationId:${userId}`
+}
+
 export default function ChatPage() {
   const { user } = useAuth()
   const [conversationId, setConversationId] = useState<string>('')
 
   useEffect(() => {
-    const storedConversationId = localStorage.getItem('conversationId')
+    if (!user?.userId) {
+      setConversationId('')
+      return
+    }
+
+    const storageKey = conversationStorageKey(user.userId)
+    const storedConversationId = localStorage.getItem(storageKey)
     if (storedConversationId) {
       setConversationId(storedConversationId)
-    } else {
-      const newConversationId = 'conv-' + Math.random().toString(36).substr(2, 9)
-      localStorage.setItem('conversationId', newConversationId)
-      setConversationId(newConversationId)
+      return
     }
-  }, [])
+
+    const newConversationId = 'conv-' + Math.random().toString(36).slice(2, 11)
+    localStorage.setItem(storageKey, newConversationId)
+    setConversationId(newConversationId)
+  }, [user?.userId])
 
   const handleNewConversation = () => {
-    const newConversationId = 'conv-' + Math.random().toString(36).substr(2, 9)
-    localStorage.setItem('conversationId', newConversationId)
+    if (!user?.userId) return
+
+    const newConversationId = 'conv-' + Math.random().toString(36).slice(2, 11)
+    localStorage.setItem(conversationStorageKey(user.userId), newConversationId)
     setConversationId(newConversationId)
   }
 
-  if (!conversationId) {
-    return <div>Loading...</div>
-  }
-
-  if (user === null) {
+  if (!conversationId || user === null) {
     return <div>Loading...</div>
   }
 
@@ -52,7 +61,7 @@ export default function ChatPage() {
         </div>
       </header>
       <main className="flex-1 overflow-hidden">
-        <Chat userId={userId} conversationId={conversationId} />
+        <Chat key={`${userId}-${conversationId}`} userId={userId} conversationId={conversationId} />
       </main>
     </div>
   )

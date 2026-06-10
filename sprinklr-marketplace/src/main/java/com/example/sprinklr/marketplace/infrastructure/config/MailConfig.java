@@ -32,9 +32,10 @@ public class MailConfig {
         props.put("mail.smtp.starttls.required", "true");
         props.put("mail.smtp.ssl.trust", host);
         props.put("mail.smtp.ssl.protocols", "TLSv1.2 TLSv1.3");
-        props.put("mail.smtp.connectiontimeout", "3000");
-        props.put("mail.smtp.timeout", "3000");
-        props.put("mail.smtp.writetimeout", "3000");
+        props.put("mail.smtp.auth.mechanisms", "LOGIN PLAIN");
+        props.put("mail.smtp.connectiontimeout", "15000");
+        props.put("mail.smtp.timeout", "15000");
+        props.put("mail.smtp.writetimeout", "15000");
 
         return mailSender;
     }

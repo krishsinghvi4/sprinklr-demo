@@ -183,9 +183,16 @@ public class ChatOrchestrator implements ChatUseCase {
     private String resolveConversationId(ChatRequest request) {
         if (request.conversationId() != null && !request.conversationId().isBlank()) {
             // Check if conversation exists, if not create it
-            Optional<Conversation> existing = chatHistoryPort.findConversationById(request.conversationId());
+            Optional<Conversation> existing = chatHistoryPort.findConversationByIdAndUserId(
+                    request.conversationId(),
+                    request.userId()
+            );
             if (existing.isPresent()) {
                 return existing.get().id();
+            }
+
+            if (chatHistoryPort.findConversationById(request.conversationId()).isPresent()) {
+                throw new IllegalStateException("Conversation does not belong to user");
             } else {
                 // Create new conversation with the provided ID
                 Instant now = Instant.now();
