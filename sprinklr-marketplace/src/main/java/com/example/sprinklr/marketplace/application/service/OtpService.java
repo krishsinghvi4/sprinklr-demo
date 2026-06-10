@@ -15,14 +15,14 @@ public class OtpService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final OtpRepository otpRepository;
-    private final EmailService emailService;
+    private final AsyncOtpEmailService asyncOtpEmailService;
 
-    public OtpService(OtpRepository otpRepository, EmailService emailService) {
+    public OtpService(OtpRepository otpRepository, AsyncOtpEmailService asyncOtpEmailService) {
         this.otpRepository = otpRepository;
-        this.emailService = emailService;
+        this.asyncOtpEmailService = asyncOtpEmailService;
     }
 
-    public void generateAndSendOtp(String email, OtpPurpose purpose) {
+    public String generateOtp(String email, OtpPurpose purpose) {
         otpRepository.deleteByEmailAndPurpose(email, purpose);
 
         String otp = String.format("%06d", RANDOM.nextInt(1_000_000));
@@ -30,10 +30,19 @@ public class OtpService {
         otpRepository.save(entry);
 
         // #region agent log
-        DebugLog.write("OtpService.java:generateAndSendOtp", "otp saved, calling email service", "H4", "{\"otpSaved\":true}");
+        DebugLog.write("OtpService.java:generateOtp", "otp saved", "H4", "{\"otpSaved\":true}");
         // #endregion
 
-        emailService.sendOtpEmail(email, otp, purpose);
+        return otp;
+    }
+
+    public void queueOtpEmail(String email, String otp, OtpPurpose purpose) {
+        asyncOtpEmailService.sendOtpEmailAsync(email, otp, purpose);
+    }
+
+    public void generateAndQueueOtp(String email, OtpPurpose purpose) {
+        String otp = generateOtp(email, purpose);
+        queueOtpEmail(email, otp, purpose);
     }
 
     public boolean verifyOtp(String email, String otp, OtpPurpose purpose) {
