@@ -67,3 +67,5 @@
 {"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781506670913}
 {"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, queueing signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781515260732}
 {"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781515260745}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, queueing signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781524914918}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781524914933}
