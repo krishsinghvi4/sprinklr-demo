@@ -314,6 +314,8 @@ public class ChatOrchestrator implements ChatUseCase {
             if (LlmErrorFormatter.isVpnOrNetworkFailure(error)) {
                 log.warn("[Orchestrator] LLM router unreachable — user likely not on VPN: {}",
                         error.getMessage());
+            } else if (LlmErrorFormatter.isTransientNetworkFailure(error)) {
+                log.warn("[Orchestrator] LLM connection interrupted: {}", error.getMessage());
             } else {
                 log.error("[Orchestrator] Chat failed: {}", error.getMessage());
             }
