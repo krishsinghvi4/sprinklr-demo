@@ -15,7 +15,10 @@ import com.example.sprinklr.marketplace.domain.port.inbound.ChatUseCase;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
+import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import org.reactivestreams.FlowAdapters;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -31,6 +34,13 @@ import java.util.concurrent.Flow;
 @Service
 public class ChatOrchestrator implements ChatUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(ChatOrchestrator.class);
+
+    /**
+     * Number of prior messages loaded from MongoDB before each LLM call.
+     * The orchestrator appends the new user message, then passes the full list to {@link LlmPort#complete}
+     * so the model always sees recent conversation context (including when a prompt triggers MCP tools).
+     */
     private static final int HISTORY_LIMIT = 5;
     private static final List<McpTool> NO_TOOLS = List.of();
 
@@ -79,6 +89,8 @@ public class ChatOrchestrator implements ChatUseCase {
             chatHistoryPort.touchConversation(conversationId, request.prompt());
             history.add(userMessage);
 
+            // History (last HISTORY_LIMIT messages + new user turn) is always sent to the LLM,
+            // even if the response will invoke MCP tools (e.g. user asks about Jira/GitLab).
             LlmResponse llmResponse = llmPort.complete(
                     new LlmRequest(request.prompt(), history, NO_TOOLS)
             );
@@ -299,10 +311,33 @@ public class ChatOrchestrator implements ChatUseCase {
 
     private void signalError(Flow.Subscriber<String> responseSubscriber, Throwable error) {
         try {
-            responseSubscriber.onError(error);
+            if (LlmErrorFormatter.isVpnOrNetworkFailure(error)) {
+                log.warn("[Orchestrator] LLM router unreachable — user likely not on VPN: {}",
+                        error.getMessage());
+            } else {
+                log.error("[Orchestrator] Chat failed: {}", error.getMessage());
+            }
+            deliverSingleChunk(responseSubscriber, LlmErrorFormatter.toUserMessage(error));
         } catch (Exception ignored) {
             // Subscriber may already be terminated.
         }
+    }
+
+    /**
+     * Sends one SSE chunk and completes — used for text replies and user-visible error messages.
+     */
+    private void deliverSingleChunk(Flow.Subscriber<String> responseSubscriber, String content) {
+        responseSubscriber.onSubscribe(new Flow.Subscription() {
+            @Override
+            public void request(long n) {
+                responseSubscriber.onNext(content);
+                responseSubscriber.onComplete();
+            }
+
+            @Override
+            public void cancel() {
+            }
+        });
     }
 
     private String newId() {

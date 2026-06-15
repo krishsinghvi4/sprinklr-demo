@@ -10,7 +10,9 @@ import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ChatApiR
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ChatHistoryResponse;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ConversationListResponse;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ConversationSummaryDto;
+import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
+import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -119,7 +121,13 @@ public class ChatController {
 
             @Override
             public void onError(Throwable throwable) {
-                emitter.completeWithError(throwable);
+                try {
+                    // Fallback: orchestrator normally delivers VPN/network errors as a chat message.
+                    emitter.send(SseEmitter.event().data(LlmErrorFormatter.toUserMessage(throwable)));
+                    emitter.complete();
+                } catch (IOException exception) {
+                    emitter.completeWithError(exception);
+                }
             }
 
             @Override

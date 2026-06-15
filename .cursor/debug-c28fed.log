@@ -57,3 +57,11 @@
 {"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781082474138}
 {"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781082560940}
 {"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781084347799}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, queueing signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781252943026}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781252943048}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781253479126}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, queueing signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781253730164}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781253730172}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781253880788}
+{"sessionId":"c28fed","location":"AuthController.java:register","message":"user saved, queueing signup otp","hypothesisId":"H4","data":{"userSaved":true},"timestamp":1781506670896}
+{"sessionId":"c28fed","location":"OtpService.java:generateOtp","message":"otp saved","hypothesisId":"H4","data":{"otpSaved":true},"timestamp":1781506670913}
