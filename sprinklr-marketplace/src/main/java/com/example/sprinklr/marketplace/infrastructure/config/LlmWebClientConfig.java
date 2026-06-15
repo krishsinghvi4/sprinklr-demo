@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
 
 import java.time.Duration;
 
@@ -20,6 +21,7 @@ import java.time.Duration;
  * block orchestrator threads indefinitely. Cookie auth is applied as a default header
  * when configured — the cookie value itself is never logged.
  */
+//basically this creates a webclient for non blocking http calls , ie if 200 users want to chat at the same time they can without exhausting thread pool resouces 
 @Configuration
 public class LlmWebClientConfig {
 
@@ -27,7 +29,15 @@ public class LlmWebClientConfig {
 
     @Bean(name = "llmWebClient")
     public WebClient llmWebClient(LlmProperties properties) {
-        HttpClient httpClient = HttpClient.create()
+        // Evict idle pooled connections before the router/ALB closes them (common after chat sits idle).
+        ConnectionProvider connectionProvider = ConnectionProvider.builder("llm-router")
+                .maxConnections(50)
+                .maxIdleTime(Duration.ofSeconds(55))
+                .maxLifeTime(Duration.ofMinutes(10))
+                .evictInBackground(Duration.ofSeconds(30))
+                .build();
+
+        HttpClient httpClient = HttpClient.create(connectionProvider)
                 .responseTimeout(Duration.ofMillis(properties.getReadTimeoutMs()))
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs());
 

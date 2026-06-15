@@ -20,6 +20,11 @@ public class ChatCompletionClient {
 
     private static final Logger log = LoggerFactory.getLogger(ChatCompletionClient.class);
 
+    /**
+     * Retry once on stale pooled connections (e.g. user idle in chat, ALB closed the socket).
+     */
+    private static final int MAX_ATTEMPTS = 2;
+
     private final WebClient llmWebClient;
     private final LlmProperties properties;
 
@@ -41,26 +46,49 @@ public class ChatCompletionClient {
                 path, request.model(), request.messages().size(),
                 request.tools() != null ? request.tools().size() : 0);
 
-        try {
-            return llmWebClient.post()
-                    .uri(path)
-                    .bodyValue(request)
-                    .retrieve()
-                    .bodyToMono(String.class)
-                    .block();
-        } catch (WebClientResponseException e) {
-            String body = truncate(e.getResponseBodyAsString(), 500);
-            log.error("[LLM-CLIENT] HTTP {} from router: {}", e.getStatusCode().value(), body);
-            throw new LlmClientException("LLM router HTTP " + e.getStatusCode().value() + ": " + body, e);
-        } catch (Exception e) {
-            if (LlmErrorFormatter.isVpnOrNetworkFailure(e)) {
-                log.error("[LLM-CLIENT] Router unreachable (VPN required): {}", e.getMessage());
-                throw new LlmClientException(
-                        "LLM router unreachable — connect to Sprinklr VPN: " + e.getMessage(), e);
+        Exception lastFailure = null;
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                return executePost(request);
+            } catch (WebClientResponseException e) {
+                String body = truncate(e.getResponseBodyAsString(), 500);
+                log.error("[LLM-CLIENT] HTTP {} from router: {}", e.getStatusCode().value(), body);
+                throw new LlmClientException("LLM router HTTP " + e.getStatusCode().value() + ": " + body, e);
+            } catch (Exception e) {
+                lastFailure = e;
+                if (attempt < MAX_ATTEMPTS && LlmErrorFormatter.isTransientNetworkFailure(e)) {
+                    log.warn("[LLM-CLIENT] Transient network error on attempt {} (stale connection?): {} — retrying",
+                            attempt, e.getMessage());
+                    continue;
+                }
+                throw toClientException(e);
             }
-            log.error("[LLM-CLIENT] Request failed: {}", e.getMessage());
-            throw new LlmClientException("LLM router request failed: " + e.getMessage(), e);
         }
+
+        throw toClientException(lastFailure);
+    }
+
+    private String executePost(ChatCompletionRequest request) {
+        return llmWebClient.post()
+                .uri(properties.getCompletionPath())
+                .bodyValue(request)
+                .retrieve()
+                .bodyToMono(String.class)
+                .block();
+    }
+
+    private LlmClientException toClientException(Exception e) {
+        if (LlmErrorFormatter.isTransientNetworkFailure(e)) {
+            log.warn("[LLM-CLIENT] Connection interrupted after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
+            return new LlmClientException("LLM router connection interrupted: " + e.getMessage(), e);
+        }
+        if (LlmErrorFormatter.isVpnOrNetworkFailure(e)) {
+            log.error("[LLM-CLIENT] Router unreachable (VPN required): {}", e.getMessage());
+            return new LlmClientException(
+                    "LLM router unreachable — connect to Sprinklr VPN: " + e.getMessage(), e);
+        }
+        log.error("[LLM-CLIENT] Request failed: {}", e.getMessage());
+        return new LlmClientException("LLM router request failed: " + e.getMessage(), e);
     }
 
     private static String truncate(String value, int maxLen) {

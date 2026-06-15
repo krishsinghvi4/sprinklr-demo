@@ -4,6 +4,7 @@ import io.netty.channel.ConnectTimeoutException;
 
 import java.net.ConnectException;
 import java.net.NoRouteToHostException;
+import java.net.SocketException;
 import java.net.UnknownHostException;
 
 /**
@@ -18,12 +19,20 @@ public final class LlmErrorFormatter {
                     + "This service is only available when you're connected to the Sprinklr VPN. "
                     + "Please connect to VPN and try again.";
 
+    /** Shown when a pooled connection went stale or the network dropped mid-request. */
+    public static final String TRANSIENT_NETWORK_MESSAGE =
+            "The connection to the LLM router was interrupted. Please try again.";
+
     private LlmErrorFormatter() {
     }
 
     public static String toUserMessage(Throwable error) {
         if (error == null) {
             return genericFailureMessage();
+        }
+
+        if (isTransientNetworkFailure(error)) {
+            return TRANSIENT_NETWORK_MESSAGE;
         }
 
         if (isVpnOrNetworkFailure(error)) {
@@ -47,6 +56,31 @@ public final class LlmErrorFormatter {
     }
 
     /**
+     * Short-lived network glitches (stale pooled connections, ALB idle timeout) — safe to retry once.
+     */
+    public static boolean isTransientNetworkFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof SocketException) {
+                String msg = current.getMessage();
+                if (msg != null && isTransientNetworkMessage(msg)) {
+                    return true;
+                }
+            }
+            String msg = current.getMessage();
+            if (msg != null && isTransientNetworkMessage(msg)) {
+                return true;
+            }
+            Throwable cause = current.getCause();
+            if (cause == null || cause == current) {
+                break;
+            }
+            current = cause;
+        }
+        return false;
+    }
+
+    /**
      * Detects failures that indicate the internal router is unreachable (VPN down, firewall, wrong network).
      */
     public static boolean isVpnOrNetworkFailure(Throwable error) {
@@ -59,7 +93,7 @@ public final class LlmErrorFormatter {
                 return true;
             }
             String msg = current.getMessage();
-            if (msg != null && isNetworkFailureMessage(msg)) {
+            if (msg != null && isUnreachableNetworkMessage(msg)) {
                 return true;
             }
             Throwable cause = current.getCause();
@@ -71,7 +105,14 @@ public final class LlmErrorFormatter {
         return false;
     }
 
-    private static boolean isNetworkFailureMessage(String message) {
+    private static boolean isTransientNetworkMessage(String message) {
+        return message.contains("Connection reset")
+                || message.contains("Broken pipe")
+                || message.contains("Connection closed")
+                || message.contains("closed by peer");
+    }
+
+    private static boolean isUnreachableNetworkMessage(String message) {
         return message.contains("connection timed out")
                 || message.contains("ConnectTimeoutException")
                 || message.contains("Connection refused")
