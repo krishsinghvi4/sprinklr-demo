@@ -30,6 +30,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
+                        .requestMatchers("/api/v1/mcp/oauth/callback").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll()
                         .requestMatchers("/api/**").authenticated()

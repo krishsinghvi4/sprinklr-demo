@@ -7,6 +7,7 @@ import com.example.sprinklr.marketplace.domain.model.LlmResponse;
 import com.example.sprinklr.marketplace.domain.model.McpInvocation;
 import com.example.sprinklr.marketplace.domain.model.McpInvocationResult;
 import com.example.sprinklr.marketplace.domain.model.McpTool;
+import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.MessageRole;
 import com.example.sprinklr.marketplace.domain.model.ToolCall;
@@ -14,9 +15,10 @@ import com.example.sprinklr.marketplace.domain.model.ToolResult;
 import com.example.sprinklr.marketplace.domain.port.inbound.ChatUseCase;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
+import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
-import org.reactivestreams.FlowAdapters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -26,8 +28,11 @@ import reactor.core.scheduler.Schedulers;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Flow;
 
@@ -35,34 +40,34 @@ import java.util.concurrent.Flow;
 public class ChatOrchestrator implements ChatUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(ChatOrchestrator.class);
-
-    /**
-     * Number of prior messages loaded from MongoDB before each LLM call.
-     * The orchestrator appends the new user message, then passes the full list to {@link LlmPort#complete}
-     * so the model always sees recent conversation context (including when a prompt triggers MCP tools).
-     */
     private static final int HISTORY_LIMIT = 5;
-    private static final List<McpTool> NO_TOOLS = List.of();
+    private static final String TOOL_LIMIT_MESSAGE =
+            "Tool call limit reached for this request. Please try a simpler question.";
 
     private final ChatHistoryPort chatHistoryPort;
     private final LlmPort llmPort;
     private final McpServerPort mcpServerPort;
+    private final McpRegistryPort mcpRegistryPort;
+    private final McpProperties mcpProperties;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
             LlmPort llmPort,
-            McpServerPort mcpServerPort
+            McpServerPort mcpServerPort,
+            McpRegistryPort mcpRegistryPort,
+            McpProperties mcpProperties
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
         this.mcpServerPort = mcpServerPort;
+        this.mcpRegistryPort = mcpRegistryPort;
+        this.mcpProperties = mcpProperties;
     }
 
     @Override
-    //only method that is public and accessible from outside ,will be accessed by controller 
     public void streamChat(ChatRequest request, Flow.Subscriber<String> responseSubscriber) {
         Mono.fromRunnable(() -> runAgenticLoop(request, responseSubscriber))
-                .subscribeOn(Schedulers.boundedElastic()) //"When I eventually run this task, run it on a thread from the boundedElastic pool."
+                .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         unused -> {},
                         error -> signalError(responseSubscriber, error)
@@ -70,6 +75,7 @@ public class ChatOrchestrator implements ChatUseCase {
     }
 
     private void runAgenticLoop(ChatRequest request, Flow.Subscriber<String> responseSubscriber) {
+        Set<String> usedConnections = new HashSet<>();
         try {
             String conversationId = resolveConversationId(request);
             List<Message> history = new ArrayList<>(
@@ -89,63 +95,54 @@ public class ChatOrchestrator implements ChatUseCase {
             chatHistoryPort.touchConversation(conversationId, request.prompt());
             history.add(userMessage);
 
-            // History (last HISTORY_LIMIT messages + new user turn) is always sent to the LLM,
-            // even if the response will invoke MCP tools (e.g. user asks about Jira/GitLab).
-            LlmResponse llmResponse = llmPort.complete(
-                    new LlmRequest(request.prompt(), history, NO_TOOLS)
-            );
+            List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(request.userId());
+            log.info("[Orchestrator] Starting agentic loop conversationId={} userTools={}",
+                    conversationId, userTools.size());
 
-            if (llmResponse.toolCalls().isEmpty()) {
-                handleTextOnlyResponse(conversationId, llmResponse, responseSubscriber);
-                return;
+            int iteration = 0;
+            int totalToolCalls = 0;
+
+            while (iteration < mcpProperties.getMaxAgenticIterations()) {
+                LlmResponse llmResponse = llmPort.complete(
+                        new LlmRequest(request.prompt(), history, userTools)
+                );
+
+                if (llmResponse.toolCalls().isEmpty()) {
+                    if (iteration == 0) {
+                        handleTextOnlyResponse(conversationId, llmResponse, responseSubscriber);
+                    } else {
+                        streamSummaryResponse(request, conversationId, history, responseSubscriber);
+                    }
+                    return;
+                }
+
+                if (totalToolCalls + llmResponse.toolCalls().size() > mcpProperties.getMaxToolCallsPerTurn()) {
+                    log.info("[Orchestrator] Tool call limit reached conversationId={} total={}",
+                            conversationId, totalToolCalls);
+                    deliverLimitMessage(conversationId, responseSubscriber);
+                    return;
+                }
+
+                executeToolBatch(request, conversationId, history, llmResponse, usedConnections);
+                totalToolCalls += llmResponse.toolCalls().size();
+                iteration++;
             }
 
-            handleToolCalls(request, conversationId, history, llmResponse, responseSubscriber);
+            log.info("[Orchestrator] Agentic iteration limit reached conversationId={}", conversationId);
+            deliverLimitMessage(conversationId, responseSubscriber);
         } catch (Exception exception) {
             signalError(responseSubscriber, exception);
+        } finally {
+            clearMcpSessions(usedConnections);
         }
     }
 
-    private void handleTextOnlyResponse(
-            String conversationId,
-            LlmResponse llmResponse,
-            Flow.Subscriber<String> responseSubscriber
-    ) {//done to receive llm response in non blocking manner since llm generates text one at a time , everytime it geenrates onNext() called
-       
-        System.out.println("[Orchestrator] Handling text-only response");
-        System.out.println("[Orchestrator] Response content: " + llmResponse.content());
-        
-        String content = llmResponse.content();
-        responseSubscriber.onSubscribe(new Flow.Subscription() {
-            @Override
-            public void request(long n) {
-                responseSubscriber.onNext(content);
-                responseSubscriber.onComplete();
-            }
-
-            @Override
-            public void cancel() {
-            }
-        });
-
-        Message assistantMessage = new Message(
-                newId(),
-                conversationId,
-                MessageRole.ASSISTANT,
-                content,
-                List.of(),
-                List.of(),
-                Instant.now()
-        );
-        chatHistoryPort.saveMessage(assistantMessage);
-    }
-
-    private void handleToolCalls(
+    private void executeToolBatch(
             ChatRequest request,
             String conversationId,
             List<Message> history,
             LlmResponse llmResponse,
-            Flow.Subscriber<String> responseSubscriber
+            Set<String> usedConnections
     ) {
         Message assistantToolCallMessage = new Message(
                 newId(),
@@ -159,12 +156,16 @@ public class ChatOrchestrator implements ChatUseCase {
         chatHistoryPort.saveMessage(assistantToolCallMessage);
         history.add(assistantToolCallMessage);
 
-        List<McpInvocationResult> invocationResults = Flux.fromIterable(llmResponse.toolCalls())
-                .flatMap(toolCall -> Mono.fromCallable(() -> mcpServerPort.invoke(toInvocation(toolCall)))
+        List<McpInvocation> invocations = llmResponse.toolCalls().stream()
+                .map(toolCall -> toInvocation(request.userId(), toolCall))
+                .peek(invocation -> usedConnections.add(invocation.serverId()))
+                .toList();
+
+        List<McpInvocationResult> invocationResults = Flux.fromIterable(invocations)
+                .concatMap(invocation -> Mono.fromCallable(() -> mcpServerPort.invoke(invocation))
                         .subscribeOn(Schedulers.boundedElastic()))
                 .collectList()
                 .block();
-        //basically multiple tools can be executed parallely in different threads , flatMap used for thatb
 
         List<ToolResult> toolResults = invocationResults.stream()
                 .map(this::toToolResult)
@@ -181,21 +182,63 @@ public class ChatOrchestrator implements ChatUseCase {
         );
         chatHistoryPort.saveMessage(toolMessage);
         history.add(toolMessage);
+    }
 
-        //history just stores the tool messages after executiing the tool
+    private void streamSummaryResponse(
+            ChatRequest request,
+            String conversationId,
+            List<Message> history,
+            Flow.Subscriber<String> responseSubscriber
+    ) {
         Flow.Subscriber<String> capturingSummarySubscriber = createCapturingSummarySubscriber(
                 conversationId,
                 responseSubscriber
         );
         llmPort.streamSummary(
-                new LlmRequest(request.prompt(), history, NO_TOOLS),
+                new LlmRequest(request.prompt(), history, List.of()),
                 capturingSummarySubscriber
         );
     }
 
+    private void deliverLimitMessage(String conversationId, Flow.Subscriber<String> responseSubscriber) {
+        deliverSingleChunk(responseSubscriber, TOOL_LIMIT_MESSAGE);
+        Message assistantMessage = new Message(
+                newId(),
+                conversationId,
+                MessageRole.ASSISTANT,
+                TOOL_LIMIT_MESSAGE,
+                List.of(),
+                List.of(),
+                Instant.now()
+        );
+        chatHistoryPort.saveMessage(assistantMessage);
+    }
+
+    private void handleTextOnlyResponse(
+            String conversationId,
+            LlmResponse llmResponse,
+            Flow.Subscriber<String> responseSubscriber
+    ) {
+        String content = llmResponse.content() != null ? llmResponse.content() : "";
+        log.info("[Orchestrator] Text-only response conversationId={} chars={}",
+                conversationId, content.length());
+
+        deliverSingleChunk(responseSubscriber, content);
+
+        Message assistantMessage = new Message(
+                newId(),
+                conversationId,
+                MessageRole.ASSISTANT,
+                content,
+                List.of(),
+                List.of(),
+                Instant.now()
+        );
+        chatHistoryPort.saveMessage(assistantMessage);
+    }
+
     private String resolveConversationId(ChatRequest request) {
         if (request.conversationId() != null && !request.conversationId().isBlank()) {
-            // Check if conversation exists, if not create it
             Optional<Conversation> existing = chatHistoryPort.findConversationByIdAndUserId(
                     request.conversationId(),
                     request.userId()
@@ -206,21 +249,19 @@ public class ChatOrchestrator implements ChatUseCase {
 
             if (chatHistoryPort.findConversationById(request.conversationId()).isPresent()) {
                 throw new IllegalStateException("Conversation does not belong to user");
-            } else {
-                // Create new conversation with the provided ID
-                Instant now = Instant.now();
-                Conversation conversation = new Conversation(
-                        request.conversationId(),
-                        request.userId(),
-                        null,
-                        now,
-                        now
-                );
-                return chatHistoryPort.saveConversation(conversation).id();
             }
+
+            Instant now = Instant.now();
+            Conversation conversation = new Conversation(
+                    request.conversationId(),
+                    request.userId(),
+                    null,
+                    now,
+                    now
+            );
+            return chatHistoryPort.saveConversation(conversation).id();
         }
 
-        // Create a new conversation with a generated ID
         Instant now = Instant.now();
         Conversation conversation = new Conversation(
                 newId(),
@@ -232,18 +273,25 @@ public class ChatOrchestrator implements ChatUseCase {
         return chatHistoryPort.saveConversation(conversation).id();
     }
 
-    //takes the LLM toolcall and converts it to MCPinvocation object to send it to MCP server
-    private McpInvocation toInvocation(ToolCall toolCall) {
+    private McpInvocation toInvocation(String userId, ToolCall toolCall) {
         int separatorIndex = toolCall.name().indexOf('.');
-        if (separatorIndex > 0) {
+        if (separatorIndex <= 0) {
+            log.warn("[Orchestrator] Tool name missing prefix: {}", toolCall.name());
             return new McpInvocation(
-                    toolCall.name().substring(0, separatorIndex),
-                    toolCall.name().substring(separatorIndex + 1),
-                    toolCall.argumentsJson()
+                    "unknown",
+                    toolCall.name(),
+                    toolCall.argumentsJson(),
+                    toolCall.id()
             );
         }
-        //hmm slightly questionable
-        return new McpInvocation("default", toolCall.name(), toolCall.argumentsJson());
+
+        String prefix = toolCall.name().substring(0, separatorIndex);
+        String toolName = toolCall.name().substring(separatorIndex + 1);
+
+        Optional<McpUserConnection> connection = mcpRegistryPort.findByUserIdAndServerIdPrefix(userId, prefix);
+        String connectionId = connection.map(McpUserConnection::id).orElse(prefix);
+
+        return new McpInvocation(connectionId, toolName, toolCall.argumentsJson(), toolCall.id());
     }
 
     private ToolResult toToolResult(McpInvocationResult result) {
@@ -251,12 +299,6 @@ public class ChatOrchestrator implements ChatUseCase {
         return new ToolResult(result.toolCallId(), content);
     }
 
-    /**
-     * Creates a wrapper subscriber that:
-     * 1. Captures all streamed summary chunks
-     * 2. Forwards them to the original responseSubscriber for UI display
-     * 3. Saves the complete summary to database when streaming completes
-     */
     private Flow.Subscriber<String> createCapturingSummarySubscriber(
             String conversationId,
             Flow.Subscriber<String> originalSubscriber
@@ -271,24 +313,22 @@ public class ChatOrchestrator implements ChatUseCase {
 
             @Override
             public void onNext(String chunk) {
-                // Capture the chunk for saving later
                 summaryBuffer.append(chunk);
-                // Forward to original subscriber for UI display
                 originalSubscriber.onNext(chunk);
             }
 
             @Override
             public void onError(Throwable throwable) {
-                System.err.println("[Orchestrator] Summary stream error: " + throwable.getMessage());
+                log.error("[Orchestrator] Summary stream error: {}", throwable.getMessage());
                 originalSubscriber.onError(throwable);
             }
 
             @Override
             public void onComplete() {
-                System.out.println("[Orchestrator] Summary stream complete. Total content: " + summaryBuffer.length() + " chars");
-                
-                // Save the complete summary message to database
                 String completeSummary = summaryBuffer.toString();
+                log.info("[Orchestrator] Summary complete conversationId={} chars={}",
+                        conversationId, completeSummary.length());
+
                 if (!completeSummary.isEmpty()) {
                     Message assistantSummaryMessage = new Message(
                             newId(),
@@ -300,10 +340,8 @@ public class ChatOrchestrator implements ChatUseCase {
                             Instant.now()
                     );
                     chatHistoryPort.saveMessage(assistantSummaryMessage);
-                    System.out.println("[Orchestrator] Saved assistant summary message: " + completeSummary.substring(0, Math.min(50, completeSummary.length())));
                 }
-                
-                // Signal completion to original subscriber
+
                 originalSubscriber.onComplete();
             }
         };
@@ -312,8 +350,7 @@ public class ChatOrchestrator implements ChatUseCase {
     private void signalError(Flow.Subscriber<String> responseSubscriber, Throwable error) {
         try {
             if (LlmErrorFormatter.isVpnOrNetworkFailure(error)) {
-                log.warn("[Orchestrator] LLM router unreachable — user likely not on VPN: {}",
-                        error.getMessage());
+                log.warn("[Orchestrator] LLM router unreachable: {}", error.getMessage());
             } else if (LlmErrorFormatter.isTransientNetworkFailure(error)) {
                 log.warn("[Orchestrator] LLM connection interrupted: {}", error.getMessage());
             } else {
@@ -325,9 +362,6 @@ public class ChatOrchestrator implements ChatUseCase {
         }
     }
 
-    /**
-     * Sends one SSE chunk and completes — used for text replies and user-visible error messages.
-     */
     private void deliverSingleChunk(Flow.Subscriber<String> responseSubscriber, String content) {
         responseSubscriber.onSubscribe(new Flow.Subscription() {
             @Override
@@ -340,6 +374,14 @@ public class ChatOrchestrator implements ChatUseCase {
             public void cancel() {
             }
         });
+    }
+
+    private void clearMcpSessions(Set<String> connectionIds) {
+        if (connectionIds.isEmpty()) {
+            return;
+        }
+        connectionIds.forEach(mcpRegistryPort::clearSession);
+        log.info("[Orchestrator] Cleared MCP sessions count={}", connectionIds.size());
     }
 
     private String newId() {

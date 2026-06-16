@@ -41,10 +41,20 @@ public class LlmMessageMapper {
      * @param includeFullToolHistory  true when MCP tools are active or summarizing after tools
      */
     public List<LlmApiMessage> toApiMessages(List<Message> history, boolean includeFullToolHistory) {
+        return toApiMessages(history, includeFullToolHistory, null);
+    }
+
+    public List<LlmApiMessage> toApiMessages(
+            List<Message> history,
+            boolean includeFullToolHistory,
+            String systemPromptOverride
+    ) {
         List<LlmApiMessage> messages = new ArrayList<>();
 
-        // System prompt defines assistant persona, integrations, and safety rules for every call.
-        messages.add(new LlmApiMessage("system", systemPromptLoader.getSystemPrompt(), null, null));
+        String systemPrompt = systemPromptOverride != null && !systemPromptOverride.isBlank()
+                ? systemPromptOverride
+                : systemPromptLoader.getSystemPrompt();
+        messages.add(new LlmApiMessage("system", systemPrompt, null, null));
 
         int mappedCount = 0;
         for (Message message : history) {

@@ -5,6 +5,8 @@ import ChatPage from './pages/ChatPage'
 import LoginPage from './pages/LoginPage'
 import SignupPage from './pages/SignupPage'
 import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ProfilePage from './pages/ProfilePage'
+import OAuthCallbackPage from './pages/OAuthCallbackPage'
 
 function App() {
   return (
@@ -13,9 +15,11 @@ function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
         <Route element={<PrivateRoute />}>
           <Route path="/" element={<ChatDashboardPage />} />
           <Route path="/chat/:conversationId" element={<ChatPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
         </Route>
       </Routes>
     </BrowserRouter>

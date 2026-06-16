@@ -79,10 +79,6 @@ export default function SignupPage() {
       const status = error.response?.status
       const message = (error.response?.data?.message || '').toLowerCase()
 
-      // #region agent log
-      fetch('http://127.0.0.1:7692/ingest/d71e150a-d060-44f4-ba2f-f84045f9e3f2',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'c28fed'},body:JSON.stringify({sessionId:'c28fed',location:'SignupPage.jsx:handleRegister',message:'register failed',data:{status,apiMessage:error.response?.data?.message||null},hypothesisId:'H5',timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-
       if (status === 409 && message.includes('email')) {
         setFieldErrors({ email: 'Email already registered' })
       } else if (status === 409 && message.includes('username')) {

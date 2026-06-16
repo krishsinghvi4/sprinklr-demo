@@ -18,6 +18,13 @@ public record LlmCompletionCommand(
          * When true, map full agentic history (USER, ASSISTANT with tool_calls, TOOL results).
          * When false, map conversational history only (USER + ASSISTANT text) for text-only turns.
          */
-        boolean includeFullToolHistory
+        boolean includeFullToolHistory,
+        /**
+         * When non-null, replaces the default system prompt (e.g. post-tool summary pass).
+         */
+        String systemPromptOverride
 ) {
+    public LlmCompletionCommand(List<Message> history, List<McpTool> tools, boolean includeFullToolHistory) {
+        this(history, tools, includeFullToolHistory, null);
+    }
 }

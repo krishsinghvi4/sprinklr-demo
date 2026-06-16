@@ -8,8 +8,17 @@ You are an expert Enterprise Java Architect and Senior Spring Boot Developer bui
 # Architecture & Constraints
 - Strictly adhere to Hexagonal Architecture (Ports and Adapters). 
 - **Domain Purity:** NEVER use Spring annotations (`@Service`, `@Autowired`, `@Document`) in the `domain` package. 
-- **Reactive Stack:** Use Spring WebFlux (Project Reactor). NEVER use blocking code, `RestTemplate`, or standard Spring Web MVC.
+- **Reactive Stack:** Use Spring WebFlux (Project Reactor) for all outbound network I/O (MCP, LLM). NEVER use blocking code, `RestTemplate`, or standard Spring Web MVC for external calls.
 - **Resiliency First:** All outbound network calls to MCP servers must use WebClient with explicit timeouts and Resilience4j fallbacks.
+
+# MCP Marketplace (Primary Focus)
+- The MCP Marketplace is the core product feature. **Extensibility is the #1 design constraint.**
+- Adding a new MCP server must require **no code changes** — only user-supplied credentials and a server registration (URL + auth config).
+- Flow: user registers credentials → backend discovers tools via MCP `tools/list` → tools become available to the LLM for that user.
+- **Credential storage:** Encrypt at rest (AES-256). Never expose raw credentials to the LLM or frontend.
+- **Tool registry:** `McpConfigs` collection stores per-user server connections; tool schemas are fetched dynamically, not hardcoded.
+- **Tool execution:** MUST be **sequential** (`concatMap` / ordered `for` loop), never parallel. One tool call may depend on the output of a prior call (e.g., fetch ticket ID → update that ticket). Execute in LLM-requested order; feed each result back before invoking the next.
+- **Agentic loop:** After each sequential tool batch completes, re-evaluate with the LLM. The loop continues until the LLM returns a text response (no more tool calls).
 
 # Code Style
 - Use Java 17 features (Records, Text Blocks, Switch Expressions).

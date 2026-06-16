@@ -13,7 +13,6 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpP
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpRepository;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.User;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.UserRepository;
-import com.example.sprinklr.marketplace.infrastructure.debug.DebugLog;
 import com.example.sprinklr.marketplace.infrastructure.security.JwtUtil;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -72,10 +71,6 @@ public class AuthController {
                 LocalDateTime.now()
         );
         user = userRepository.save(user);
-
-        // #region agent log
-        DebugLog.write("AuthController.java:register", "user saved, queueing signup otp", "H4", "{\"userSaved\":true}");
-        // #endregion
 
         otpService.generateAndQueueOtp(request.email(), OtpPurpose.SIGNUP);
 

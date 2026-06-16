@@ -1,6 +1,5 @@
 package com.example.sprinklr.marketplace.application.service;
 
-import com.example.sprinklr.marketplace.infrastructure.debug.DebugLog;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpEntry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpPurpose;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpRepository;
@@ -28,10 +27,6 @@ public class OtpService {
         String otp = String.format("%06d", RANDOM.nextInt(1_000_000));
         OtpEntry entry = new OtpEntry(null, email, purpose, otp, Instant.now().plusSeconds(300));
         otpRepository.save(entry);
-
-        // #region agent log
-        DebugLog.write("OtpService.java:generateOtp", "otp saved", "H4", "{\"otpSaved\":true}");
-        // #endregion
 
         return otp;
     }

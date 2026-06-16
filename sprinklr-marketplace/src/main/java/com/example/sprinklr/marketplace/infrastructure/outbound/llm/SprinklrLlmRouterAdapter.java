@@ -3,9 +3,11 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 import com.example.sprinklr.marketplace.domain.model.LlmRequest;
 import com.example.sprinklr.marketplace.domain.model.LlmResponse;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
+import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
 import java.util.concurrent.Flow;
 
 /**
@@ -19,9 +21,11 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
     private static final Logger log = LoggerFactory.getLogger(SprinklrLlmRouterAdapter.class);
 
     private final LlmService llmService;
+    private final LlmSystemPromptLoader systemPromptLoader;
 
-    public SprinklrLlmRouterAdapter(LlmService llmService) {
+    public SprinklrLlmRouterAdapter(LlmService llmService, LlmSystemPromptLoader systemPromptLoader) {
         this.llmService = llmService;
+        this.systemPromptLoader = systemPromptLoader;
     }
 
     @Override
@@ -41,9 +45,28 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
 
     @Override
     public void streamSummary(LlmRequest request, Flow.Subscriber<String> subscriber) {
-        // Deferred until MCP streamSummary endpoint is wired; stub adapter supports tool-flow testing.
-        log.warn("[LLM] streamSummary() not implemented on real adapter — MCP summarization pending");
-        throw new UnsupportedOperationException(
-                "streamSummary is not implemented until MCP summarization is wired");
+        log.info("[LLM] streamSummary() historySize={}", request.history().size());
+
+        LlmCompletionResult result = llmService.complete(new LlmCompletionCommand(
+                request.history(),
+                List.of(),
+                true,
+                systemPromptLoader.getSummaryPrompt()
+        ));
+
+        String content = result.content() != null ? result.content() : "";
+        subscriber.onSubscribe(new Flow.Subscription() {
+            @Override
+            public void request(long n) {
+                if (!content.isEmpty()) {
+                    subscriber.onNext(content);
+                }
+                subscriber.onComplete();
+            }
+
+            @Override
+            public void cancel() {
+            }
+        });
     }
 }

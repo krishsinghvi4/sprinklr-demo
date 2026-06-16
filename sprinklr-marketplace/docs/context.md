@@ -1,49 +1,92 @@
 # Product Context: Sprinklr Developer MarketPlace
 
 ## 📍 Current Implementation Status
-* **Last Updated:** June 8, 2026 (Updated)
-* **Currently Working On:** MCP tool invocation and LLM integration
-* **Completed Features:** 
+* **Last Updated:** June 15, 2026
+* **Currently Working On:** Additional MCP server catalog entries (GitLab, MS Teams, etc.)
+* **Completed Features:**
   - ✅ Full-stack chat application (Spring Boot + React)
   - ✅ MongoDB persistence for conversations and messages
   - ✅ SSE streaming for real-time response delivery
   - ✅ Chat history loading on page reload
-  - ✅ Conversation persistence via localStorage
+  - ✅ Conversation persistence via localStorage + server-side user-scoped storage
   - ✅ CORS configuration for development
   - ✅ Async/non-blocking HTTP operations
   - ✅ Comprehensive logging throughout stack
-  - ✅ LLM summary responses saved to MongoDB (FIXED)
-* **Known Issues/Blockers:** None. All core chat functionality is stable.
+  - ✅ LLM summary responses saved to MongoDB (FIXED June 8)
+  - ✅ User authentication (register, email OTP verification, login, forgot/reset password)
+  - ✅ JWT-based stateless auth with Spring Security (`/api/**` protected)
+  - ✅ OTP email delivery (Gmail SMTP default; Microsoft Graph optional)
+  - ✅ User-scoped conversations (ownership enforced on chat/history endpoints)
+  - ✅ Chat dashboard with conversation list (`GET /api/v1/chat/conversations`)
+  - ✅ LLM integration layer (Sprinklr IntuitionX router via WebClient + Resilience4j circuit breaker)
+  - ✅ Stub LLM adapter for local dev (`app.llm.stub-enabled=true`)
+  - ✅ System prompt for Sprinklr Developer Marketplace copilot (`classpath:llm/system-prompt.txt`)
+  - ✅ **MCP Marketplace** — extensible catalog-driven server registration (`mcp-catalog.json`)
+  - ✅ **Profile API** — `GET /api/v1/profile` (user info + marketplace state)
+  - ✅ **MCP Connections API** — `POST /api/v1/mcp/connections`, `DELETE /api/v1/mcp/connections/{id}`
+  - ✅ **Atlassian Jira MCP** — first catalog entry with Basic email+token auth
+  - ✅ **AES-256-GCM credential vault** — encrypted storage in `mcp_connections` collection
+  - ✅ **Streamable HTTP MCP client** — initialize, tools/list, tools/call via WebClient
+  - ✅ **Per-connection circuit breakers** — Resilience4j keyed by `mcp-{connectionId}`
+  - ✅ **ChatOrchestrator agentic loop** — sequential tool execution (`concatMap`), iteration + tool-call limits
+  - ✅ **User tool schemas loaded into LLM** — from active MCP connections per user
+  - ✅ **SprinklrLlmRouterAdapter.streamSummary()** — wired via LlmService
+  - ✅ **Profile + Marketplace UI** — `/profile` page with Connect/Disconnect for Jira
+* **In Progress / Next Up:**
+  - 🔲 Add more catalog entries (GitLab, MS Teams, Red)
+  - 🔲 OAuth-based MCP auth strategies
+  - 🔲 Re-sync tools on `tools/list_changed` notification
+  - 🔲 True LLM streaming for streamSummary (currently single-chunk delivery)
+* **Known Issues/Blockers:**
+  - `MCP_ENCRYPTION_KEY` should be set in production (defaults to ephemeral key in dev)
+  - Atlassian MCP requires valid email + API token; test on VPN if needed
 
 ---
 
 ## 🎯 The Goal
-Build a centralized, AI-powered assistant platform with a standalone UI that integrates with internal and external enterprise systems via the Model Context Protocol (MCP). 
+Build a centralized, AI-powered assistant platform with a standalone UI that integrates with internal and external enterprise systems via the Model Context Protocol (MCP).
 
-## 🔄 The Core Flow
-1. A user submits a natural language prompt.
-2. The Spring Boot backend fetches the last 15 messages of conversation history from MongoDB.
-3. The backend sends the prompt, history, and a whitelisted set of MCP Tool Schemas to an LLM.
-4. The LLM decides which tools to call.
-5. The backend executes JSON-RPC requests to the respective MCP servers in parallel.
-6. The backend feeds the raw tool data back to the LLM.
-7. The LLM summarizes the data, and the backend streams the final response to the UI via SSE.
+**Primary product feature:** An **extensible MCP Marketplace** where users register MCP servers by providing API credentials, and those servers' tools become immediately available in chat — no backend code changes required to add a new integration.
 
-## 🔌 Supported MCP Integrations (Whitelist)
+## 🏪 MCP Marketplace Vision
+
+### Extensibility Principle
+Adding a new MCP server must be a **configuration + credentials** operation, not a code change:
+1. User opens Marketplace UI → "Add MCP Server"
+2. User enters server URL and credential fields (PAT, API key, OAuth token, etc.)
+3. Backend runs MCP `initialize` + `tools/list` to discover available tools
+4. Tools are stored in `McpConfigs` and injected into the LLM context for that user
+5. User can immediately chat and invoke those tools
+
+### Reference Integrations (not hardcoded — examples only)
 - **JIRA:** Fetch assigned tickets, update status, add comments.
 - **GitLab:** Fetch MR status, fetch pipeline status, compare revisions.
 - **MS Teams:** Fetch channel alerts, fetch unread notifications.
 - **Red (Internal):** Fetch deployment summaries, trigger auto-deployment requests.
 
+## 🔄 The Core Flow
+1. A user submits a natural language prompt.
+2. The Spring Boot backend fetches recent conversation history from MongoDB (last 5 messages).
+3. The backend loads the user's registered MCP tool schemas from `McpConfigs`.
+4. The backend sends the prompt, history, and active tool schemas to the LLM.
+5. The LLM decides which tools to call (if any).
+6. The backend executes JSON-RPC requests to the respective MCP servers **sequentially** in LLM-requested order (one tool may depend on a prior result).
+7. Tool results are appended to history; the LLM is called again to summarize or request more tools.
+8. The backend streams the final response to the UI via SSE.
+
 ## 🗄️ Data Persistence (MongoDB)
-- **Users:** Stores AES-256 encrypted JIRA PATs and GitLab tokens.
-- **Conversations:** Metadata and session state.
-- **Messages:** AI memory. Raw JSON tool results must be truncated after LLM summarization.
-- **McpConfigs:** Dynamic registry storing active MCP server URLs and their allowed tools.
+
+| Collection | Purpose |
+|-----------|---------|
+| **Users** | Auth credentials (bcrypt password), email verification status. Will store AES-256 encrypted MCP API tokens/PATs per server. |
+| **Otps** | Email OTP codes for signup and password reset flows |
+| **Conversations** | Metadata, user ownership, session state |
+| **Messages** | AI memory (USER, ASSISTANT, TOOL roles). Raw JSON tool results truncated after LLM summarization. |
+| **McpConnections** | Per-user MCP server registry (`mcp_connections`): catalog server ID, encrypted credentials, MCP session ID, discovered tool schemas, status |
 
 ---
 
-## 🛠️ Backend Architecture (Spring Boot WebFlux)
+## 🛠️ Backend Architecture (Spring Boot)
 
 ### Running the Backend
 ```bash
@@ -55,42 +98,45 @@ cd sprinklr-marketplace
 
 ### Key Components
 
+**AuthController** (`infrastructure/inbound/rest/AuthController.java`)
+- `POST /api/auth/register` — create account, queue signup OTP
+- `POST /api/auth/verify-signup-otp` — verify email
+- `POST /api/auth/login` — returns JWT
+- `POST /api/auth/forgot-password` / `verify-forgot-otp` / `reset-password`
+
 **ChatController** (`infrastructure/inbound/rest/ChatController.java`)
-- `POST /api/v1/chat/stream` - Main streaming endpoint
-  - Accepts `ChatRequest` (conversationId, message)
-  - Returns SSE stream of assistant responses
-  - Non-blocking via `Schedulers.boundedElastic()`
-- `GET /api/v1/chat/history?conversationId=...&limit=50` - Fetch conversation history
-  - Returns `ChatHistoryResponse` with list of `MessageDto`
-  - Loads up to 50 recent messages from MongoDB
+- `POST /api/v1/chat/stream` — Main streaming endpoint (JWT required)
+- `GET /api/v1/chat/history?conversationId=...&limit=50` — Fetch conversation history
+- `GET /api/v1/chat/conversations` — List user's conversations for dashboard
 
 **ChatOrchestrator** (`application/service/ChatOrchestrator.java`)
 - Core business logic orchestrating the agentic loop
-- `streamChat()` - Entry point called by controller
-- `runAgenticLoop()` - Manages conversation flow (prompt → LLM → tools → response)
-- `handleTextOnlyResponse()` - Streams text responses via Flow.Subscriber
-- `handleToolCalls()` - Executes MCP tools and fetches summaries
-- Auto-creates conversations if conversationId not found
+- `streamChat()` → `runAgenticLoop()` → LLM complete → tool calls → streamSummary
+- `handleToolCalls()` — executes MCP tools (currently parallel via `flatMap`; **must migrate to sequential `concatMap`**)
+- `createCapturingSummarySubscriber()` — captures streamed summary and persists to MongoDB
 
-**WebFluxConfig** (`infrastructure/config/WebFluxConfig.java`)
-- CORS enabled for development (localhost:5173, localhost:3000)
-- Allows all HTTP methods and credentials
+**LlmService** (`infrastructure/outbound/llm/LlmService.java`)
+- Internal LLM orchestration: request assembly, WebClient HTTP call, response parsing
+- Resilience4j circuit breaker (`llmRouter` instance)
+- Stub vs real router switched via `app.llm.stub-enabled` in `LlmConfig`
 
-**MongoChatHistoryAdapter** (`infrastructure/outbound/persistence/MongoChatHistoryAdapter.java`)
-- Implements `ChatHistoryPort` (hexagonal architecture)
-- Methods: `saveConversation()`, `saveMessage()`, `findConversationById()`, `findRecentMessages()`
-- All operations async/non-blocking via Spring Data Reactive MongoDB
-- Comprehensive logging for debugging
+**HttpMcpClientAdapter** (`infrastructure/outbound/mcp/HttpMcpClientAdapter.java`)
+- Implements `McpServerPort` — currently returns simulated JSON
+- **Next:** WebClient JSON-RPC to real MCP server URLs from `McpConfigs`
+
+**SecurityConfig** (`infrastructure/config/SecurityConfig.java`)
+- Stateless JWT auth; `/api/auth/**` public; all other `/api/**` authenticated
+
+### MCP Domain Models (scaffolded)
+- `McpTool` — tool name, description, serverId, inputSchemaJson
+- `McpInvocation` — serverId, toolName, argumentsJson
+- `McpInvocationResult` — toolCallId, success, content/errorMessage
+- `McpServerPort` — `invoke(McpInvocation)` outbound port
 
 ### Data Models
-
-**MessageDto** (`domain/model/MessageDto.java`)
-- Lightweight API representation: id, conversationId, role, content, createdAt
-- Factory method `fromDomain()` for conversion from domain Message
-
-**ChatHistoryResponse** (`application/dto/ChatHistoryResponse.java`)
-- Contains list of MessageDtos for history endpoint
-- Factory method `fromMessages()` for batch conversion
+- `MessageDto` — lightweight API representation for history endpoint
+- `ChatHistoryResponse` — batch of MessageDtos
+- `ConversationSummaryDto` — id, preview, createdAt, updatedAt
 
 ---
 
@@ -106,82 +152,75 @@ npm run dev
 
 ### Key Components
 
-**App.tsx** (`src/App.tsx`)
-- Root component managing global chat state
-- Implements conversation ID persistence via localStorage (key: `conversationId`)
-- `useEffect` loads conversationId on mount, stores new IDs automatically
-- "New Chat" button to start fresh conversations (generates new UUID)
-- Passes conversationId to Chat component
+**App.tsx** — React Router with auth-gated routes
+- `/login`, `/signup`, `/forgot-password` — public
+- `/` — ChatDashboardPage (conversation list)
+- `/chat/:conversationId` — ChatPage
 
-**Chat.tsx** (`src/components/Chat.tsx`)
-- Main chat UI component
-- State: messages[], input, isLoading, error, isLoadingHistory, lastPrompt
-- `useEffect` calls `fetchChatHistory()` when conversationId changes
-- `handleSendMessage()` → calls `streamChat()` and updates UI with streamed chunks
-- Real-time message streaming via SSE with chunk callback
-- Retry mechanism for failed messages
-- Dynamic textarea resizing with line breaks
+**AuthContext** (`src/context/AuthContext.tsx`) — JWT token management, login/logout state
 
-**chatService.ts** (`src/services/chatService.ts`)
-- HTTP client for chat operations
-- `streamChat(chatRequest, onChunk)` - Uses fetchEventSource to stream responses
-  - Logs SSE events for debugging
-  - Calls `onChunk` callback for each SSE message event
-- `fetchChatHistory(conversationId, limit)` - GET /api/v1/chat/history
-  - Returns array of MessageDtos
-  - Handles error for new conversations gracefully
+**ChatDashboardPage** — lists user conversations, "New Chat" button
+
+**Chat.tsx** — main chat UI with SSE streaming, history loading, retry
+
+**chatService.ts** — `streamChat()`, `fetchChatHistory()`, `fetchConversations()`
 
 ### Persistence Strategy
-- **Client-side:** localStorage stores current `conversationId` (survives page reload)
-- **Server-side:** MongoDB stores all conversations and messages with timestamp
-- **On Page Load:** Chat.tsx calls `fetchChatHistory()` to load all previous messages
-
-### Data Models
-
-**types/chat.ts**
-- `ChatRequest` - { conversationId, message }
-- `MessageDto` - { id, conversationId, role, content, createdAt }
-- `ChatHistoryResponse` - { messages: MessageDto[] }
+- **Client-side:** JWT in localStorage; `conversationId` persisted per session
+- **Server-side:** MongoDB stores all conversations and messages, scoped to authenticated user
 
 ---
 
 ## 🔐 Important Configuration
 
-### CORS Settings (Development)
-Frontend on localhost:5173, backend on localhost:8080. CORS configured in `WebFluxConfig` to allow cross-origin requests.
+### LLM Router (`application.properties`)
+```
+app.llm.stub-enabled=${LLM_STUB:false}          # true = StubLlmAdapter (local dev)
+app.llm.base-url=${LLM_BASE_URL:...}            # Sprinklr IntuitionX router
+app.llm.cookie=${LLM_ROUTER_COOKIE:}            # Required when stub=false
+app.llm.system-prompt-path=classpath:llm/system-prompt.txt
+```
 
-### React Strict Mode
-⚠️ **NOTE:** Removed `<React.StrictMode>` from `main.tsx` to prevent double-invocation of state setters in development. This was causing apparent message duplication in logs (fixed June 8, 2026).
+### Auth
+```
+app.jwt.secret=${JWT_SECRET:...}
+app.jwt.expiration-ms=86400000
+```
 
-### SSE Streaming
-- Uses `@microsoft/fetch-event-source` library on frontend
-- Backend emits via `Flow.Subscriber<String>` with Reactor adapters
-- Each message event becomes a chunk in frontend
+### Mail (OTP)
+```
+app.mail.provider=${MAIL_PROVIDER:smtp}         # smtp | graph
+spring.mail.username=${MAIL_USERNAME:}
+spring.mail.password=${MAIL_PASSWORD:}
+```
+
+### CORS
+Frontend on localhost:5173, backend on localhost:8080. Configured in `SecurityConfig` and `WebFluxConfig`.
 
 ---
 
 ## 📋 Critical Changes Log
 
-**June 8, 2026 (Latest)**
+**June 15, 2026 (MCP Marketplace)**
+- **IMPLEMENTED:** Extensible MCP Marketplace with catalog-driven server registration
+- **IMPLEMENTED:** Profile API (`GET /api/v1/profile`) + MCP connection endpoints
+- **IMPLEMENTED:** Atlassian Jira as first catalog entry (Basic email+API token auth)
+- **IMPLEMENTED:** Streamable HTTP MCP client, AES credential vault, per-connection circuit breakers
+- **IMPLEMENTED:** ChatOrchestrator sequential tool execution + agentic loop limits
+- **IMPLEMENTED:** Profile/Marketplace UI at `/profile`
+
+**June 15, 2026 (Planning)**
+- **PLANNED:** MCP Marketplace as primary feature — extensible server registration via user credentials
+- **ARCHITECTURE DECISION:** Tool execution changed from parallel → **sequential** (tool calls may depend on prior results)
+- **DOCUMENTED:** Full implementation status update — auth, LLM layer, MCP scaffolding, remaining work items
+
+**June 8, 2026**
 - **FIXED:** LLM summary responses not being saved to MongoDB after tool invocation
-  - Problem: When MCP tools were invoked (e.g., "fetch jira systems"), the backend would stream the LLM summary to the frontend but never persist it to the database
-  - Solution: Added `createCapturingSummarySubscriber()` wrapper in ChatOrchestrator that:
-    - Accumulates streamed summary chunks as they arrive from LLM
-    - Forwards each chunk to frontend UI for real-time display
-    - Saves complete summary message to MongoDB when streaming completes
-  - Impact: Assistant responses now persist correctly and reload properly on page refresh
+  - Added `createCapturingSummarySubscriber()` in ChatOrchestrator
+- Removed `<React.StrictMode>` from main.tsx (fixed React double-invocation)
+- Added comprehensive SSE logging
 
-**June 8, 2026 (Earlier)**
-- Removed `<React.StrictMode>` from main.tsx (fixed React double-invocation of state setters)
-- Added comprehensive SSE logging to chatService.ts
-- Added chunk count tracking to Chat.tsx
-- Issue resolved: Messages displaying correctly without duplication
-
-**Previous Changes**
-- Added CORS configuration (WebFluxConfig.java)
-- Implemented GET /api/v1/chat/history endpoint
-- Fixed ChatOrchestrator to auto-create conversations
-- Switched from in-memory to MongoDB persistence
-- Added localStorage for conversation persistence on frontend
+**Earlier**
+- Added CORS configuration, chat history endpoint, MongoDB persistence
+- Implemented localStorage conversation persistence on frontend
 - Fixed async/blocking issues with Schedulers.boundedElastic()
-- Implemented chat history loading on page reload

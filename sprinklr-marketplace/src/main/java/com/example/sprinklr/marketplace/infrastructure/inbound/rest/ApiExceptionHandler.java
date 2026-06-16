@@ -1,0 +1,77 @@
+package com.example.sprinklr.marketplace.infrastructure.inbound.rest;
+
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MessageResponse;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpCircuitOpenException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpDiscoveryException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpOAuthException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice(basePackageClasses = {
+        ProfileController.class,
+        McpConnectionController.class,
+        McpOAuthController.class
+})
+public class ApiExceptionHandler {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<MessageResponse> handleValidation(MethodArgumentNotValidException exception) {
+        String message = exception.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .orElse("Invalid request");
+        return ResponseEntity.badRequest().body(new MessageResponse(message));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<MessageResponse> handleIllegalArgument(IllegalArgumentException exception) {
+        return ResponseEntity.badRequest().body(new MessageResponse(exception.getMessage()));
+    }
+
+    @ExceptionHandler(McpConnectionException.class)
+    public ResponseEntity<MessageResponse> handleMcpConnection(McpConnectionException exception) {
+        log.warn("[API] MCP connection error: {}", exception.getMessage());
+        HttpStatus status = exception.getUserMessage().toLowerCase().contains("credential")
+                || exception.getUserMessage().toLowerCase().contains("invalid")
+                ? HttpStatus.UNAUTHORIZED
+                : HttpStatus.BAD_GATEWAY;
+        return ResponseEntity.status(status)
+                .body(new MessageResponse(exception.getUserMessage()));
+    }
+
+    @ExceptionHandler(McpDiscoveryException.class)
+    public ResponseEntity<MessageResponse> handleMcpDiscovery(McpDiscoveryException exception) {
+        log.warn("[API] MCP discovery error: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new MessageResponse(exception.getUserMessage()));
+    }
+
+    @ExceptionHandler(McpOAuthException.class)
+    public ResponseEntity<MessageResponse> handleMcpOAuth(McpOAuthException exception) {
+        log.warn("[API] MCP OAuth error: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new MessageResponse(exception.getUserMessage()));
+    }
+
+    @ExceptionHandler(McpCircuitOpenException.class)
+    public ResponseEntity<MessageResponse> handleCircuitOpen(McpCircuitOpenException exception) {
+        log.warn("[API] MCP circuit open: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new MessageResponse(exception.getUserMessage()));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<MessageResponse> handleUnexpected(Exception exception) {
+        log.error("[API] Unexpected error", exception);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new MessageResponse("Something went wrong"));
+    }
+}

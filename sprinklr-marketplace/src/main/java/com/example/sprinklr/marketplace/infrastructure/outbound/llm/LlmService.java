@@ -66,7 +66,11 @@ public class LlmService {
         List<McpTool> tools = command.tools();
         boolean includeFullToolHistory = command.includeFullToolHistory();
 
-        List<LlmApiMessage> apiMessages = messageMapper.toApiMessages(command.history(), includeFullToolHistory);
+        List<LlmApiMessage> apiMessages = messageMapper.toApiMessages(
+                command.history(),
+                includeFullToolHistory,
+                command.systemPromptOverride()
+        );
         List<LlmApiTool> apiTools = toolMapper.toApiTools(tools);
         String toolChoice = toolMapper.resolveToolChoice(tools);
 

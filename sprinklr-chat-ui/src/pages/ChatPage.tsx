@@ -25,6 +25,12 @@ export default function ChatPage() {
             </Link>
             <h1 className="text-xl font-bold text-gray-900">Sprinklr Chat</h1>
           </div>
+          <Link
+            to="/profile"
+            className="text-sm text-gray-600 hover:text-gray-900"
+          >
+            Profile
+          </Link>
         </div>
       </header>
       <main className="flex-1 overflow-hidden">
