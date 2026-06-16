@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { MessageSquarePlus } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { fetchConversations } from '../services/chatService'
@@ -62,6 +62,12 @@ export default function ChatDashboardPage() {
             )}
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              to="/profile"
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              Profile
+            </Link>
             <button
               onClick={handleNewChat}
               className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"

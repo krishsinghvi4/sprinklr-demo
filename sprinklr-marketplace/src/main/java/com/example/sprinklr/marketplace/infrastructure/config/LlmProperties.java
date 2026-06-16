@@ -13,7 +13,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  */
 @Getter
 @Setter
-@ConfigurationProperties(prefix = "app.llm")
+@ConfigurationProperties(prefix = "app.llm")// basically puts all these values in the application.properties file
 public class LlmProperties {
 
     /** When true, {@link com.example.sprinklr.marketplace.infrastructure.outbound.llm.StubLlmAdapter} is used instead of the real router. */

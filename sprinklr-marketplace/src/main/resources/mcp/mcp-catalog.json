@@ -1,0 +1,13 @@
+{
+  "servers": [
+    {
+      "id": "atlassian-jira",
+      "displayName": "Jira (Atlassian)",
+      "description": "Official Atlassian MCP — search issues, update tickets, add comments.",
+      "endpointUrl": "https://mcp.atlassian.com/v1/mcp/authv2",
+      "serverIdPrefix": "jira",
+      "authType": "OAUTH_ATLASSIAN",
+      "credentialFields": []
+    }
+  ]
+}

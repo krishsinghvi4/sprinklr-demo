@@ -4,6 +4,8 @@ import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiTool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -17,6 +19,7 @@ import java.util.Map;
 @Component
 public class LlmToolMapper {
 
+    private static final Logger log = LoggerFactory.getLogger(LlmToolMapper.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     public LlmToolMapper() {
@@ -40,7 +43,7 @@ public class LlmToolMapper {
     }
 
     private LlmApiTool toApiTool(McpTool tool) {
-        Object parameters = parseParameters(tool.inputSchemaJson());
+        Object parameters = parseParameters(tool.name(), tool.inputSchemaJson());
         return LlmApiTool.function(tool.name(), tool.description(), parameters);
     }
 
@@ -48,10 +51,21 @@ public class LlmToolMapper {
    * inputSchemaJson is stored as a JSON object string in McpTool; parse it for the router payload.
    * On parse failure, fall back to an empty object so a bad schema does not break the whole request.
    */
-    private Object parseParameters(String inputSchemaJson) {
+    private Object parseParameters(String toolName, String inputSchemaJson) {
         try {
-            return OBJECT_MAPPER.readValue(inputSchemaJson, Map.class);
+            Object parsed = OBJECT_MAPPER.readValue(inputSchemaJson, Object.class);
+            if (parsed instanceof String innerJson) {
+                parsed = OBJECT_MAPPER.readValue(innerJson, Object.class);
+            }
+            if (parsed instanceof Map<?, ?> map) {
+                return map;
+            }
+            log.warn("[LLM] Unexpected inputSchemaJson type after parse for tool={}: {}",
+                    toolName, parsed.getClass().getSimpleName());
+            return Map.of();
         } catch (JsonProcessingException e) {
+            log.warn("[LLM] Failed to parse inputSchemaJson for tool={}, using empty parameters: {}",
+                    toolName, e.getOriginalMessage());
             return Map.of();
         }
     }

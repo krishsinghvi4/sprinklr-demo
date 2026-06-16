@@ -27,8 +27,9 @@ public class LlmConfig {
     @Bean
     @ConditionalOnProperty(name = "app.llm.stub-enabled", havingValue = "false")
     public LlmPort sprinklrLlmRouterPort(
-            com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmService llmService
+            com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmService llmService,
+            LlmSystemPromptLoader systemPromptLoader
     ) {
-        return new SprinklrLlmRouterAdapter(llmService);
+        return new SprinklrLlmRouterAdapter(llmService, systemPromptLoader);
     }
 }
