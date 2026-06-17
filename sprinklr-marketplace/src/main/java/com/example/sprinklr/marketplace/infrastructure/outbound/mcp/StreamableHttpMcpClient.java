@@ -17,6 +17,10 @@ import reactor.core.publisher.Mono;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * Low-level MCP JSON-RPC client used for initialize, tools/list, and tools/call.
+ * Handles session headers and supports streaming responses via HTTP.
+ */
 @Component
 public class StreamableHttpMcpClient {
 
@@ -25,6 +29,8 @@ public class StreamableHttpMcpClient {
     private static final String MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version";
     private static final String PROTOCOL_VERSION = "2025-03-26";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final int MAX_ATTEMPTS = 2;
+    private static final long DEFAULT_RETRY_AFTER_MS = 1_000L;
 
     private final WebClient webClient;
     private final AtomicLong requestId = new AtomicLong(1);
@@ -33,6 +39,9 @@ public class StreamableHttpMcpClient {
         this.webClient = webClient;
     }
 
+    /**
+     * Sends an MCP initialize request and returns the session metadata.
+     */
     public McpSession initialize(String endpointUrl, Map<String, String> authHeaders) {
         ObjectNode params = OBJECT_MAPPER.createObjectNode();
         params.put("protocolVersion", PROTOCOL_VERSION);
@@ -64,6 +73,9 @@ public class StreamableHttpMcpClient {
         return new McpSession(sessionId, protocolVersion);
     }
 
+    /**
+     * Lists tools from the MCP server using the active session.
+     */
     public JsonNode listTools(
             String endpointUrl,
             Map<String, String> authHeaders,
@@ -79,6 +91,9 @@ public class StreamableHttpMcpClient {
         ).result();
     }
 
+    /**
+     * Executes a single tool call by name and arguments JSON.
+     */
     public JsonNode callTool(
             String endpointUrl,
             Map<String, String> authHeaders,
@@ -104,6 +119,9 @@ public class StreamableHttpMcpClient {
         ).result();
     }
 
+    /**
+     * Sends MCP notifications that don't expect a response body.
+     */
     private void sendNotification(
             String endpointUrl,
             Map<String, String> authHeaders,
@@ -129,6 +147,9 @@ public class StreamableHttpMcpClient {
         }
     }
 
+    /**
+     * Sends a JSON-RPC request and parses the MCP response/result.
+     */
     private McpHttpResponse sendRequest(
             String endpointUrl,
             Map<String, String> authHeaders,
@@ -147,33 +168,55 @@ public class StreamableHttpMcpClient {
         log.info("[MCP-HTTP] POST method={} endpoint={} sessionPresent={} body={}",
                 method, endpointUrl, sessionId != null && !sessionId.isBlank(), requestJson);
 
-        try {
-            return webClient.post()
-                    .uri(endpointUrl)
-                    .headers(headers -> applyHeaders(headers, authHeaders, sessionId, protocolVersion))
-                    .bodyValue(requestJson)
-                    .exchangeToMono(response -> response.bodyToMono(String.class)
-                            .defaultIfEmpty("")
-                            .map(responseBody -> toMcpHttpResponse(response, responseBody, method)))
-                    .block();
-        } catch (McpConnectionException | McpDiscoveryException exception) {
-            throw exception;
-        } catch (WebClientResponseException exception) {
-            log.error("[MCP-HTTP] POST failed method={} status={} body={}",
-                    method, exception.getStatusCode().value(), truncate(exception.getResponseBodyAsString()));
-            if (exception.getStatusCode().value() == 401 || exception.getStatusCode().value() == 403) {
+        for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            try {
+                return webClient.post()
+                        .uri(endpointUrl)
+                        .headers(headers -> applyHeaders(headers, authHeaders, sessionId, protocolVersion))
+                        .bodyValue(requestJson)
+                        .exchangeToMono(response -> response.bodyToMono(String.class)
+                                .defaultIfEmpty("")
+                                .map(responseBody -> {
+                                    if (response.statusCode().value() == 429) {
+                                        long retryAfterMs = retryAfterMillis(response.headers().asHttpHeaders());
+                                        throw new McpConnectionException(
+                                                "MCP server is rate limited — please retry",
+                                                "MCP HTTP 429 retryAfterMs=" + retryAfterMs);
+                                    }
+                                    return toMcpHttpResponse(response, responseBody, method);
+                                }))
+                        .block();
+            } catch (McpConnectionException exception) {
+                if (attempt < MAX_ATTEMPTS && isRateLimitException(exception)) {
+                    long retryAfterMs = retryAfterMillisFromDetail(exception.getMessage());
+                    log.warn("[MCP-HTTP] Rate limited (HTTP 429). Waiting {}ms before retry", retryAfterMs);
+                    sleep(retryAfterMs);
+                    continue;
+                }
+                throw exception;
+            } catch (McpDiscoveryException exception) {
+                throw exception;
+            } catch (WebClientResponseException exception) {
+                log.error("[MCP-HTTP] POST failed method={} status={} body={}",
+                        method, exception.getStatusCode().value(), truncate(exception.getResponseBodyAsString()));
+                if (exception.getStatusCode().value() == 401 || exception.getStatusCode().value() == 403) {
+                    throw new McpConnectionException(
+                            "Invalid credentials — check email and API token",
+                            "MCP auth failed: " + exception.getMessage());
+                }
                 throw new McpConnectionException(
-                        "Invalid credentials — check email and API token",
-                        "MCP auth failed: " + exception.getMessage());
+                        "Could not reach MCP server — try again later",
+                        "MCP HTTP error: " + exception.getMessage());
+            } catch (Exception exception) {
+                throw new McpConnectionException(
+                        "Could not reach MCP server — try again later",
+                        "MCP request error: " + exception.getMessage());
             }
-            throw new McpConnectionException(
-                    "Could not reach MCP server — try again later",
-                    "MCP HTTP error: " + exception.getMessage());
-        } catch (Exception exception) {
-            throw new McpConnectionException(
-                    "Could not reach MCP server — try again later",
-                    "MCP request error: " + exception.getMessage());
         }
+
+        throw new McpConnectionException(
+                "Could not reach MCP server — try again later",
+                "MCP request failed after retries");
     }
 
     private McpHttpResponse toMcpHttpResponse(
@@ -282,6 +325,58 @@ public class StreamableHttpMcpClient {
             return "null";
         }
         return value.length() <= 200 ? value : value.substring(0, 200) + "...";
+    }
+
+    private static boolean isRateLimitException(McpConnectionException exception) {
+        String detail = exception.getMessage();
+        return detail != null && detail.contains("HTTP 429");
+    }
+
+    private static long retryAfterMillis(HttpHeaders headers) {
+        if (headers == null) {
+            return DEFAULT_RETRY_AFTER_MS;
+        }
+        String retryAfter = headers.getFirst("Retry-After");
+        return retryAfterMillisFromHeader(retryAfter);
+    }
+
+    private static long retryAfterMillisFromDetail(String detail) {
+        if (detail == null) {
+            return DEFAULT_RETRY_AFTER_MS;
+        }
+        int marker = detail.indexOf("retryAfterMs=");
+        if (marker >= 0) {
+            String value = detail.substring(marker + "retryAfterMs=".length()).trim();
+            try {
+                return Long.parseLong(value);
+            } catch (NumberFormatException ignored) {
+                return DEFAULT_RETRY_AFTER_MS;
+            }
+        }
+        return DEFAULT_RETRY_AFTER_MS;
+    }
+
+    private static long retryAfterMillisFromHeader(String retryAfter) {
+        if (retryAfter == null || retryAfter.isBlank()) {
+            return DEFAULT_RETRY_AFTER_MS;
+        }
+        try {
+            long seconds = Long.parseLong(retryAfter.trim());
+            return Math.max(0, seconds) * 1000L;
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_RETRY_AFTER_MS;
+        }
+    }
+
+    private static void sleep(long millis) {
+        if (millis <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     public record McpSession(String sessionId, String protocolVersion) {}

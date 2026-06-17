@@ -6,8 +6,13 @@ import java.util.Objects;
 public record LlmRequest(
         String prompt,
         List<Message> history,
-        List<McpTool> tools
+        List<McpTool> tools,
+        String currentTurnUserMessageId
 ) {
+
+    public LlmRequest(String prompt, List<Message> history, List<McpTool> tools) {
+        this(prompt, history, tools, null);
+    }
 
     public LlmRequest {
         if (prompt == null || prompt.isBlank()) {

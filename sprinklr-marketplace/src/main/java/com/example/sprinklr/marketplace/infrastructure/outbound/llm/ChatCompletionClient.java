@@ -8,12 +8,17 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
+import org.springframework.http.HttpHeaders;
 
 /**
  * Thin HTTP transport for the Sprinklr LLM router — POST JSON, return raw response body.
  * <p>
  * No domain mapping here: {@link LlmService} owns orchestration and {@link LlmResponseParser}
  * owns deserialization. This class only handles wire protocol and HTTP errors.
+ */
+/**
+ * HTTP client for the Sprinklr LLM router.
+ * Handles retries for transient failures and surfaces HTTP error details.
  */
 @Component
 public class ChatCompletionClient {
@@ -24,6 +29,7 @@ public class ChatCompletionClient {
      * Retry once on stale pooled connections (e.g. user idle in chat, ALB closed the socket).
      */
     private static final int MAX_ATTEMPTS = 2;
+    private static final long DEFAULT_RETRY_AFTER_MS = 1_000L;
 
     private final WebClient llmWebClient;
     private final LlmProperties properties;
@@ -51,9 +57,16 @@ public class ChatCompletionClient {
             try {
                 return executePost(request);
             } catch (WebClientResponseException e) {
+                int status = e.getStatusCode().value();
+                if (status == 429 && attempt < MAX_ATTEMPTS) {
+                    long retryAfterMs = retryAfterMillis(e.getHeaders());
+                    log.warn("[LLM-CLIENT] Rate limited (HTTP 429). Waiting {}ms before retry", retryAfterMs);
+                    sleep(retryAfterMs);
+                    continue;
+                }
                 String body = truncate(e.getResponseBodyAsString(), 500);
-                log.error("[LLM-CLIENT] HTTP {} from router: {}", e.getStatusCode().value(), body);
-                throw new LlmClientException("LLM router HTTP " + e.getStatusCode().value() + ": " + body, e);
+                log.error("[LLM-CLIENT] HTTP {} from router: {}", status, body);
+                throw new LlmClientException("LLM router HTTP " + status + ": " + body, e);
             } catch (Exception e) {
                 lastFailure = e;
                 if (attempt < MAX_ATTEMPTS && LlmErrorFormatter.isTransientNetworkFailure(e)) {
@@ -68,6 +81,9 @@ public class ChatCompletionClient {
         throw toClientException(lastFailure);
     }
 
+    /**
+     * Executes the HTTP request without retry logic.
+     */
     private String executePost(ChatCompletionRequest request) {
         return llmWebClient.post()
                 .uri(properties.getCompletionPath())
@@ -77,6 +93,9 @@ public class ChatCompletionClient {
                 .block();
     }
 
+    /**
+     * Normalizes errors into LlmClientException with context for the caller.
+     */
     private LlmClientException toClientException(Exception e) {
         if (LlmErrorFormatter.isTransientNetworkFailure(e)) {
             log.warn("[LLM-CLIENT] Connection interrupted after {} attempts: {}", MAX_ATTEMPTS, e.getMessage());
@@ -96,5 +115,32 @@ public class ChatCompletionClient {
             return "";
         }
         return value.length() <= maxLen ? value : value.substring(0, maxLen) + "...";
+    }
+
+    private static long retryAfterMillis(HttpHeaders headers) {
+        if (headers == null) {
+            return DEFAULT_RETRY_AFTER_MS;
+        }
+        String retryAfter = headers.getFirst("Retry-After");
+        if (retryAfter == null || retryAfter.isBlank()) {
+            return DEFAULT_RETRY_AFTER_MS;
+        }
+        try {
+            long seconds = Long.parseLong(retryAfter.trim());
+            return Math.max(0, seconds) * 1000L;
+        } catch (NumberFormatException ignored) {
+            return DEFAULT_RETRY_AFTER_MS;
+        }
+    }
+
+    private static void sleep(long millis) {
+        if (millis <= 0) {
+            return;
+        }
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

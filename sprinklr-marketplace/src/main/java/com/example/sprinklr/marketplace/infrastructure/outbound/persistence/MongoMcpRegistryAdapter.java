@@ -9,6 +9,10 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Mongo-backed registry that persists MCP connections and their discovered tools.
+ * Acts as the source of truth for which tools are available per user.
+ */
 @Component
 public class MongoMcpRegistryAdapter implements McpRegistryPort {
 
@@ -18,6 +22,9 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
         this.repository = repository;
     }
 
+    /**
+     * Saves or updates a user connection and its tool list.
+     */
     @Override
     public McpUserConnection saveConnection(McpUserConnection connection, String encryptedCredentials, String serverIdPrefix) {
         String resolvedCredentials = encryptedCredentials;
@@ -101,6 +108,9 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
         repository.deleteByIdAndUserId(connectionId, userId);
     }
 
+    /**
+     * Returns tools from all CONNECTED servers for tool whitelisting.
+     */
     @Override
     public List<McpTool> findActiveToolsForUser(String userId) {
         return repository.findByUserId(userId).stream()

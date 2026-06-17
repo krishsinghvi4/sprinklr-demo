@@ -13,6 +13,10 @@ import java.util.List;
  * Deserializes raw router JSON into {@link LlmCompletionResult}.
  * Separated from {@link ChatCompletionClient} so parsing logic can be unit-tested without HTTP.
  */
+/**
+ * Parses the LLM router response into a minimal domain result.
+ * Handles schema drift and validates required fields.
+ */
 @Component
 public class LlmResponseParser {
 
@@ -27,6 +31,9 @@ public class LlmResponseParser {
     public LlmResponseParser() {
     }
 
+    /**
+     * Parses the raw JSON response into content + tool calls.
+     */
     public LlmCompletionResult parse(String rawBody) {
         try {
             ChatCompletionResponse response = OBJECT_MAPPER.readValue(rawBody, ChatCompletionResponse.class);
@@ -56,6 +63,9 @@ public class LlmResponseParser {
         }
     }
 
+    /**
+     * Converts API tool call payloads into domain tool calls with safe defaults.
+     */
     private List<ToolCall> mapToolCalls(List<LlmApiToolCall> apiToolCalls) {
         if (apiToolCalls == null || apiToolCalls.isEmpty()) {
             return List.of();

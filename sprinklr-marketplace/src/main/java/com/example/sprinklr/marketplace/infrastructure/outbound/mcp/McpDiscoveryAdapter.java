@@ -12,6 +12,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * MCP discovery adapter that initializes a session and lists tools from an MCP server.
+ * Used during connect to populate the user's available tool list.
+ */
 @Component
 public class McpDiscoveryAdapter implements McpDiscoveryPort {
 
@@ -24,6 +28,9 @@ public class McpDiscoveryAdapter implements McpDiscoveryPort {
         this.mcpClient = mcpClient;
     }
 
+    /**
+     * Performs initialize + tools/list (with pagination) and returns session + tool metadata.
+     */
     @Override
     public McpDiscoveryResult discover(
             String endpointUrl,
@@ -56,6 +63,9 @@ public class McpDiscoveryAdapter implements McpDiscoveryPort {
         return new McpDiscoveryResult(session.sessionId(), session.protocolVersion(), allTools);
     }
 
+    /**
+     * Converts an MCP tool JSON schema to the internal tool record with a prefixed name.
+     */
     private McpTool toMcpTool(JsonNode toolNode, String serverIdPrefix, String connectionId) {
         String rawName = toolNode.path("name").asText();
         String description = toolNode.path("description").asText("No description");

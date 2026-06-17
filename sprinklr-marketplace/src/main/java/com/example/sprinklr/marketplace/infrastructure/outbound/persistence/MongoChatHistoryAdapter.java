@@ -17,6 +17,7 @@ import java.util.Optional;
 public class MongoChatHistoryAdapter implements ChatHistoryPort {
 
     private static final int PREVIEW_MAX_LENGTH = 80;
+    static final String TOOL_RESULT_TRUNCATED_STUB = "[Tool result truncated after summarization]";
 
     private final ConversationRepository conversationRepository;
     private final MongoMessageRepository messageRepository;
@@ -65,6 +66,85 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
             System.err.println("[MongoDB] Error finding messages for conversation " + conversationId + ": " + e.getMessage());
             e.printStackTrace();
             return List.of();
+        }
+    }
+
+    @Override
+    public List<Message> findRecentTurns(String conversationId, int turnLimit) {
+        if (turnLimit <= 0) {
+            return List.of();
+        }
+
+        System.out.println("[MongoDB] Finding recent turns for conversation: " + conversationId + " (turnLimit: " + turnLimit + ")");
+
+        try {
+            List<MessageDocument> userMessages = messageRepository
+                    .findByConversationIdAndRoleOrderByCreatedAtDesc(conversationId, MessageRole.USER)
+                    .take(turnLimit)
+                    .collectList()
+                    .block();
+
+            if (userMessages == null || userMessages.isEmpty()) {
+                System.out.println("[MongoDB] No user turns found for conversation: " + conversationId);
+                return List.of();
+            }
+
+            Collections.reverse(userMessages);
+            Instant cutoff = userMessages.get(0).createdAt();
+
+            List<MessageDocument> documents = messageRepository
+                    .findByConversationIdAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(conversationId, cutoff)
+                    .collectList()
+                    .block();
+
+            if (documents == null || documents.isEmpty()) {
+                return List.of();
+            }
+
+            List<Message> result = documents.stream()
+                    .map(this::toDomainMessage)
+                    .toList();
+
+            System.out.println("[MongoDB] Found " + result.size() + " messages across " + userMessages.size() + " turns");
+            return result;
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error finding turns for conversation " + conversationId + ": " + e.getMessage());
+            e.printStackTrace();
+            return List.of();
+        }
+    }
+
+    @Override
+    public void truncateToolResults(String messageId) {
+        System.out.println("[MongoDB] Truncating tool results for message: " + messageId);
+
+        try {
+            MessageDocument existing = messageRepository.findById(messageId).block();
+            if (existing == null || existing.role() != MessageRole.TOOL) {
+                return;
+            }
+
+            List<MessageDocument.ToolResultDocument> truncatedResults = existing.toolResults().stream()
+                    .map(result -> new MessageDocument.ToolResultDocument(
+                            result.toolCallId(),
+                            TOOL_RESULT_TRUNCATED_STUB
+                    ))
+                    .toList();
+
+            MessageDocument updated = new MessageDocument(
+                    existing.id(),
+                    existing.conversationId(),
+                    existing.role(),
+                    existing.content(),
+                    existing.toolCalls(),
+                    truncatedResults,
+                    existing.createdAt()
+            );
+            messageRepository.save(updated).block();
+            System.out.println("[MongoDB] Tool results truncated for message: " + messageId);
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error truncating tool results for message " + messageId + ": " + e.getMessage());
+            e.printStackTrace();
         }
     }
 

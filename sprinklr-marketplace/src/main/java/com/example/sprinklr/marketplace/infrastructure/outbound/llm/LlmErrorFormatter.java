@@ -11,6 +11,9 @@ import java.net.UnknownHostException;
  * Maps LLM infrastructure failures to short messages suitable for the chat UI.
  * The Sprinklr LLM router is internal-only and requires VPN for connectivity.
  */
+/**
+ * Converts LLM failures into user-facing messages and retry decisions.
+ */
 public final class LlmErrorFormatter {
 
     /** Shown when the router cannot be reached — almost always means VPN is not connected. */
@@ -26,6 +29,9 @@ public final class LlmErrorFormatter {
     private LlmErrorFormatter() {
     }
 
+    /**
+     * Maps a failure to a concise message for the chat UI.
+     */
     public static String toUserMessage(Throwable error) {
         if (error == null) {
             return genericFailureMessage();
@@ -58,6 +64,9 @@ public final class LlmErrorFormatter {
     /**
      * Short-lived network glitches (stale pooled connections, ALB idle timeout) — safe to retry once.
      */
+    /**
+     * Returns true for short-lived connection failures that are safe to retry once.
+     */
     public static boolean isTransientNetworkFailure(Throwable error) {
         Throwable current = error;
         while (current != null) {
@@ -82,6 +91,9 @@ public final class LlmErrorFormatter {
 
     /**
      * Detects failures that indicate the internal router is unreachable (VPN down, firewall, wrong network).
+     */
+    /**
+     * Returns true when the internal router is unreachable (usually VPN/network).
      */
     public static boolean isVpnOrNetworkFailure(Throwable error) {
         Throwable current = error;

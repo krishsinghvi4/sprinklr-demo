@@ -16,6 +16,9 @@ import java.util.Map;
  * for the Sprinklr router. Empty when no MCP servers are configured — the orchestrator
  * currently passes an empty list; this mapper is ready for when MCP is wired.
  */
+/**
+ * Maps MCP tool metadata into the router's tool schema and tool-choice settings.
+ */
 @Component
 public class LlmToolMapper {
 
@@ -28,6 +31,9 @@ public class LlmToolMapper {
     /**
      * @return API tool definitions; empty list when no tools are whitelisted.
      */
+    /**
+     * Converts MCP tools to router tool definitions.
+     */
     public List<LlmApiTool> toApiTools(List<McpTool> tools) {
         return tools.stream()
                 .map(this::toApiTool)
@@ -37,6 +43,9 @@ public class LlmToolMapper {
     /**
      * Router expects {@code "none"} when no tools are sent (text-only chat)
      * and {@code "auto"} when the model may choose tools.
+     */
+    /**
+     * Returns "none" when no tools are supplied, otherwise "auto".
      */
     public String resolveToolChoice(List<McpTool> tools) {
         return tools.isEmpty() ? "none" : "auto";

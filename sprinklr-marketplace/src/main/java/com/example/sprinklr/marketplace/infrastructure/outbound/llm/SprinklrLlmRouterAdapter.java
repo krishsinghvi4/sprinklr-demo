@@ -11,10 +11,8 @@ import java.util.List;
 import java.util.concurrent.Flow;
 
 /**
- * Hexagonal adapter: maps domain {@link LlmRequest} to {@link LlmService} and back to {@link LlmResponse}.
- * <p>
- * This class intentionally contains no HTTP or JSON logic — it only translates between
- * domain types and the internal service layer.
+ * Hexagonal adapter that bridges the domain LLM port to the internal LLM service.
+ * Keeps HTTP and JSON logic out of domain-facing code.
  */
 public class SprinklrLlmRouterAdapter implements LlmPort {
 
@@ -28,21 +26,27 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
         this.systemPromptLoader = systemPromptLoader;
     }
 
+    /**
+     * Executes a single completion to decide between text and tool calls.
+     */
     @Override
     public LlmResponse complete(LlmRequest request) {
-        // When MCP tools are whitelisted, send full agentic history (tool_calls + tool results).
-        // For text-only turns, still send conversational history (USER + ASSISTANT text) — never an empty history.
-        boolean includeFullToolHistory = !request.tools().isEmpty();
+        boolean fullToolHistoryForCurrentTurn = !request.tools().isEmpty();
 
         LlmCompletionResult result = llmService.complete(new LlmCompletionCommand(
                 request.history(),
                 request.tools(),
-                includeFullToolHistory
+                request.currentTurnUserMessageId(),
+                fullToolHistoryForCurrentTurn,
+                null
         ));
 
         return new LlmResponse(result.content(), result.toolCalls());
     }
 
+    /**
+     * Runs a summary pass after tool execution using a summary prompt.
+     */
     @Override
     public void streamSummary(LlmRequest request, Flow.Subscriber<String> subscriber) {
         log.info("[LLM] streamSummary() historySize={}", request.history().size());
@@ -50,6 +54,7 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
         LlmCompletionResult result = llmService.complete(new LlmCompletionCommand(
                 request.history(),
                 List.of(),
+                request.currentTurnUserMessageId(),
                 true,
                 systemPromptLoader.getSummaryPrompt()
         ));
