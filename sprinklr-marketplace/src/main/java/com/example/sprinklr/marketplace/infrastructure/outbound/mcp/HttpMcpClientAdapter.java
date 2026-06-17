@@ -23,6 +23,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * MCP server adapter that executes tool calls using stored credentials and sessions.
+ * Handles OAuth refresh, session reinitialization, and tool error normalization.
+ */
 @Component
 public class HttpMcpClientAdapter implements McpServerPort {
 
@@ -56,6 +60,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
         this.circuitBreakerFactory = circuitBreakerFactory;
     }
 
+    /**
+     * Executes an MCP tool invocation for a specific user connection.
+     */
     @Override
     public McpInvocationResult invoke(McpInvocation invocation) {
         String connectionId = invocation.serverId();
@@ -111,6 +118,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return new McpInvocationResult(invocation.toolCallId(), false, null, message);
     }
 
+    /**
+     * Resolves auth/session, calls the MCP server, and normalizes any tool errors.
+     */
     private McpInvocationResult executeToolCall(McpInvocation invocation, McpConnectionDocument connection) {
         var catalogEntry = catalogLoader.findById(connection.catalogServerId())
                 .orElseThrow(() -> new McpInvocationException(
@@ -194,6 +204,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return new McpInvocationResult(invocation.toolCallId(), true, content, null);
     }
 
+    /**
+     * Re-initializes MCP session metadata and persists it.
+     */
     private StreamableHttpMcpClient.McpSession reinitializeSession(
             McpConnectionDocument connection,
             com.example.sprinklr.marketplace.domain.model.McpCatalogEntry catalogEntry,
@@ -218,6 +231,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return session;
     }
 
+    /**
+     * Returns the current session or initializes a new one if missing.
+     */
     private StreamableHttpMcpClient.McpSession resolveSession(
             McpConnectionDocument connection,
             com.example.sprinklr.marketplace.domain.model.McpCatalogEntry catalogEntry,
@@ -248,6 +264,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return new StreamableHttpMcpClient.McpSession(sessionId, protocolVersion);
     }
 
+    /**
+     * Refreshes OAuth tokens when expired and updates stored credentials.
+     */
     private Map<String, String> refreshOAuthIfNeeded(
             McpConnectionDocument connection,
             String authType,
@@ -303,6 +322,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return updatedCredentials;
     }
 
+    /**
+     * Forces OAuth refresh after a tool returns an auth error.
+     */
     private Map<String, String> forceRefreshOAuth(
             McpConnectionDocument connection,
             Map<String, String> credentials
@@ -345,6 +367,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return updatedCredentials;
     }
 
+    /**
+     * Attempts to extract a tool error from standard MCP response shapes.
+     */
     private Optional<String> extractMcpToolError(JsonNode result) {
         if (result == null || result.isMissingNode()) {
             return Optional.of("Empty MCP tool result");
@@ -400,6 +425,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 || lower.contains("reconnect");
     }
 
+    /**
+     * Flattens MCP tool output into a string for LLM tool result messages.
+     */
     private String formatToolResult(JsonNode result) {
         if (result.has("content") && result.get("content").isArray()) {
             StringBuilder text = new StringBuilder();

@@ -3,6 +3,9 @@ package com.example.sprinklr.marketplace.infrastructure.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+/**
+ * MCP configuration values used for discovery, OAuth, and agentic limits.
+ */
 @Data
 @ConfigurationProperties(prefix = "app.mcp")
 public class McpProperties {
@@ -12,6 +15,7 @@ public class McpProperties {
     private int maxAgenticIterations = 5;
     private int maxToolCallsPerTurn = 10;
     private String encryptionKey = "";
+    // Resource path to the MCP marketplace catalog.
     private String catalogPath = "classpath:mcp/mcp-catalog.json";
     private String oauthRedirectUri = "http://localhost:5173/oauth/callback";
     private String oauthMetadataUrl = "https://mcp.atlassian.com/.well-known/oauth-authorization-server";

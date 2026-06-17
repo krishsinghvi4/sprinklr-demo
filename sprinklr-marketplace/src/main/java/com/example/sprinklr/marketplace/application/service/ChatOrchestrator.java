@@ -17,6 +17,7 @@ import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
+import com.example.sprinklr.marketplace.infrastructure.config.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import org.slf4j.Logger;
@@ -36,11 +37,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Flow;
 
+/**
+ * Orchestrates chat turns, deciding when to call MCP tools and when to answer directly.
+ * Runs the agentic loop and persists all messages to the conversation store.
+ */
 @Service
 public class ChatOrchestrator implements ChatUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(ChatOrchestrator.class);
-    private static final int HISTORY_LIMIT = 5;
     private static final String TOOL_LIMIT_MESSAGE =
             "Tool call limit reached for this request. Please try a simpler question.";
 
@@ -49,21 +53,27 @@ public class ChatOrchestrator implements ChatUseCase {
     private final McpServerPort mcpServerPort;
     private final McpRegistryPort mcpRegistryPort;
     private final McpProperties mcpProperties;
+    private final ChatProperties chatProperties;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
             LlmPort llmPort,
             McpServerPort mcpServerPort,
             McpRegistryPort mcpRegistryPort,
-            McpProperties mcpProperties
+            McpProperties mcpProperties,
+            ChatProperties chatProperties
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
         this.mcpServerPort = mcpServerPort;
         this.mcpRegistryPort = mcpRegistryPort;
         this.mcpProperties = mcpProperties;
+        this.chatProperties = chatProperties;
     }
 
+    /**
+     * Entry point for streaming chat; runs the agentic loop on a worker thread.
+     */
     @Override
     public void streamChat(ChatRequest request, Flow.Subscriber<String> responseSubscriber) {
         Mono.fromRunnable(() -> runAgenticLoop(request, responseSubscriber))
@@ -74,13 +84,18 @@ public class ChatOrchestrator implements ChatUseCase {
                 );
     }
 
+    /**
+     * Drives the turn: call LLM, invoke tools if requested, then summarize.
+     */
     private void runAgenticLoop(ChatRequest request, Flow.Subscriber<String> responseSubscriber) {
         Set<String> usedConnections = new HashSet<>();
         try {
             String conversationId = resolveConversationId(request);
-            List<Message> history = new ArrayList<>(
-                    chatHistoryPort.findRecentMessages(conversationId, HISTORY_LIMIT)
-            );
+            int priorTurnLimit = Math.max(0, chatProperties.getHistoryTurnLimit() - 1);
+            List<Message> history = new ArrayList<>();
+            if (priorTurnLimit > 0) {
+                history.addAll(chatHistoryPort.findRecentTurns(conversationId, priorTurnLimit));
+            }
 
             Message userMessage = new Message(
                     newId(),
@@ -94,24 +109,33 @@ public class ChatOrchestrator implements ChatUseCase {
             chatHistoryPort.saveMessage(userMessage);
             chatHistoryPort.touchConversation(conversationId, request.prompt());
             history.add(userMessage);
+            String currentTurnUserMessageId = userMessage.id();
+            List<String> currentTurnToolMessageIds = new ArrayList<>();
 
             List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(request.userId());
-            log.info("[Orchestrator] Starting agentic loop conversationId={} userTools={}",
-                    conversationId, userTools.size());
+            log.info("[Orchestrator] Starting agentic loop conversationId={} userTools={} historyTurnLimit={} priorTurnsLoaded={}",
+                    conversationId, userTools.size(), chatProperties.getHistoryTurnLimit(), priorTurnLimit);
 
             int iteration = 0;
             int totalToolCalls = 0;
 
             while (iteration < mcpProperties.getMaxAgenticIterations()) {
                 LlmResponse llmResponse = llmPort.complete(
-                        new LlmRequest(request.prompt(), history, userTools)
+                        new LlmRequest(request.prompt(), history, userTools, currentTurnUserMessageId)
                 );
 
                 if (llmResponse.toolCalls().isEmpty()) {
                     if (iteration == 0) {
                         handleTextOnlyResponse(conversationId, llmResponse, responseSubscriber);
                     } else {
-                        streamSummaryResponse(request, conversationId, history, responseSubscriber);
+                        streamSummaryResponse(
+                                request,
+                                conversationId,
+                                history,
+                                currentTurnUserMessageId,
+                                currentTurnToolMessageIds,
+                                responseSubscriber
+                        );
                     }
                     return;
                 }
@@ -123,7 +147,10 @@ public class ChatOrchestrator implements ChatUseCase {
                     return;
                 }
 
-                executeToolBatch(request, conversationId, history, llmResponse, usedConnections);
+                String toolMessageId = executeToolBatch(
+                        request, conversationId, history, llmResponse, usedConnections
+                );
+                currentTurnToolMessageIds.add(toolMessageId);
                 totalToolCalls += llmResponse.toolCalls().size();
                 iteration++;
             }
@@ -137,7 +164,12 @@ public class ChatOrchestrator implements ChatUseCase {
         }
     }
 
-    private void executeToolBatch(
+    /**
+     * Executes a batch of tool calls and records tool results in history.
+     *
+     * @return id of the persisted TOOL message row
+     */
+    private String executeToolBatch(
             ChatRequest request,
             String conversationId,
             List<Message> history,
@@ -182,20 +214,27 @@ public class ChatOrchestrator implements ChatUseCase {
         );
         chatHistoryPort.saveMessage(toolMessage);
         history.add(toolMessage);
+        return toolMessage.id();
     }
 
+    /**
+     * After tool execution, runs a final LLM pass to summarize and respond.
+     */
     private void streamSummaryResponse(
             ChatRequest request,
             String conversationId,
             List<Message> history,
+            String currentTurnUserMessageId,
+            List<String> currentTurnToolMessageIds,
             Flow.Subscriber<String> responseSubscriber
     ) {
         Flow.Subscriber<String> capturingSummarySubscriber = createCapturingSummarySubscriber(
                 conversationId,
+                currentTurnToolMessageIds,
                 responseSubscriber
         );
         llmPort.streamSummary(
-                new LlmRequest(request.prompt(), history, List.of()),
+                new LlmRequest(request.prompt(), history, List.of(), currentTurnUserMessageId),
                 capturingSummarySubscriber
         );
     }
@@ -273,6 +312,9 @@ public class ChatOrchestrator implements ChatUseCase {
         return chatHistoryPort.saveConversation(conversation).id();
     }
 
+    /**
+     * Maps an LLM tool call to an MCP invocation using the tool name prefix.
+     */
     private McpInvocation toInvocation(String userId, ToolCall toolCall) {
         int separatorIndex = toolCall.name().indexOf('.');
         if (separatorIndex <= 0) {
@@ -301,6 +343,7 @@ public class ChatOrchestrator implements ChatUseCase {
 
     private Flow.Subscriber<String> createCapturingSummarySubscriber(
             String conversationId,
+            List<String> currentTurnToolMessageIds,
             Flow.Subscriber<String> originalSubscriber
     ) {
         return new Flow.Subscriber<String>() {
@@ -340,6 +383,10 @@ public class ChatOrchestrator implements ChatUseCase {
                             Instant.now()
                     );
                     chatHistoryPort.saveMessage(assistantSummaryMessage);
+                }
+
+                for (String toolMessageId : currentTurnToolMessageIds) {
+                    chatHistoryPort.truncateToolResults(toolMessageId);
                 }
 
                 originalSubscriber.onComplete();

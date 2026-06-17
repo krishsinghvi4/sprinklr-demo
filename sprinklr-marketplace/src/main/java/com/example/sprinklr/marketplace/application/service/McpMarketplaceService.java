@@ -21,6 +21,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * Orchestrates the MCP marketplace lifecycle: list servers, connect/disconnect,
+ * and persist user connections with discovered tool metadata.
+ */
 @Service
 public class McpMarketplaceService {
 
@@ -45,7 +49,10 @@ public class McpMarketplaceService {
         this.credentialVault = credentialVault;
         this.authStrategyRegistry = authStrategyRegistry;
     }
-
+//It fetches existing user connections from the registryPort and compares them against the list of all available MCP servers provided by catalogLoader
+    /**
+     * Builds the marketplace view by combining catalog entries with user connections.
+     */
     public MarketplaceView getMarketplaceForUser(String userId) {
         List<McpUserConnection> connections = registryPort.findByUserId(userId);
         List<AvailableServerView> available = catalogLoader.getAll().stream()
@@ -57,6 +64,11 @@ public class McpMarketplaceService {
         return new MarketplaceView(available, connectionViews);
     }
 
+        //Establish a new link between the user and an external MCP server by creating a new connection
+    /**
+     * Connects to a non-OAuth MCP server by validating credentials, discovering tools,
+     * and storing the resulting connection.
+     */
     public ConnectionView connect(String userId, String catalogServerId, Map<String, String> credentials) {
         McpCatalogEntry catalogEntry = catalogLoader.findById(catalogServerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown MCP server: " + catalogServerId));
@@ -75,7 +87,7 @@ public class McpMarketplaceService {
         }
 
         String connectionId = UUID.randomUUID().toString();
-        Map<String, String> authHeaders = authStrategyRegistry
+        Map<String, String> authHeaders = authStrategyRegistry 
                 .require(catalogEntry.authType())
                 .buildAuthHeaders(credentials);
 
@@ -119,6 +131,9 @@ public class McpMarketplaceService {
         return toConnectionView(saved);
     }
 
+    /**
+     * Connects an OAuth-backed MCP server after the OAuth callback exchanges tokens.
+     */
     public ConnectionView connectOAuth(String userId, String catalogServerId, Map<String, String> credentials) {
         McpCatalogEntry catalogEntry = catalogLoader.findById(catalogServerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown MCP server: " + catalogServerId));
@@ -179,6 +194,9 @@ public class McpMarketplaceService {
         return toConnectionView(saved);
     }
 
+    /**
+     * Removes the persisted MCP connection for the given user.
+     */
     public void disconnect(String userId, String connectionId) {
         log.info("[MCP] Disconnecting userId={} connectionId={}", userId, connectionId);
         registryPort.findByIdAndUserId(connectionId, userId)

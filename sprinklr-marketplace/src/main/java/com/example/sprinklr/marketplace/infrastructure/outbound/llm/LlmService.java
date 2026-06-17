@@ -64,21 +64,28 @@ public class LlmService {
 
     private LlmCompletionResult executeCompletion(LlmCompletionCommand command) {
         List<McpTool> tools = command.tools();
-        boolean includeFullToolHistory = command.includeFullToolHistory();
+        String currentTurnUserMessageId = command.currentTurnUserMessageId();
+        boolean fullToolHistoryForCurrentTurn = command.fullToolHistoryForCurrentTurn();
 
-        List<LlmApiMessage> apiMessages = messageMapper.toApiMessages(
+        List<LlmApiMessage> apiMessages = messageMapper.toTurnScopedApiMessages(
                 command.history(),
-                includeFullToolHistory,
+                currentTurnUserMessageId,
+                fullToolHistoryForCurrentTurn,
                 command.systemPromptOverride()
         );
         List<LlmApiTool> apiTools = toolMapper.toApiTools(tools);
         String toolChoice = toolMapper.resolveToolChoice(tools);
 
         int rawHistorySize = command.history().size();
-        int mappedHistoryCount = messageMapper.countMappedHistoryMessages(command.history(), includeFullToolHistory);
+        int mappedHistoryCount = messageMapper.countTurnScopedMappedHistoryMessages(
+                command.history(),
+                currentTurnUserMessageId,
+                fullToolHistoryForCurrentTurn
+        );
 
-        log.info("[LLM] Starting completion model={} tools={} historyRaw={} historyMapped={} fullToolHistory={}",
-                properties.getModel(), tools.size(), rawHistorySize, mappedHistoryCount, includeFullToolHistory);
+        log.info("[LLM] Starting completion model={} tools={} historyRaw={} historyMapped={} turnScoped={} fullToolCurrentTurn={}",
+                properties.getModel(), tools.size(), rawHistorySize, mappedHistoryCount,
+                currentTurnUserMessageId != null, fullToolHistoryForCurrentTurn);
 
         ChatCompletionRequest request = buildRequest(apiMessages, apiTools, toolChoice);
 

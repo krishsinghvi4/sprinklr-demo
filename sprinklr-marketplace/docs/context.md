@@ -29,6 +29,7 @@
   - ✅ **Streamable HTTP MCP client** — initialize, tools/list, tools/call via WebClient
   - ✅ **Per-connection circuit breakers** — Resilience4j keyed by `mcp-{connectionId}`
   - ✅ **ChatOrchestrator agentic loop** — sequential tool execution (`concatMap`), iteration + tool-call limits
+  - ✅ **Turn-based LLM context** — last N user prompts (`app.chat.history-turn-limit`); prior turns conversational, current turn full agentic; TOOL JSON truncated after summary
   - ✅ **User tool schemas loaded into LLM** — from active MCP connections per user
   - ✅ **SprinklrLlmRouterAdapter.streamSummary()** — wired via LlmService
   - ✅ **Profile + Marketplace UI** — `/profile` page with Connect/Disconnect for Jira
@@ -66,7 +67,7 @@ Adding a new MCP server must be a **configuration + credentials** operation, not
 
 ## 🔄 The Core Flow
 1. A user submits a natural language prompt.
-2. The Spring Boot backend fetches recent conversation history from MongoDB (last 5 messages).
+2. The Spring Boot backend fetches recent conversation history from MongoDB (last N user turns via `app.chat.history-turn-limit`, default 5).
 3. The backend loads the user's registered MCP tool schemas from `McpConfigs`.
 4. The backend sends the prompt, history, and active tool schemas to the LLM.
 5. The LLM decides which tools to call (if any).
@@ -81,7 +82,7 @@ Adding a new MCP server must be a **configuration + credentials** operation, not
 | **Users** | Auth credentials (bcrypt password), email verification status. Will store AES-256 encrypted MCP API tokens/PATs per server. |
 | **Otps** | Email OTP codes for signup and password reset flows |
 | **Conversations** | Metadata, user ownership, session state |
-| **Messages** | AI memory (USER, ASSISTANT, TOOL roles). Raw JSON tool results truncated after LLM summarization. |
+| **Messages** | AI memory (USER, ASSISTANT, TOOL roles). Raw TOOL JSON truncated to a stub after LLM summarization (`truncateToolResults`). |
 | **McpConnections** | Per-user MCP server registry (`mcp_connections`): catalog server ID, encrypted credentials, MCP session ID, discovered tool schemas, status |
 
 ---
@@ -172,6 +173,11 @@ npm run dev
 ---
 
 ## 🔐 Important Configuration
+
+### Chat
+```
+app.chat.history-turn-limit=${CHAT_HISTORY_TURN_LIMIT:5}   # user prompts included in LLM context
+```
 
 ### LLM Router (`application.properties`)
 ```
