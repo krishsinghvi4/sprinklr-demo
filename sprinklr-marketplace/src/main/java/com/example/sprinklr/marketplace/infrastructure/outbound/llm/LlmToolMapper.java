@@ -62,11 +62,15 @@ public class LlmToolMapper {
             return description;
         }
         String bareName = toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
+        if ("getJiraIssueTypeMetaWithFields".equals(bareName)) {
+            return description + " Use this to list required fields and allowed options for the user. "
+                    + "Metadata options are NOT defaults — never pass an option to createJiraIssue unless the user explicitly chose it.";
+        }
         if ("createJiraIssue".equals(bareName)) {
-            return description + " IMPORTANT: Call getJiraIssueTypeMetaWithFields in the same turn first. "
+            return description + " IMPORTANT: Call getJiraIssueTypeMetaWithFields first to learn required fields. "
                     + "Use fieldId keys from that response in additional_fields; never invent customfield IDs. "
-                    + "Put components inside additional_fields (e.g. {\"components\":[{\"name\":\"API\"}]}), never top-level. "
-                    + "If the user omitted a required field, ask which value to use — never default or guess.";
+                    + "Put components inside additional_fields (e.g. {\"components\":[{\"name\":\"<user-chosen>\"}]}), never top-level. "
+                    + "Do NOT call this tool until the user has explicitly stated every required field value in their message.";
         }
         return description;
     }
