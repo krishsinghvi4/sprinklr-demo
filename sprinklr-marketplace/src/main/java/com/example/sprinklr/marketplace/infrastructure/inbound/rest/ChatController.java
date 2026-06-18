@@ -12,7 +12,6 @@ import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.Conversa
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ConversationSummaryDto;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
-import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;

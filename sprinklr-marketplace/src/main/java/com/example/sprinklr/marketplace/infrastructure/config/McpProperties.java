@@ -25,4 +25,8 @@ public class McpProperties {
     private long oauthStateTtlSeconds = 600;
     private String oauthSuccessRedirectUrl = "http://localhost:5173/profile?oauth=success";
     private String oauthErrorRedirectUrl = "http://localhost:5173/profile?oauth=error";
+    /** Streamable HTTP endpoint for the zereight GitLab MCP server (docker maps 3333 -> 3002). */
+    private String gitlabMcpEndpointUrl = "http://127.0.0.1:3333/mcp";
+    /** GitLab MCP auth header mode: private-token (default) or bearer. */
+    private String gitlabAuthHeaderMode = "private-token";
 }

@@ -35,7 +35,7 @@ class AuthFlowRouterTest {
                 "desc",
                 "https://gitlab.example.com/mcp",
                 "gitlab",
-                "BASIC_EMAIL_TOKEN",
+                "GITLAB_PRIVATE_TOKEN",
                 new McpAuthConfig(McpAuthKind.CREDENTIALS, null),
                 McpConnectMethod.CREDENTIAL_FORM,
                 List.of()

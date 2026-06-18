@@ -14,7 +14,7 @@ class AtlassianJiraToolArgumentNormalizerTest {
     private final AtlassianJiraToolArgumentNormalizer normalizer = new AtlassianJiraToolArgumentNormalizer();
 
     @Test
-    void hoistsComponentsAndWrapsSelectCustomFieldValues() throws Exception {
+    void keepsComponentsInAdditionalFieldsAndWrapsSelectCustomFieldValues() throws Exception {
         String input = """
                 {
                   "cloudId": "sprinklr.atlassian.net",
@@ -31,10 +31,68 @@ class AtlassianJiraToolArgumentNormalizerTest {
         String normalized = normalizer.normalize("createJiraIssue", input);
         JsonNode root = OBJECT_MAPPER.readTree(normalized);
 
-        assertTrue(root.get("components").isArray());
-        assertEquals("API", root.get("components").get(0).asText());
-        assertFalse(root.get("additional_fields").has("components"));
+        assertFalse(root.has("components"));
+        assertEquals("API", root.path("additional_fields").path("components").path(0).path("name").asText());
         assertEquals("All", root.path("additional_fields").path("customfield_10053").path("value").asText());
+    }
+
+    @Test
+    void nestsTopLevelComponentIdsIntoAdditionalFields() throws Exception {
+        String input = """
+                {
+                  "cloudId": "sprinklr.atlassian.net",
+                  "projectKey": "ITOPS",
+                  "issueTypeName": "Task",
+                  "summary": "New ITOPS Task",
+                  "components": [{"id": "12808"}],
+                  "additional_fields": {"customfield_14371": {"value": "dev"}}
+                }
+                """;
+
+        String normalized = normalizer.normalize("createJiraIssue", input);
+        JsonNode root = OBJECT_MAPPER.readTree(normalized);
+
+        assertFalse(root.has("components"));
+        assertEquals("12808", root.path("additional_fields").path("components").path(0).path("id").asText());
+    }
+
+    @Test
+    void nestsTopLevelComponentNameStringsIntoAdditionalFields() throws Exception {
+        String input = """
+                {
+                  "cloudId": "sprinklr.atlassian.net",
+                  "projectKey": "ITOPS",
+                  "issueTypeName": "Task",
+                  "summary": "New ITOPS Task",
+                  "components": ["API"]
+                }
+                """;
+
+        String normalized = normalizer.normalize("createJiraIssue", input);
+        JsonNode root = OBJECT_MAPPER.readTree(normalized);
+
+        assertFalse(root.has("components"));
+        assertTrue(root.path("additional_fields").path("components").isArray());
+        assertEquals("API", root.path("additional_fields").path("components").path(0).path("name").asText());
+    }
+
+    @Test
+    void supportsPrefixedToolNames() throws Exception {
+        String input = """
+                {
+                  "cloudId": "sprinklr.atlassian.net",
+                  "projectKey": "ITOPS",
+                  "issueTypeName": "Task",
+                  "summary": "New ITOPS Task",
+                  "components": ["API"]
+                }
+                """;
+
+        String normalized = normalizer.normalize("jira.createJiraIssue", input);
+        JsonNode root = OBJECT_MAPPER.readTree(normalized);
+
+        assertFalse(root.has("components"));
+        assertEquals("API", root.path("additional_fields").path("components").path(0).path("name").asText());
     }
 
     @Test

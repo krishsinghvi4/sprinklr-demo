@@ -1,9 +1,34 @@
 import js from '@eslint/js'
-import globals from 'globals'
-import react from 'eslint-plugin-react'
 import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
 import typescript from '@typescript-eslint/eslint-plugin'
 import typescriptParser from '@typescript-eslint/parser'
+
+const browserGlobals = {
+  window: 'readonly',
+  document: 'readonly',
+  console: 'readonly',
+  fetch: 'readonly',
+  localStorage: 'readonly',
+  sessionStorage: 'readonly',
+  setTimeout: 'readonly',
+  clearTimeout: 'readonly',
+  setInterval: 'readonly',
+  clearInterval: 'readonly',
+  atob: 'readonly',
+  btoa: 'readonly',
+  URLSearchParams: 'readonly',
+  FormData: 'readonly',
+  AbortController: 'readonly',
+  HTMLElement: 'readonly',
+  HTMLTextAreaElement: 'readonly',
+  HTMLInputElement: 'readonly',
+  HTMLDivElement: 'readonly',
+  Event: 'readonly',
+  MouseEvent: 'readonly',
+  KeyboardEvent: 'readonly',
+  React: 'readonly',
+}
 
 export default [
   { ignores: ['dist'] },
@@ -13,7 +38,7 @@ export default [
       parser: typescriptParser,
       ecmaVersion: 2020,
       sourceType: 'module',
-      globals: globals.browser,
+      globals: browserGlobals,
       parserOptions: {
         ecmaFeatures: {
           jsx: true,
@@ -21,22 +46,15 @@ export default [
       },
     },
     plugins: {
-      react,
       'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
       '@typescript-eslint': typescript,
     },
     rules: {
       ...js.configs.recommended.rules,
       ...typescript.configs.recommended.rules,
-      ...react.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
-      'react/react-in-jsx-scope': 'off',
-      'react/prop-types': 'off',
-    },
-    settings: {
-      react: {
-        version: 'detect',
-      },
+      'react-refresh/only-export-components': 'off',
     },
   },
 ]

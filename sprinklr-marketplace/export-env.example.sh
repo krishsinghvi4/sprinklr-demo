@@ -37,6 +37,11 @@ export MCP_OAUTH_REDIRECT_URI="http://localhost:5173/oauth/callback"
 export MCP_OAUTH_SUCCESS_REDIRECT_URL="http://localhost:5173/profile?oauth=success"
 export MCP_OAUTH_ERROR_REDIRECT_URL="http://localhost:5173/profile?oauth=error"
 
+# --- GitLab MCP (zereight/docker on localhost:3333) ---
+export GITLAB_MCP_SERVER_URL="http://127.0.0.1:3333/mcp"
+# private-token (default) or bearer — must match how the MCP server expects PAT headers
+export GITLAB_MCP_AUTH_HEADER="private-token"
+
 # --- Mail via Microsoft Graph (only if MAIL_PROVIDER=graph) ---
 # export AZURE_TENANT_ID="xxxx"
 # export AZURE_CLIENT_ID="xxxx"
