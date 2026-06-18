@@ -48,6 +48,7 @@ public record ProfileResponse(
             String displayName,
             String description,
             String authType,
+            String connectMethod,
             List<CredentialFieldDto> credentialFields,
             boolean connected
     ) {
@@ -57,6 +58,7 @@ public record ProfileResponse(
                     server.displayName(),
                     server.description(),
                     server.authType(),
+                    server.connectMethod(),
                     server.credentialFields().stream().map(CredentialFieldDto::from).toList(),
                     server.connected()
             );

@@ -1,6 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth;
 
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpDcrClientDocument;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,8 +20,12 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
+/**
+ * Generic OAuth client for catalog-driven MCP providers (authorization URL, token exchange, refresh).
+ */
 @Component
 public class McpOAuthClient {
 
@@ -29,72 +34,81 @@ public class McpOAuthClient {
     private static final long EXPIRY_SKEW_SECONDS = 60;
 
     private final WebClient webClient;
-    private final McpProperties properties;
+    private final McpOAuthConfigResolver oauthConfigResolver;
     private final McpDcrRegistrationService dcrRegistrationService;
 
     public McpOAuthClient(
             @Qualifier("mcpWebClient") WebClient webClient,
-            McpProperties properties,
+            McpOAuthConfigResolver oauthConfigResolver,
             McpDcrRegistrationService dcrRegistrationService
     ) {
         this.webClient = webClient;
-        this.properties = properties;
+        this.oauthConfigResolver = oauthConfigResolver;
         this.dcrRegistrationService = dcrRegistrationService;
     }
 
-    public String buildAuthorizationUrl(String state, String codeChallenge) {
-        McpDcrClientDocument dcrClient = dcrRegistrationService.getOrRegisterClient();
-        McpOAuthMetadata metadata = dcrRegistrationService.metadata();
+    public String buildAuthorizationUrl(McpCatalogEntry entry, String state, String codeChallenge) {
+        McpOAuthCatalogConfig oauth = oauthConfigResolver.resolve(entry);
+        McpOAuthMetadata metadata = dcrRegistrationService.metadata(entry);
+        McpDcrClientDocument dcrClient = dcrRegistrationService.getOrRegisterClient(entry);
 
-        return UriComponentsBuilder.fromUriString(metadata.authorizationEndpoint())
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(metadata.authorizationEndpoint())
                 .queryParam("client_id", dcrClient.clientId())
-                .queryParam("redirect_uri", properties.getOauthRedirectUri())
+                .queryParam("redirect_uri", oauthConfigResolver.redirectUri())
                 .queryParam("response_type", "code")
                 .queryParam("state", state)
-                .queryParam("scope", properties.getOauthScopes())
-                .queryParam("code_challenge", codeChallenge)
-                .queryParam("code_challenge_method", "S256")
-                .queryParam("resource", properties.getOauthResource())
-                .encode(StandardCharsets.UTF_8)
-                .build()
-                .toUriString();
+                .queryParam("scope", oauth.scopes());
+
+        if (oauth.usePkce()) {
+            builder.queryParam("code_challenge", codeChallenge)
+                    .queryParam("code_challenge_method", "S256");
+        }
+        if (oauth.includeResourceParam() && oauth.resource() != null && !oauth.resource().isBlank()) {
+            builder.queryParam("resource", oauth.resource());
+        }
+
+        return builder.encode(StandardCharsets.UTF_8).build().toUriString();
     }
 
-    public AtlassianOAuthToken exchangeCodeForTokens(String code, String codeVerifier) {
-        McpDcrClientDocument dcrClient = dcrRegistrationService.getOrRegisterClient();
-        McpOAuthMetadata metadata = dcrRegistrationService.metadata();
+    public McpOAuthToken exchangeCodeForTokens(McpCatalogEntry entry, String code, String codeVerifier) {
+        McpOAuthCatalogConfig oauth = oauthConfigResolver.resolve(entry);
+        McpOAuthMetadata metadata = dcrRegistrationService.metadata(entry);
+        McpDcrClientDocument dcrClient = dcrRegistrationService.getOrRegisterClient(entry);
 
-        return requestTokens(
-                metadata.tokenEndpoint(),
-                Map.of(
-                        "grant_type", "authorization_code",
-                        "client_id", dcrClient.clientId(),
-                        "client_secret", dcrClient.clientSecret(),
-                        "code", code,
-                        "redirect_uri", properties.getOauthRedirectUri(),
-                        "code_verifier", codeVerifier,
-                        "resource", properties.getOauthResource()
-                )
-        );
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("grant_type", "authorization_code");
+        payload.put("client_id", dcrClient.clientId());
+        payload.put("client_secret", dcrClient.clientSecret());
+        payload.put("code", code);
+        payload.put("redirect_uri", oauthConfigResolver.redirectUri());
+        if (oauth.usePkce()) {
+            payload.put("code_verifier", codeVerifier);
+        }
+        if (oauth.includeResourceParam() && oauth.resource() != null && !oauth.resource().isBlank()) {
+            payload.put("resource", oauth.resource());
+        }
+
+        return requestTokens(entry, metadata.tokenEndpoint(), payload);
     }
 
-    public AtlassianOAuthToken refreshAccessToken(String refreshToken) {
-        McpDcrClientDocument dcrClient = dcrRegistrationService.getOrRegisterClient();
-        McpOAuthMetadata metadata = dcrRegistrationService.metadata();
+    public McpOAuthToken refreshAccessToken(McpCatalogEntry entry, String refreshToken) {
+        McpOAuthCatalogConfig oauth = oauthConfigResolver.resolve(entry);
+        McpOAuthMetadata metadata = dcrRegistrationService.metadata(entry);
+        McpDcrClientDocument dcrClient = dcrRegistrationService.getOrRegisterClient(entry);
 
-        return requestTokens(
-                metadata.tokenEndpoint(),
-                Map.of(
-                        "grant_type", "refresh_token",
-                        "client_id", dcrClient.clientId(),
-                        "client_secret", dcrClient.clientSecret(),
-                        "refresh_token", refreshToken,
-                        "resource", properties.getOauthResource()
-                )
-        );
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("grant_type", "refresh_token");
+        payload.put("client_id", dcrClient.clientId());
+        payload.put("client_secret", dcrClient.clientSecret());
+        payload.put("refresh_token", refreshToken);
+        if (oauth.includeResourceParam() && oauth.resource() != null && !oauth.resource().isBlank()) {
+            payload.put("resource", oauth.resource());
+        }
+
+        return requestTokens(entry, metadata.tokenEndpoint(), payload);
     }
 
-    private AtlassianOAuthToken requestTokens(String tokenEndpoint, Map<String, String> payload) {
+    private McpOAuthToken requestTokens(McpCatalogEntry entry, String tokenEndpoint, Map<String, String> payload) {
         try {
             MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
             payload.forEach(form::add);
@@ -113,26 +127,24 @@ public class McpOAuthClient {
             throw exception;
         } catch (WebClientResponseException exception) {
             String responseBody = exception.getResponseBodyAsString();
-            log.warn("[MCP] OAuth token request failed status={} redirectUri={} body={}",
-                    exception.getStatusCode().value(),
-                    properties.getOauthRedirectUri(),
-                    responseBody);
+            log.warn("[MCP] OAuth token request failed catalogServerId={} status={} body={}",
+                    entry.id(), exception.getStatusCode().value(), responseBody);
             throw new McpConnectionException(
-                    tokenExchangeUserMessage(exception.getStatusCode().value()),
+                    tokenExchangeUserMessage(entry, exception.getStatusCode().value()),
                     "OAuth token request error: status="
                             + exception.getStatusCode().value()
                             + " body="
                             + responseBody);
         } catch (Exception exception) {
-            log.warn("[MCP] OAuth token request failed redirectUri={}: {}",
-                    properties.getOauthRedirectUri(), exception.getMessage());
+            log.warn("[MCP] OAuth token request failed catalogServerId={}: {}",
+                    entry.id(), exception.getMessage());
             throw new McpConnectionException(
                     "OAuth token exchange failed",
                     "OAuth token request error: " + exception.getMessage());
         }
     }
 
-    private AtlassianOAuthToken parseTokenResponse(String responseBody) throws Exception {
+    private McpOAuthToken parseTokenResponse(String responseBody) throws Exception {
         JsonNode root = OBJECT_MAPPER.readTree(responseBody);
         String accessToken = root.path("access_token").asText(null);
         String refreshToken = root.path("refresh_token").asText(null);
@@ -151,12 +163,13 @@ public class McpOAuthClient {
         }
 
         long expiresAt = Instant.now().getEpochSecond() + Math.max(expiresIn - EXPIRY_SKEW_SECONDS, 0);
-        return new AtlassianOAuthToken(accessToken, refreshToken, expiresAt, scope, tokenType);
+        return new McpOAuthToken(accessToken, refreshToken, expiresAt, scope, tokenType);
     }
 
-    private String tokenExchangeUserMessage(int statusCode) {
+    private String tokenExchangeUserMessage(McpCatalogEntry entry, int statusCode) {
         if (statusCode == 401) {
-            return "OAuth token exchange failed. Please disconnect and reconnect Jira from your Profile page.";
+            return "OAuth token exchange failed. Please disconnect and reconnect "
+                    + entry.displayName() + " from your Profile page.";
         }
         return "OAuth token exchange failed";
     }

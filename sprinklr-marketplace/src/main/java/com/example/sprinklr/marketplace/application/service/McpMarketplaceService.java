@@ -1,15 +1,11 @@
 package com.example.sprinklr.marketplace.application.service;
 
+import com.example.sprinklr.marketplace.application.service.mcp.AuthFlowRouter;
+import com.example.sprinklr.marketplace.application.service.mcp.CredentialAuthFlowHandler;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
-import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpDiscoveryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpDiscoveryException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpOAuthException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,8 +14,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Orchestrates the MCP marketplace lifecycle: list servers, connect/disconnect,
@@ -32,24 +26,21 @@ public class McpMarketplaceService {
 
     private final McpCatalogLoader catalogLoader;
     private final McpRegistryPort registryPort;
-    private final McpDiscoveryPort discoveryPort;
-    private final CredentialVaultPort credentialVault;
-    private final McpAuthStrategyRegistry authStrategyRegistry;
+    private final CredentialAuthFlowHandler credentialAuthFlowHandler;
+    private final AuthFlowRouter authFlowRouter;
 
     public McpMarketplaceService(
             McpCatalogLoader catalogLoader,
             McpRegistryPort registryPort,
-            McpDiscoveryPort discoveryPort,
-            CredentialVaultPort credentialVault,
-            McpAuthStrategyRegistry authStrategyRegistry
+            CredentialAuthFlowHandler credentialAuthFlowHandler,
+            AuthFlowRouter authFlowRouter
     ) {
         this.catalogLoader = catalogLoader;
         this.registryPort = registryPort;
-        this.discoveryPort = discoveryPort;
-        this.credentialVault = credentialVault;
-        this.authStrategyRegistry = authStrategyRegistry;
+        this.credentialAuthFlowHandler = credentialAuthFlowHandler;
+        this.authFlowRouter = authFlowRouter;
     }
-//It fetches existing user connections from the registryPort and compares them against the list of all available MCP servers provided by catalogLoader
+
     /**
      * Builds the marketplace view by combining catalog entries with user connections.
      */
@@ -64,134 +55,16 @@ public class McpMarketplaceService {
         return new MarketplaceView(available, connectionViews);
     }
 
-        //Establish a new link between the user and an external MCP server by creating a new connection
     /**
-     * Connects to a non-OAuth MCP server by validating credentials, discovering tools,
+     * Connects to a credential-based MCP server by validating credentials, discovering tools,
      * and storing the resulting connection.
      */
     public ConnectionView connect(String userId, String catalogServerId, Map<String, String> credentials) {
         McpCatalogEntry catalogEntry = catalogLoader.findById(catalogServerId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown MCP server: " + catalogServerId));
 
-        if ("OAUTH_ATLASSIAN".equals(catalogEntry.authType())) {
-            throw new McpOAuthException(
-                    "OAuth connection required for " + catalogEntry.displayName(),
-                    "OAuth required for catalogServerId=" + catalogServerId);
-        }
-
-        validateCredentials(catalogEntry, credentials);
-
-        Optional<McpUserConnection> existing = registryPort.findByUserIdAndCatalogServerId(userId, catalogServerId);
-        if (existing.isPresent()) {
-            disconnect(userId, existing.get().id());
-        }
-
-        String connectionId = UUID.randomUUID().toString();
-        Map<String, String> authHeaders = authStrategyRegistry 
-                .require(catalogEntry.authType())
-                .buildAuthHeaders(credentials);
-
-        log.info("[MCP] Connecting userId={} catalogServerId={} connectionId={}",
-                userId, catalogServerId, connectionId);
-
-        McpDiscoveryPort.McpDiscoveryResult discoveryResult;
-        try {
-            discoveryResult = discoveryPort.discover(
-                    catalogEntry.endpointUrl(),
-                    authHeaders,
-                    catalogEntry.serverIdPrefix(),
-                    connectionId
-            );
-        } catch (McpConnectionException | McpDiscoveryException exception) {
-            log.warn("[MCP] Connect failed userId={} catalogServerId={}: {}",
-                    userId, catalogServerId, exception.getMessage());
-            throw exception;
-        }
-
-        String encrypted = credentialVault.encrypt(credentials);
-        McpUserConnection connection = new McpUserConnection(
-                connectionId,
-                userId,
-                catalogServerId,
-                McpConnectionStatus.CONNECTED,
-                discoveryResult.sessionId(),
-                discoveryResult.protocolVersion(),
-                discoveryResult.tools(),
-                Instant.now(),
-                null
-        );
-
-        McpUserConnection saved = registryPort.saveConnection(
-                connection,
-                encrypted,
-                catalogEntry.serverIdPrefix()
-        );
-        log.info("[MCP] Connected userId={} connectionId={} toolCount={}",
-                userId, connectionId, saved.tools().size());
-        return toConnectionView(saved);
-    }
-
-    /**
-     * Connects an OAuth-backed MCP server after the OAuth callback exchanges tokens.
-     */
-    public ConnectionView connectOAuth(String userId, String catalogServerId, Map<String, String> credentials) {
-        McpCatalogEntry catalogEntry = catalogLoader.findById(catalogServerId)
-                .orElseThrow(() -> new IllegalArgumentException("Unknown MCP server: " + catalogServerId));
-
-        if (!"OAUTH_ATLASSIAN".equals(catalogEntry.authType())) {
-            throw new McpOAuthException(
-                    "OAuth is not enabled for " + catalogEntry.displayName(),
-                    "OAuth connect attempted for authType=" + catalogEntry.authType());
-        }
-
-        Optional<McpUserConnection> existing = registryPort.findByUserIdAndCatalogServerId(userId, catalogServerId);
-        if (existing.isPresent()) {
-            disconnect(userId, existing.get().id());
-        }
-
-        String connectionId = UUID.randomUUID().toString();
-        Map<String, String> authHeaders = authStrategyRegistry
-                .require(catalogEntry.authType())
-                .buildAuthHeaders(credentials);
-
-        log.info("[MCP] Connecting OAuth userId={} catalogServerId={} connectionId={}",
-                userId, catalogServerId, connectionId);
-
-        McpDiscoveryPort.McpDiscoveryResult discoveryResult;
-        try {
-            discoveryResult = discoveryPort.discover(
-                    catalogEntry.endpointUrl(),
-                    authHeaders,
-                    catalogEntry.serverIdPrefix(),
-                    connectionId
-            );
-        } catch (McpConnectionException | McpDiscoveryException exception) {
-            log.warn("[MCP] OAuth connect failed userId={} catalogServerId={}: {}",
-                    userId, catalogServerId, exception.getMessage());
-            throw exception;
-        }
-
-        String encrypted = credentialVault.encrypt(credentials);
-        McpUserConnection connection = new McpUserConnection(
-                connectionId,
-                userId,
-                catalogServerId,
-                McpConnectionStatus.CONNECTED,
-                discoveryResult.sessionId(),
-                discoveryResult.protocolVersion(),
-                discoveryResult.tools(),
-                Instant.now(),
-                null
-        );
-
-        McpUserConnection saved = registryPort.saveConnection(
-                connection,
-                encrypted,
-                catalogEntry.serverIdPrefix()
-        );
-        log.info("[MCP] OAuth connected userId={} connectionId={} toolCount={}",
-                userId, connectionId, saved.tools().size());
-        return toConnectionView(saved);
+        authFlowRouter.assertCredentialConnectAllowed(catalogEntry);
+        return credentialAuthFlowHandler.connect(userId, catalogEntry, credentials);
     }
 
     /**
@@ -204,17 +77,6 @@ public class McpMarketplaceService {
         registryPort.delete(connectionId, userId);
     }
 
-    private void validateCredentials(McpCatalogEntry entry, Map<String, String> credentials) {
-        entry.credentialFields().forEach(field -> {
-            if (field.required()) {
-                String value = credentials.get(field.key());
-                if (value == null || value.isBlank()) {
-                    throw new IllegalArgumentException(field.label() + " is required");
-                }
-            }
-        });
-    }
-
     private AvailableServerView toAvailableServer(McpCatalogEntry entry, List<McpUserConnection> connections) {
         boolean connected = connections.stream()
                 .anyMatch(c -> c.catalogServerId().equals(entry.id())
@@ -224,6 +86,7 @@ public class McpMarketplaceService {
                 entry.displayName(),
                 entry.description(),
                 entry.authType(),
+                entry.connectMethod().name(),
                 entry.credentialFields(),
                 connected
         );
@@ -254,6 +117,7 @@ public class McpMarketplaceService {
             String displayName,
             String description,
             String authType,
+            String connectMethod,
             List<com.example.sprinklr.marketplace.domain.model.McpCredentialField> credentialFields,
             boolean connected
     ) {}

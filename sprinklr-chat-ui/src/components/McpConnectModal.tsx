@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AvailableServer } from '../types/profile'
+import { AvailableServer, mapApiError } from '../types/profile'
 
 interface McpConnectModalProps {
   server: AvailableServer
@@ -23,18 +23,44 @@ export default function McpConnectModal({ server, onClose, onConnect }: McpConne
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     setError(null)
+
+    const missingRequired = server.credentialFields.find(
+      (field) => field.required && !(credentials[field.key]?.trim())
+    )
+    if (missingRequired) {
+      setError(`${missingRequired.label} is required`)
+      return
+    }
+
     setIsSubmitting(true)
     try {
       await onConnect(credentials)
       onClose()
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || 'Failed to connect. Please check your credentials.'
-      setError(message)
+      setError(mapApiError(err).message)
     } finally {
       setIsSubmitting(false)
     }
+  }
+
+  if (server.credentialFields.length === 0) {
+    return (
+      <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-lg shadow-lg max-w-md w-full p-6">
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Connect {server.displayName}</h2>
+          <p className="text-sm text-red-600 mb-4">
+            This server has no credential fields configured. Contact your administrator.
+          </p>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (

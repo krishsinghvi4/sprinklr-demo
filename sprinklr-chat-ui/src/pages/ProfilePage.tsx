@@ -8,7 +8,20 @@ import {
   fetchProfile,
   startOAuthConnect,
 } from '../services/profileService'
-import { AvailableServer, ProfileResponse } from '../types/profile'
+import {
+  AvailableServer,
+  ConnectErrorKind,
+  ProfileResponse,
+  mapApiError,
+  resolveConnectMethod,
+} from '../types/profile'
+
+type ServerActionPhase = 'idle' | 'connecting' | 'disconnecting' | 'redirecting_oauth'
+
+interface ServerActionState {
+  phase: ServerActionPhase
+  error?: { kind: ConnectErrorKind; message: string }
+}
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<ProfileResponse | null>(null)
@@ -16,6 +29,19 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [connectingServer, setConnectingServer] = useState<AvailableServer | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
+  const [serverActions, setServerActions] = useState<Record<string, ServerActionState>>({})
+
+  const setServerAction = (serverId: string, state: ServerActionState) => {
+    setServerActions((prev) => ({ ...prev, [serverId]: state }))
+  }
+
+  const clearServerAction = (serverId: string) => {
+    setServerActions((prev) => {
+      const next = { ...prev }
+      delete next[serverId]
+      return next
+    })
+  }
 
   const loadProfile = async () => {
     setIsLoading(true)
@@ -51,7 +77,7 @@ export default function ProfilePage() {
 
     const oauthStatus = params.get('oauth')
     if (oauthStatus === 'success') {
-      setActionMessage('Connected to Jira via OAuth.')
+      setActionMessage('MCP server connected successfully via OAuth.')
       params.delete('oauth')
       const nextUrl = `${window.location.pathname}${params.toString() ? `?${params}` : ''}`
       window.history.replaceState({}, '', nextUrl)
@@ -75,39 +101,75 @@ export default function ProfilePage() {
 
   const handleConnect = async (credentials: Record<string, string>) => {
     if (!connectingServer) return
-    await connectMcpServer({
-      catalogServerId: connectingServer.id,
-      credentials,
-    })
-    setActionMessage(`Connected to ${connectingServer.displayName}`)
-    await loadProfile()
+    setServerAction(connectingServer.id, { phase: 'connecting' })
+    try {
+      await connectMcpServer({
+        catalogServerId: connectingServer.id,
+        credentials,
+      })
+      setActionMessage(`Connected to ${connectingServer.displayName}`)
+      clearServerAction(connectingServer.id)
+      await loadProfile()
+    } catch (err: unknown) {
+      const mapped = mapApiError(err)
+      setServerAction(connectingServer.id, {
+        phase: 'idle',
+        error: mapped,
+      })
+      throw err
+    }
   }
 
   const handleOAuthConnect = async (server: AvailableServer) => {
+    setError(null)
+    setServerAction(server.id, { phase: 'redirecting_oauth' })
     try {
-      setError(null)
       const authorizationUrl = await startOAuthConnect(server.id)
       window.location.href = authorizationUrl
     } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || 'Failed to start OAuth connection. Please try again.'
-      setError(message)
+      const mapped = mapApiError(err)
+      setServerAction(server.id, { phase: 'idle', error: mapped })
+      setError(mapped.message)
     }
   }
 
-  const handleDisconnect = async (connectionId: string, displayName: string) => {
+  const handleDisconnect = async (serverId: string, connectionId: string, displayName: string) => {
+    setServerAction(serverId, { phase: 'disconnecting' })
     try {
       await disconnectMcpServer(connectionId)
       setActionMessage(`Disconnected from ${displayName}`)
+      clearServerAction(serverId)
       await loadProfile()
-    } catch {
-      setError('Failed to disconnect server.')
+    } catch (err: unknown) {
+      const mapped = mapApiError(err)
+      setError(mapped.message)
+      clearServerAction(serverId)
     }
+  }
+
+  const handleConnectClick = (server: AvailableServer) => {
+    const method = resolveConnectMethod(server)
+    if (method === 'OAUTH_REDIRECT') {
+      void handleOAuthConnect(server)
+      return
+    }
+    if (server.credentialFields.length === 0) {
+      setError(`Connect is not configured for ${server.displayName}.`)
+      return
+    }
+    setConnectingServer(server)
   }
 
   const getConnectionForServer = (serverId: string) =>
     profile?.marketplace.connections.find((c) => c.catalogServerId === serverId)
+
+  const getConnectButtonLabel = (serverId: string) => {
+    const action = serverActions[serverId]
+    if (!action) return 'Connect'
+    if (action.phase === 'redirecting_oauth') return 'Redirecting...'
+    if (action.phase === 'connecting') return 'Connecting...'
+    return 'Connect'
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
@@ -163,6 +225,10 @@ export default function ProfilePage() {
                   {profile.marketplace.availableServers.map((server) => {
                     const connection = getConnectionForServer(server.id)
                     const isConnected = server.connected && connection
+                    const serverAction = serverActions[server.id]
+                    const isBusy = serverAction?.phase === 'connecting'
+                      || serverAction?.phase === 'disconnecting'
+                      || serverAction?.phase === 'redirecting_oauth'
 
                     return (
                       <li
@@ -185,6 +251,9 @@ export default function ProfilePage() {
                                 Connected — {connection.toolCount} tools available
                               </p>
                             )}
+                            {serverAction?.error && (
+                              <p className="text-xs text-red-600 mt-2">{serverAction.error.message}</p>
+                            )}
                           </div>
                         </div>
 
@@ -192,25 +261,21 @@ export default function ProfilePage() {
                           {isConnected && connection ? (
                             <button
                               onClick={() =>
-                                handleDisconnect(connection.id, server.displayName)
+                                handleDisconnect(server.id, connection.id, server.displayName)
                               }
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                              disabled={isBusy}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
                             >
                               <Unplug className="w-3.5 h-3.5" />
-                              Disconnect
+                              {serverAction?.phase === 'disconnecting' ? 'Disconnecting...' : 'Disconnect'}
                             </button>
                           ) : (
                             <button
-                              onClick={() => {
-                                if (server.authType === 'OAUTH_ATLASSIAN') {
-                                  handleOAuthConnect(server)
-                                  return
-                                }
-                                setConnectingServer(server)
-                              }}
-                              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                              onClick={() => handleConnectClick(server)}
+                              disabled={isBusy}
+                              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
                             >
-                              Connect
+                              {getConnectButtonLabel(server.id)}
                             </button>
                           )}
                         </div>

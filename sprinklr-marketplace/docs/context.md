@@ -1,8 +1,8 @@
 # Product Context: Sprinklr Developer MarketPlace
 
 ## 📍 Current Implementation Status
-* **Last Updated:** June 15, 2026
-* **Currently Working On:** Additional MCP server catalog entries (GitLab, MS Teams, etc.)
+* **Last Updated:** June 18, 2026
+* **Currently Working On:** Additional MCP server catalog entries (MS Teams, etc.)
 * **Completed Features:**
   - ✅ Full-stack chat application (Spring Boot + React)
   - ✅ MongoDB persistence for conversations and messages
@@ -24,7 +24,9 @@
   - ✅ **MCP Marketplace** — extensible catalog-driven server registration (`mcp-catalog.json`)
   - ✅ **Profile API** — `GET /api/v1/profile` (user info + marketplace state)
   - ✅ **MCP Connections API** — `POST /api/v1/mcp/connections`, `DELETE /api/v1/mcp/connections/{id}`
-  - ✅ **Atlassian Jira MCP** — first catalog entry with Basic email+token auth
+  - ✅ **Atlassian Jira MCP** — OAuth redirect connect (PKCE + DCR) via catalog entry `atlassian-jira`
+  - ✅ **MCP extensibility refactor** — provider/auth abstraction (`McpProvider`, `AuthFlowRouter`, catalog-driven `connectMethod`)
+  - ✅ **GitLab catalog example** — credential-form connect (`BASIC_EMAIL_TOKEN`) demonstrating multi-auth marketplace
   - ✅ **AES-256-GCM credential vault** — encrypted storage in `mcp_connections` collection
   - ✅ **Streamable HTTP MCP client** — initialize, tools/list, tools/call via WebClient
   - ✅ **Per-connection circuit breakers** — Resilience4j keyed by `mcp-{connectionId}`
@@ -32,15 +34,14 @@
   - ✅ **Turn-based LLM context** — last N user prompts (`app.chat.history-turn-limit`); prior turns conversational, current turn full agentic; TOOL JSON truncated after summary
   - ✅ **User tool schemas loaded into LLM** — from active MCP connections per user
   - ✅ **SprinklrLlmRouterAdapter.streamSummary()** — wired via LlmService
-  - ✅ **Profile + Marketplace UI** — `/profile` page with Connect/Disconnect for Jira
+  - ✅ **Profile + Marketplace UI** — `/profile` page with OAuth redirect + credential modal connect flows
 * **In Progress / Next Up:**
-  - 🔲 Add more catalog entries (GitLab, MS Teams, Red)
-  - 🔲 OAuth-based MCP auth strategies
+  - 🔲 Add more catalog entries (MS Teams, Red)
   - 🔲 Re-sync tools on `tools/list_changed` notification
   - 🔲 True LLM streaming for streamSummary (currently single-chunk delivery)
 * **Known Issues/Blockers:**
   - `MCP_ENCRYPTION_KEY` should be set in production (defaults to ephemeral key in dev)
-  - Atlassian MCP requires valid email + API token; test on VPN if needed
+  - GitLab catalog entry uses a placeholder endpoint — replace with real MCP URL before production use
 
 ---
 
@@ -84,6 +85,8 @@ Adding a new MCP server must be a **configuration + credentials** operation, not
 | **Conversations** | Metadata, user ownership, session state |
 | **Messages** | AI memory (USER, ASSISTANT, TOOL roles). Raw TOOL JSON truncated to a stub after LLM summarization (`truncateToolResults`). |
 | **McpConnections** | Per-user MCP server registry (`mcp_connections`): catalog server ID, encrypted credentials, MCP session ID, discovered tool schemas, status |
+| **mcp_oauth_states** | Ephemeral OAuth CSRF/PKCE state (`state`, `userId`, `catalogServerId`, `providerKey`, `codeVerifier`); TTL auto-expires; deleted on callback |
+| **mcp_dcr_clients** | Dynamic OAuth client registrations (`providerKey`, `redirectUri`, `clientId`, `clientSecret`) scoped per OAuth issuer |
 
 ---
 
@@ -206,6 +209,15 @@ Frontend on localhost:5173, backend on localhost:8080. Configured in `SecurityCo
 ---
 
 ## 📋 Critical Changes Log
+
+**June 18, 2026 (MCP Extensibility Refactor)**
+- **IMPLEMENTED:** Central MCP provider abstraction (`McpProvider`, `AbstractMcpProvider`, `McpProviderResolver`)
+- **IMPLEMENTED:** Auth flow routing — `OAUTH_REDIRECT` vs `CREDENTIAL_FORM` via catalog `connectMethod`
+- **IMPLEMENTED:** Generalized OAuth client/token model (`McpOAuthToken`) with catalog-driven OAuth config
+- **IMPLEMENTED:** Multi-provider DCR/state persistence (`providerKey` on `mcp_dcr_clients` / `mcp_oauth_states`)
+- **IMPLEMENTED:** OAuth state cleanup on callback + stale state purge before new OAuth start
+- **IMPLEMENTED:** API error codes for UI (`errorCode` on `MessageResponse`)
+- **IMPLEMENTED:** Frontend connect UX driven by backend `connectMethod` (no hardcoded Jira branch)
 
 **June 15, 2026 (MCP Marketplace)**
 - **IMPLEMENTED:** Extensible MCP Marketplace with catalog-driven server registration
