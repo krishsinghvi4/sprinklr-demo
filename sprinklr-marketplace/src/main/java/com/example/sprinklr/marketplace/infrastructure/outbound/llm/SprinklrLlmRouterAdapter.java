@@ -18,6 +18,13 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
 
     private static final Logger log = LoggerFactory.getLogger(SprinklrLlmRouterAdapter.class);
 
+    private static final String CONNECTED_TOOLS_NUDGE = """
+
+            ## Mandatory tool use (this request only)
+            The MCP tools array in this request is non-empty: the user's integrations ARE connected.
+            Do NOT say Jira, GitLab, Teams, or Red is disconnected or ask the user to connect via Profile.
+            Call the appropriate MCP tool(s) now to answer the live-data request.""";
+
     private final LlmService llmService;
     private final LlmSystemPromptLoader systemPromptLoader;
 
@@ -40,6 +47,24 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
                 fullToolHistoryForCurrentTurn,
                 null
         ));
+
+        if (LlmToolUseRetryPolicy.shouldRetryForToolUse(
+                request.tools().size(),
+                result.toolCalls().isEmpty(),
+                request.prompt(),
+                result.content()
+        )) {
+            log.info("[LLM] Model returned text-only despite {} tools; retrying with connected-tools nudge",
+                    request.tools().size());
+
+            result = llmService.complete(new LlmCompletionCommand(
+                    request.history(),
+                    request.tools(),
+                    request.currentTurnUserMessageId(),
+                    fullToolHistoryForCurrentTurn,
+                    systemPromptLoader.getSystemPrompt() + CONNECTED_TOOLS_NUDGE
+            ));
+        }
 
         return new LlmResponse(result.content(), result.toolCalls());
     }

@@ -39,14 +39,10 @@ export default function Chat({ userId, conversationId }: ChatProps) {
     scrollToBottom()
   }, [messages])
 
-  const handleSendMessage = async (e: React.FormEvent, retryPrompt?: string) => {
-    e.preventDefault()
-
-    const promptText = retryPrompt || input.trim()
+  const sendPrompt = async (promptText: string, isRetry = false) => {
     if (!promptText) return
 
-    // Only add user message if it's a new message (not a retry)
-    if (!retryPrompt) {
+    if (!isRetry) {
       const userMessage: Message = {
         id: Date.now().toString(),
         role: 'user',
@@ -117,10 +113,15 @@ export default function Chat({ userId, conversationId }: ChatProps) {
     }
   }
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault()
+    await sendPrompt(input.trim())
+  }
+
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSendMessage(e as any)
+      void sendPrompt(input.trim())
     }
   }
 
@@ -224,9 +225,11 @@ export default function Chat({ userId, conversationId }: ChatProps) {
               <span>{error}</span>
               {lastPrompt && (
                 <button
-                  onClick={(e) => {
+                  onClick={() => {
                     setMessages((prev) => prev.slice(0, -1))
-                    handleSendMessage(e as any, lastPrompt)
+                    if (lastPrompt) {
+                      void sendPrompt(lastPrompt, true)
+                    }
                   }}
                   disabled={isLoading}
                   className="ml-4 px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-sm font-medium"

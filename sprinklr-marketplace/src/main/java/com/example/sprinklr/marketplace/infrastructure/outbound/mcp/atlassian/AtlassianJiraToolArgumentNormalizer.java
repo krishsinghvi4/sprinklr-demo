@@ -9,16 +9,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * Repairs common LLM mistakes when calling Atlassian hosted MCP Jira write tools.
  * <p>
- * The model often places {@code components} inside {@code additional_fields} or sends plain
- * strings for select-list custom fields. This normalizer hoists known top-level fields and
- * wraps custom-field scalar values in {@code {"value": "..."}} when appropriate.
+ * Atlassian hosted {@code createJiraIssue} only accepts {@code components}, {@code priority},
+ * {@code labels}, and custom fields inside {@code additional_fields} (schema {@code additionalProperties}
+ * is false at top level). The model often sends {@code components} at the top level instead.
  */
 @Component
 public class AtlassianJiraToolArgumentNormalizer {
@@ -28,20 +27,15 @@ public class AtlassianJiraToolArgumentNormalizer {
 
     private static final Set<String> JIRA_WRITE_TOOLS = Set.of("createJiraIssue", "editJiraIssue");
 
-    /** Fields with dedicated top-level parameters on createJiraIssue — must not live in additional_fields. */
-    private static final Set<String> TOP_LEVEL_FIELD_KEYS = Set.of(
+    /** Jira fields that must live in additional_fields for Atlassian hosted MCP. */
+    private static final Set<String> ADDITIONAL_FIELDS_ONLY_KEYS = Set.of(
             "components",
-            "assignee",
-            "assignee_account_id",
             "priority",
-            "labels",
-            "parent",
-            "description",
-            "summary"
+            "labels"
     );
 
     public boolean supports(String toolName) {
-        return toolName != null && JIRA_WRITE_TOOLS.contains(toolName);
+        return bareToolName(toolName) != null && JIRA_WRITE_TOOLS.contains(bareToolName(toolName));
     }
 
     /**
@@ -71,18 +65,26 @@ public class AtlassianJiraToolArgumentNormalizer {
     }
 
     private ObjectNode normalizeWriteArguments(ObjectNode root) {
-        ObjectNode additionalFields = extractAdditionalFieldsObject(root);
-        if (additionalFields != null) {
-            hoistTopLevelFields(root, additionalFields);
-            normalizeCustomFieldValues(additionalFields);
-            if (additionalFields.isEmpty()) {
-                root.remove("additional_fields");
-            } else {
-                root.set("additional_fields", additionalFields);
-            }
+        ObjectNode additionalFields = ensureAdditionalFieldsObject(root);
+        nestFieldsIntoAdditionalFields(root, additionalFields);
+        normalizeComponentsInAdditionalFields(additionalFields);
+        normalizeCustomFieldValues(additionalFields);
+        if (additionalFields.isEmpty()) {
+            root.remove("additional_fields");
+        } else {
+            root.set("additional_fields", additionalFields);
         }
-        normalizeTopLevelComponents(root);
         return root;
+    }
+
+    private ObjectNode ensureAdditionalFieldsObject(ObjectNode root) {
+        ObjectNode extracted = extractAdditionalFieldsObject(root);
+        if (extracted != null) {
+            return extracted;
+        }
+        ObjectNode created = OBJECT_MAPPER.createObjectNode();
+        root.set("additional_fields", created);
+        return created;
     }
 
     private ObjectNode extractAdditionalFieldsObject(ObjectNode root) {
@@ -106,31 +108,27 @@ public class AtlassianJiraToolArgumentNormalizer {
         return null;
     }
 
-    private void hoistTopLevelFields(ObjectNode root, ObjectNode additionalFields) {
-        Iterator<Map.Entry<String, JsonNode>> iterator = additionalFields.fields();
-        Map<String, JsonNode> toHoist = new LinkedHashMap<>();
-        while (iterator.hasNext()) {
-            Map.Entry<String, JsonNode> entry = iterator.next();
-            if (TOP_LEVEL_FIELD_KEYS.contains(entry.getKey())) {
-                toHoist.put(entry.getKey(), entry.getValue());
-                iterator.remove();
+    private void nestFieldsIntoAdditionalFields(ObjectNode root, ObjectNode additionalFields) {
+        for (String key : ADDITIONAL_FIELDS_ONLY_KEYS) {
+            JsonNode value = root.get(key);
+            if (value == null || value.isNull()) {
+                continue;
             }
-        }
-        for (Map.Entry<String, JsonNode> entry : toHoist.entrySet()) {
-            if (!root.has(entry.getKey()) || root.get(entry.getKey()).isNull()) {
-                if ("components".equals(entry.getKey())) {
-                    root.set("components", toComponentsArray(entry.getValue()));
+            if (!additionalFields.has(key) || additionalFields.get(key).isNull()) {
+                if ("components".equals(key)) {
+                    additionalFields.set("components", toComponentsArray(value));
                 } else {
-                    root.set(entry.getKey(), entry.getValue());
+                    additionalFields.set(key, value.deepCopy());
                 }
             }
+            root.remove(key);
         }
     }
 
-    private void normalizeTopLevelComponents(ObjectNode root) {
-        JsonNode components = root.get("components");
+    private void normalizeComponentsInAdditionalFields(ObjectNode additionalFields) {
+        JsonNode components = additionalFields.get("components");
         if (components != null && !components.isNull()) {
-            root.set("components", toComponentsArray(components));
+            additionalFields.set("components", toComponentsArray(components));
         }
     }
 
@@ -138,7 +136,7 @@ public class AtlassianJiraToolArgumentNormalizer {
         ArrayNode array = OBJECT_MAPPER.createArrayNode();
         if (componentsNode.isArray()) {
             for (JsonNode item : componentsNode) {
-                appendComponentName(array, item);
+                appendComponentEntry(array, item);
             }
             return array;
         }
@@ -146,23 +144,37 @@ public class AtlassianJiraToolArgumentNormalizer {
             for (String part : componentsNode.asText().split(",")) {
                 String trimmed = part.trim();
                 if (!trimmed.isEmpty()) {
-                    array.add(trimmed);
+                    array.add(componentByName(trimmed));
                 }
             }
             return array;
         }
-        appendComponentName(array, componentsNode);
+        appendComponentEntry(array, componentsNode);
         return array;
     }
 
-    private void appendComponentName(ArrayNode array, JsonNode item) {
-        if (item.isObject() && item.has("name")) {
-            array.add(item.get("name").asText());
+    private void appendComponentEntry(ArrayNode array, JsonNode item) {
+        if (item.isObject()) {
+            if (item.has("id")) {
+                ObjectNode byId = OBJECT_MAPPER.createObjectNode();
+                byId.set("id", item.get("id"));
+                array.add(byId);
+                return;
+            }
+            if (item.has("name")) {
+                array.add(componentByName(item.get("name").asText()));
+            }
             return;
         }
         if (item.isTextual()) {
-            array.add(item.asText());
+            array.add(componentByName(item.asText()));
         }
+    }
+
+    private ObjectNode componentByName(String name) {
+        ObjectNode component = OBJECT_MAPPER.createObjectNode();
+        component.put("name", name);
+        return component;
     }
 
     /**
@@ -182,5 +194,12 @@ public class AtlassianJiraToolArgumentNormalizer {
             wrapped.put("value", value.asText());
             additionalFields.set(key, wrapped);
         }
+    }
+
+    private static String bareToolName(String toolName) {
+        if (toolName == null) {
+            return null;
+        }
+        return toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
     }
 }

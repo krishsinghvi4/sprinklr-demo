@@ -9,6 +9,7 @@ import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.AtlassianOAuthAuthStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.BasicEmailTokenAuthStrategy;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.GitLabPrivateTokenAuthStrategy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.Resource;
@@ -62,11 +63,14 @@ public class McpCatalogLoader {
         McpAuthConfig authConfig = parseAuthConfig(node, authType);
         McpConnectMethod connectMethod = parseConnectMethod(node, authConfig);
 
+        String id = node.path("id").asText();
+        String endpointUrl = resolveEndpointUrl(id, node.path("endpointUrl").asText());
+
         return new McpCatalogEntry(
-                node.path("id").asText(),
+                id,
                 node.path("displayName").asText(),
                 node.path("description").asText(""),
-                node.path("endpointUrl").asText(),
+                endpointUrl,
                 node.path("serverIdPrefix").asText(),
                 authType,
                 authConfig,
@@ -136,11 +140,23 @@ public class McpCatalogLoader {
         if (authConfig.isOAuth()) {
             return McpConnectMethod.OAUTH_REDIRECT;
         }
-        if (BasicEmailTokenAuthStrategy.AUTH_TYPE.equals(node.path("authType").asText())
+        String authType = node.path("authType").asText();
+        if (BasicEmailTokenAuthStrategy.AUTH_TYPE.equals(authType)
+                || GitLabPrivateTokenAuthStrategy.AUTH_TYPE.equals(authType)
                 || !node.path("credentialFields").isEmpty()) {
             return McpConnectMethod.CREDENTIAL_FORM;
         }
         return McpConnectMethod.CREDENTIAL_FORM;
+    }
+
+    private String resolveEndpointUrl(String catalogId, String catalogEndpointUrl) {
+        if ("gitlab-mcp".equals(catalogId)) {
+            String configured = properties.getGitlabMcpEndpointUrl();
+            if (configured != null && !configured.isBlank()) {
+                return configured.trim();
+            }
+        }
+        return catalogEndpointUrl;
     }
 
     private String inferProviderKey(String authType, String catalogId) {

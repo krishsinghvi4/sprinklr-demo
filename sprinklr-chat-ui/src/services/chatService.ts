@@ -23,9 +23,6 @@ export async function streamChat(
   onComplete: () => void,
 ): Promise<void> {
   try {
-    let messageCount = 0
-    let totalChars = 0
-    
     await fetchEventSource(CHAT_ENDPOINT, {
       method: 'POST',
       headers: getAuthHeaders(),
@@ -33,8 +30,6 @@ export async function streamChat(
       openWhenHidden: true,
       onmessage: (event) => {
         if (event.data) {
-          messageCount++
-          totalChars += event.data.length
           onChunk(event.data)
         }
       },

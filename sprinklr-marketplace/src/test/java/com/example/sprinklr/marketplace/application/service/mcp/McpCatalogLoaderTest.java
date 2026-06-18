@@ -25,6 +25,7 @@ class McpCatalogLoaderTest {
         var gitlab = loader.findById("gitlab-mcp").orElseThrow();
         assertEquals(McpConnectMethod.CREDENTIAL_FORM, gitlab.connectMethod());
         assertTrue(gitlab.authConfig().isCredentials());
-        assertEquals(2, gitlab.credentialFields().size());
+        assertEquals(1, gitlab.credentialFields().size());
+        assertEquals("http://127.0.0.1:3333/mcp", gitlab.endpointUrl());
     }
 }

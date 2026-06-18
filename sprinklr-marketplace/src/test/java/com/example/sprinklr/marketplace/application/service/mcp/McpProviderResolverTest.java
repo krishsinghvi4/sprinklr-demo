@@ -68,7 +68,7 @@ class McpProviderResolverTest {
                 "desc",
                 "https://gitlab.example.com/mcp",
                 "gitlab",
-                BasicEmailTokenAuthStrategy.AUTH_TYPE,
+                "GITLAB_PRIVATE_TOKEN",
                 new McpAuthConfig(McpAuthKind.CREDENTIALS, null),
                 McpConnectMethod.CREDENTIAL_FORM,
                 List.of()

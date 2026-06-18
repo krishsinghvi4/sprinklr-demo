@@ -26,21 +26,15 @@
     {
       "id": "gitlab-mcp",
       "displayName": "GitLab",
-      "description": "GitLab MCP — manage merge requests, issues, and repository metadata (API token auth).",
-      "endpointUrl": "https://gitlab.example.com/api/v4/mcp",
+      "description": "GitLab MCP — merge requests, issues, pipelines, and repository search (Sprinklr GitLab PAT).",
+      "endpointUrl": "http://127.0.0.1:3333/mcp",
       "serverIdPrefix": "gitlab",
-      "authType": "BASIC_EMAIL_TOKEN",
+      "authType": "GITLAB_PRIVATE_TOKEN",
       "connectMethod": "CREDENTIAL_FORM",
       "credentialFields": [
         {
-          "key": "email",
-          "label": "GitLab username or email",
-          "type": "text",
-          "required": true
-        },
-        {
           "key": "apiToken",
-          "label": "Personal access token",
+          "label": "Personal access token (api scope)",
           "type": "password",
           "required": true
         }
