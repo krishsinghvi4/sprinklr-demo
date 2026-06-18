@@ -19,6 +19,7 @@ import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
 import com.example.sprinklr.marketplace.infrastructure.config.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraCreateIssuePreflightGuard;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +32,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -54,6 +54,7 @@ public class ChatOrchestrator implements ChatUseCase {
     private final McpRegistryPort mcpRegistryPort;
     private final McpProperties mcpProperties;
     private final ChatProperties chatProperties;
+    private final JiraCreateIssuePreflightGuard jiraCreateIssuePreflightGuard;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -61,7 +62,8 @@ public class ChatOrchestrator implements ChatUseCase {
             McpServerPort mcpServerPort,
             McpRegistryPort mcpRegistryPort,
             McpProperties mcpProperties,
-            ChatProperties chatProperties
+            ChatProperties chatProperties,
+            JiraCreateIssuePreflightGuard jiraCreateIssuePreflightGuard
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -69,6 +71,7 @@ public class ChatOrchestrator implements ChatUseCase {
         this.mcpRegistryPort = mcpRegistryPort;
         this.mcpProperties = mcpProperties;
         this.chatProperties = chatProperties;
+        this.jiraCreateIssuePreflightGuard = jiraCreateIssuePreflightGuard;
     }
 
     /**
@@ -194,7 +197,7 @@ public class ChatOrchestrator implements ChatUseCase {
                 .toList();
 
         List<McpInvocationResult> invocationResults = Flux.fromIterable(invocations)
-                .concatMap(invocation -> Mono.fromCallable(() -> mcpServerPort.invoke(invocation))
+                .concatMap(invocation -> Mono.fromCallable(() -> invokeWithPreflight(invocation, request.prompt()))
                         .subscribeOn(Schedulers.boundedElastic()))
                 .collectList()
                 .block();
@@ -312,9 +315,20 @@ public class ChatOrchestrator implements ChatUseCase {
         return chatHistoryPort.saveConversation(conversation).id();
     }
 
-    /**
-     * Maps an LLM tool call to an MCP invocation using the tool name prefix.
-     */
+    private McpInvocationResult invokeWithPreflight(McpInvocation invocation, String userPrompt) {
+        var validation = jiraCreateIssuePreflightGuard.validate(
+                invocation.toolName(),
+                invocation.argumentsJson(),
+                userPrompt
+        );
+        if (!validation.allowed()) {
+            log.info("[Orchestrator] Blocked createJiraIssue - user did not confirm required fields");
+            String message = "Tool '" + invocation.toolName() + "' blocked. " + validation.blockMessage();
+            return new McpInvocationResult(invocation.toolCallId(), false, null, message);
+        }
+        return mcpServerPort.invoke(invocation);
+    }
+
     private McpInvocation toInvocation(String userId, ToolCall toolCall) {
         int separatorIndex = toolCall.name().indexOf('.');
         if (separatorIndex <= 0) {
