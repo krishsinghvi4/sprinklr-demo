@@ -31,6 +31,29 @@ The marketplace must allow users to connect arbitrary MCP servers without backen
 ### Key Constraint
 **No hardcoded server whitelist.** JIRA, GitLab, MS Teams, and Red are reference integrations, not compile-time enums. The system prompt may list examples, but the runtime tool set is always driven by the user's registered servers.
 
+### Provider & Auth Abstraction (June 2026)
+
+Adding MCP servers is **catalog-first**: extend `mcp-catalog.json` with endpoint, `authType`, `connectMethod`, and optional `auth` block. No new Java adapter is required for standard HTTP MCP servers.
+
+| Component | Responsibility |
+|-----------|---------------|
+| `McpProvider` / `AbstractMcpProvider` | Central connect contract — validate credentials, build auth headers |
+| `McpProviderResolver` | Picks specialized provider (e.g. `AtlassianMcpProvider`) or `DefaultCatalogMcpProvider` |
+| `AuthFlowRouter` | Routes to `OAuthAuthFlowHandler` or `CredentialAuthFlowHandler` based on `connectMethod` |
+| `McpConnectionOrchestrator` | Shared discovery handshake + encrypted persistence (used by OAuth callback and credential connect) |
+| `McpAuthStrategy` + registry | Wire-format auth headers keyed by `authType` (`OAUTH_ATLASSIAN`, `BASIC_EMAIL_TOKEN`, …) |
+| `McpOAuthTokenRefreshService` | Runtime OAuth refresh for any catalog OAuth entry |
+
+**Connect methods:**
+- `OAUTH_REDIRECT` — PKCE OAuth start/callback; UI redirects to authorization URL
+- `CREDENTIAL_FORM` — UI shows dynamic `credentialFields`; POST `/api/v1/mcp/connections`
+
+**Tool naming (unchanged):** Discovered tools are exposed to the LLM as `{serverIdPrefix}.{toolName}` (e.g. `jira.search_issues`). `ChatOrchestrator` resolves connections by prefix — this contract is preserved across the refactor.
+
+**OAuth persistence:**
+- `mcp_oauth_states` — short-lived CSRF + PKCE verifier; deleted on callback; TTL index for orphans
+- `mcp_dcr_clients` — DCR client credentials keyed by `(providerKey, redirectUri)` for multi-issuer support
+
 ## 3. Tool Execution — Sequential Only
 
 Multiple `tool_use` requests from the LLM MUST be executed **sequentially in LLM-requested order**, not in parallel.

@@ -12,8 +12,8 @@ public class McpProperties {
 
     private int connectTimeoutMs = 10_000;
     private int readTimeoutMs = 60_000;
-    private int maxAgenticIterations = 5;
-    private int maxToolCallsPerTurn = 10;
+    private int maxAgenticIterations = 10;
+    private int maxToolCallsPerTurn = 15;
     private String encryptionKey = "";
     // Resource path to the MCP marketplace catalog.
     private String catalogPath = "classpath:mcp/mcp-catalog.json";

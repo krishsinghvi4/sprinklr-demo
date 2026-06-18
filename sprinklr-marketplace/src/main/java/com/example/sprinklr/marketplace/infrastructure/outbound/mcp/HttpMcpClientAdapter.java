@@ -4,10 +4,11 @@ import com.example.sprinklr.marketplace.domain.model.McpInvocation;
 import com.example.sprinklr.marketplace.domain.model.McpInvocationResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthClient;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.AtlassianOAuthToken;
+import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRefreshService;
+import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,7 +19,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -39,8 +39,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
     private final McpCatalogLoader catalogLoader;
     private final McpAuthStrategyRegistry authStrategyRegistry;
     private final StreamableHttpMcpClient mcpClient;
-    private final McpOAuthClient oauthClient;
+    private final McpOAuthTokenRefreshService oauthTokenRefreshService;
     private final McpCircuitBreakerFactory circuitBreakerFactory;
+    private final AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer;
 
     public HttpMcpClientAdapter(
             McpConnectionRepository connectionRepository,
@@ -48,16 +49,18 @@ public class HttpMcpClientAdapter implements McpServerPort {
             McpCatalogLoader catalogLoader,
             McpAuthStrategyRegistry authStrategyRegistry,
             StreamableHttpMcpClient mcpClient,
-            McpOAuthClient oauthClient,
-            McpCircuitBreakerFactory circuitBreakerFactory
+            McpOAuthTokenRefreshService oauthTokenRefreshService,
+            McpCircuitBreakerFactory circuitBreakerFactory,
+            AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer
     ) {
         this.connectionRepository = connectionRepository;
         this.credentialVault = credentialVault;
         this.catalogLoader = catalogLoader;
         this.authStrategyRegistry = authStrategyRegistry;
         this.mcpClient = mcpClient;
-        this.oauthClient = oauthClient;
+        this.oauthTokenRefreshService = oauthTokenRefreshService;
         this.circuitBreakerFactory = circuitBreakerFactory;
+        this.atlassianJiraToolArgumentNormalizer = atlassianJiraToolArgumentNormalizer;
     }
 
     /**
@@ -129,7 +132,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 ));
 
         Map<String, String> credentials = credentialVault.decrypt(connection.encryptedCredentials());
-        credentials = refreshOAuthIfNeeded(connection, catalogEntry.authType(), credentials);
+        credentials = oauthTokenRefreshService.refreshIfNeeded(connection, catalogEntry, credentials);
         Map<String, String> authHeaders = authStrategyRegistry
                 .require(catalogEntry.authType())
                 .buildAuthHeaders(credentials);
@@ -139,6 +142,10 @@ public class HttpMcpClientAdapter implements McpServerPort {
         String protocolVersion = session.protocolVersion() != null
                 ? session.protocolVersion()
                 : DEFAULT_PROTOCOL_VERSION;
+        String argumentsJson = atlassianJiraToolArgumentNormalizer.normalize(
+                invocation.toolName(),
+                invocation.argumentsJson()
+        );
         JsonNode result;
         try {
             result = mcpClient.callTool(
@@ -147,7 +154,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
                     sessionId,
                     protocolVersion,
                     invocation.toolName(),
-                    invocation.argumentsJson()
+                    argumentsJson
             );
         } catch (McpConnectionException exception) {
             if (exception.getMessage() != null && exception.getMessage().contains("404")) {
@@ -159,7 +166,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
                         refreshedSession.sessionId(),
                         refreshedSession.protocolVersion(),
                         invocation.toolName(),
-                        invocation.argumentsJson()
+                        argumentsJson
                 );
             } else {
                 throw new McpInvocationException(exception.getUserMessage(), exception.getMessage());
@@ -170,7 +177,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
         if (toolError.isPresent() && isLikelyAuthError(toolError.get())) {
             log.info("[MCP] Tool returned auth error, forcing OAuth refresh connectionId={} tool={}",
                     connection.id(), invocation.toolName());
-            credentials = forceRefreshOAuth(connection, credentials);
+            credentials = oauthTokenRefreshService.forceRefresh(connection, catalogEntry, credentials);
             authHeaders = authStrategyRegistry
                     .require(catalogEntry.authType())
                     .buildAuthHeaders(credentials);
@@ -182,19 +189,20 @@ public class HttpMcpClientAdapter implements McpServerPort {
                     refreshedSession.sessionId(),
                     refreshedSession.protocolVersion(),
                     invocation.toolName(),
-                    invocation.argumentsJson()
+                    argumentsJson
             );
             toolError = extractMcpToolError(result);
         }
 
         if (toolError.isPresent()) {
-            String atlassianMessage = toolError.get();
-            String userMessage = isLikelyAuthError(atlassianMessage)
-                    ? "Jira connection needs to be refreshed. Please disconnect and reconnect Jira from your Profile page."
-                    : "MCP tool '" + invocation.toolName() + "' failed: " + atlassianMessage;
+            String providerMessage = toolError.get();
+            String userMessage = isLikelyAuthError(providerMessage)
+                    ? catalogEntry.displayName() + " connection needs to be refreshed. "
+                    + "Please disconnect and reconnect from your Profile page."
+                    : "MCP tool '" + invocation.toolName() + "' failed: " + providerMessage;
             log.warn("[MCP] Tool returned error connectionId={} tool={} args={} error={}",
-                    connection.id(), invocation.toolName(), invocation.argumentsJson(), atlassianMessage);
-            return failureResult(invocation, userMessage, atlassianMessage);
+                    connection.id(), invocation.toolName(), invocation.argumentsJson(), providerMessage);
+            return failureResult(invocation, userMessage, providerMessage);
         }
 
         String content = formatToolResult(result);
@@ -209,7 +217,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
      */
     private StreamableHttpMcpClient.McpSession reinitializeSession(
             McpConnectionDocument connection,
-            com.example.sprinklr.marketplace.domain.model.McpCatalogEntry catalogEntry,
+            McpCatalogEntry catalogEntry,
             Map<String, String> authHeaders
     ) {
         log.info("[MCP] Re-initializing session connectionId={}", connection.id());
@@ -236,7 +244,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
      */
     private StreamableHttpMcpClient.McpSession resolveSession(
             McpConnectionDocument connection,
-            com.example.sprinklr.marketplace.domain.model.McpCatalogEntry catalogEntry,
+            McpCatalogEntry catalogEntry,
             Map<String, String> authHeaders
     ) {
         String sessionId = connection.mcpSessionId();
@@ -262,109 +270,6 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 ? connection.mcpProtocolVersion()
                 : DEFAULT_PROTOCOL_VERSION;
         return new StreamableHttpMcpClient.McpSession(sessionId, protocolVersion);
-    }
-
-    /**
-     * Refreshes OAuth tokens when expired and updates stored credentials.
-     */
-    private Map<String, String> refreshOAuthIfNeeded(
-            McpConnectionDocument connection,
-            String authType,
-            Map<String, String> credentials
-    ) {
-        if (!"OAUTH_ATLASSIAN".equals(authType)) {
-            return credentials;
-        }
-        AtlassianOAuthToken token = AtlassianOAuthToken.fromCredentialMap(credentials);
-        if (token == null || token.accessToken() == null || token.accessToken().isBlank()) {
-            throw new McpInvocationException(
-                    "OAuth token missing. Please reconnect.",
-                    "Missing access token for connectionId=" + connection.id()
-            );
-        }
-        if (!token.isExpired(Instant.now())) {
-            return credentials;
-        }
-        if (token.refreshToken() == null || token.refreshToken().isBlank()) {
-            throw new McpInvocationException(
-                    "OAuth refresh token missing. Please reconnect.",
-                    "Missing refresh token for connectionId=" + connection.id()
-            );
-        }
-        AtlassianOAuthToken refreshed = oauthClient.refreshAccessToken(token.refreshToken());
-        String refreshToken = refreshed.refreshToken() != null && !refreshed.refreshToken().isBlank()
-                ? refreshed.refreshToken()
-                : token.refreshToken();
-        AtlassianOAuthToken updated = new AtlassianOAuthToken(
-                refreshed.accessToken(),
-                refreshToken,
-                refreshed.expiresAtEpochSec(),
-                refreshed.scope(),
-                refreshed.tokenType()
-        );
-        Map<String, String> updatedCredentials = updated.toCredentialMap();
-        String encrypted = credentialVault.encrypt(updatedCredentials);
-        McpConnectionDocument updatedDocument = new McpConnectionDocument(
-                connection.id(),
-                connection.userId(),
-                connection.catalogServerId(),
-                connection.serverIdPrefix(),
-                encrypted,
-                connection.mcpSessionId(),
-                connection.mcpProtocolVersion(),
-                connection.status(),
-                connection.tools(),
-                connection.connectedAt(),
-                connection.lastError()
-        );
-        connectionRepository.save(updatedDocument);
-        log.info("[MCP] OAuth token refreshed connectionId={}", connection.id());
-        return updatedCredentials;
-    }
-
-    /**
-     * Forces OAuth refresh after a tool returns an auth error.
-     */
-    private Map<String, String> forceRefreshOAuth(
-            McpConnectionDocument connection,
-            Map<String, String> credentials
-    ) {
-        AtlassianOAuthToken token = AtlassianOAuthToken.fromCredentialMap(credentials);
-        if (token == null || token.refreshToken() == null || token.refreshToken().isBlank()) {
-            throw new McpInvocationException(
-                    "OAuth refresh token missing. Please reconnect.",
-                    "Missing refresh token for connectionId=" + connection.id()
-            );
-        }
-        AtlassianOAuthToken refreshed = oauthClient.refreshAccessToken(token.refreshToken());
-        String refreshToken = refreshed.refreshToken() != null && !refreshed.refreshToken().isBlank()
-                ? refreshed.refreshToken()
-                : token.refreshToken();
-        AtlassianOAuthToken updated = new AtlassianOAuthToken(
-                refreshed.accessToken(),
-                refreshToken,
-                refreshed.expiresAtEpochSec(),
-                refreshed.scope(),
-                refreshed.tokenType()
-        );
-        Map<String, String> updatedCredentials = updated.toCredentialMap();
-        String encrypted = credentialVault.encrypt(updatedCredentials);
-        McpConnectionDocument updatedDocument = new McpConnectionDocument(
-                connection.id(),
-                connection.userId(),
-                connection.catalogServerId(),
-                connection.serverIdPrefix(),
-                encrypted,
-                null,
-                null,
-                connection.status(),
-                connection.tools(),
-                connection.connectedAt(),
-                connection.lastError()
-        );
-        connectionRepository.save(updatedDocument);
-        log.info("[MCP] OAuth token force-refreshed connectionId={}", connection.id());
-        return updatedCredentials;
     }
 
     /**

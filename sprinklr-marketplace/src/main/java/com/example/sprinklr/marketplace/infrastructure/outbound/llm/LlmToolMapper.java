@@ -53,7 +53,21 @@ public class LlmToolMapper {
 
     private LlmApiTool toApiTool(McpTool tool) {
         Object parameters = parseParameters(tool.name(), tool.inputSchemaJson());
-        return LlmApiTool.function(tool.name(), tool.description(), parameters);
+        String description = enrichDescription(tool.name(), tool.description());
+        return LlmApiTool.function(tool.name(), description, parameters);
+    }
+
+    private String enrichDescription(String toolName, String description) {
+        if (toolName == null) {
+            return description;
+        }
+        String bareName = toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
+        if ("createJiraIssue".equals(bareName)) {
+            return description + " IMPORTANT: Call getJiraIssueTypeMetaWithFields in the same turn first. "
+                    + "Use fieldId keys from that response in additional_fields; never invent customfield IDs. "
+                    + "Use top-level components (array of names), not additional_fields.components.";
+        }
+        return description;
     }
 
   /**
