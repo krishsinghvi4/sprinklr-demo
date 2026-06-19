@@ -2,6 +2,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -14,7 +15,7 @@ class LlmToolUseRetryPolicyTest {
     }
 
     @Test
-    void detectsLiveDataPrompt() {
+    void detectsLiveDataPromptWithPossessivePattern() {
         assertTrue(LlmToolUseRetryPolicy.requestsLiveIntegrationData("list my jira tickets (open)"));
     }
 
@@ -24,13 +25,45 @@ class LlmToolUseRetryPolicyTest {
     }
 
     @Test
+    void skipsDocCreationPromptWithoutLiveDataIntent() {
+        assertFalse(LlmToolUseRetryPolicy.requestsLiveIntegrationData(
+                "create a doc explaining jira workflows"));
+    }
+
+    @Test
     void shouldRetryWhenToolsAvailableButModelRefusedLiveData() {
         assertTrue(LlmToolUseRetryPolicy.shouldRetryForToolUse(
                 40,
                 true,
                 "list my jira tickets",
-                "Connect Jira from Profile → MCP Integrations."
+                "Connect Jira from Profile → MCP Integrations.",
+                false
         ));
+    }
+
+    @Test
+    void shouldNotRetryWhenToolResultsAlreadyExistInTurn() {
+        assertFalse(LlmToolUseRetryPolicy.shouldRetryForToolUse(
+                122,
+                true,
+                "do i have any open merge requests",
+                "You have no open merge requests.",
+                true
+        ));
+    }
+
+    @Test
+    void retryReasonIsFalseDisconnectedWhenModelRefused() {
+        assertEquals(
+                LlmToolUseRetryPolicy.RetryReason.FALSE_DISCONNECTED,
+                LlmToolUseRetryPolicy.retryReasonForToolUse(
+                        40,
+                        true,
+                        "list my jira tickets",
+                        "Connect Jira from Profile → MCP Integrations.",
+                        false
+                ).orElseThrow()
+        );
     }
 
     @Test
@@ -39,7 +72,8 @@ class LlmToolUseRetryPolicyTest {
                 40,
                 false,
                 "list my jira tickets",
-                null
+                null,
+                false
         ));
     }
 }

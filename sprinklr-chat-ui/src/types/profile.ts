@@ -83,7 +83,7 @@ export function mapApiError(err: unknown): { message: string; kind: ConnectError
   }
 
   const status = response?.status
-  if (status === 401) return { message, kind: 'AUTH_ERROR' }
+  if (status === 401 || status === 422) return { message, kind: 'AUTH_ERROR' }
   if (status === 503) return { message, kind: 'MCP_CIRCUIT_OPEN' }
   if (status === 502) return { message, kind: 'MCP_UNAVAILABLE' }
   if (!response) return { message: 'Network error. Check your connection and try again.', kind: 'NETWORK_ERROR' }

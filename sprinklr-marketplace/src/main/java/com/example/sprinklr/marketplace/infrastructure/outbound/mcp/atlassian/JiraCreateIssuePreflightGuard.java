@@ -1,12 +1,14 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian;
 
+import com.example.sprinklr.marketplace.domain.model.McpInvocation;
+import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.McpInvocationPreflightStrategy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -18,63 +20,51 @@ import java.util.Map;
  * to choose — not pick an example from the metadata response.
  */
 @Component
-public class JiraCreateIssuePreflightGuard {
+public class JiraCreateIssuePreflightGuard implements McpInvocationPreflightStrategy {
 
+    private static final Logger log = LoggerFactory.getLogger(JiraCreateIssuePreflightGuard.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final Path DEBUG_LOG = Path.of(
-            "/Users/krish.singhvi/Desktop/sprinklr-demo/.cursor/debug-b7bc7c.log"
-    );
 
-    public record ValidationResult(boolean allowed, String blockMessage) {
-        public static ValidationResult allow() {
-            return new ValidationResult(true, null);
-        }
-
-        public static ValidationResult block(String message) {
-            return new ValidationResult(false, message);
-        }
+    @Override
+    public PreflightResult validate(McpInvocation invocation, String userPrompt) {
+        return validate(invocation.toolName(), invocation.argumentsJson(), userPrompt);
     }
 
-    public ValidationResult validate(String toolName, String argumentsJson, String userPrompt) {
+    PreflightResult validate(String toolName, String argumentsJson, String userPrompt) {
         if (!isCreateJiraIssue(toolName)) {
-            return ValidationResult.allow();
+            return PreflightResult.allow();
         }
         if (userPrompt == null || userPrompt.isBlank()) {
-            return ValidationResult.allow();
+            return PreflightResult.allow();
         }
 
         try {
             JsonNode root = OBJECT_MAPPER.readTree(argumentsJson);
             JsonNode additionalFields = root.path("additional_fields");
             if (!additionalFields.isObject()) {
-                return ValidationResult.allow();
+                return PreflightResult.allow();
             }
 
             List<String> unconfirmed = new ArrayList<>();
             collectUnconfirmedComponents(additionalFields, userPrompt, unconfirmed);
             collectUnconfirmedCustomFields(additionalFields, userPrompt, unconfirmed);
 
-            // #region agent log
-            debugLog("JiraCreateIssuePreflightGuard.validate", "preflight check", Map.of(
-                    "hypothesisId", "H2",
-                    "userPromptLen", userPrompt.length(),
-                    "unconfirmed", unconfirmed,
-                    "allowed", unconfirmed.isEmpty()
-            ));
-            // #endregion
-
             if (unconfirmed.isEmpty()) {
-                return ValidationResult.allow();
+                return PreflightResult.allow();
             }
 
             String fields = String.join(", ", unconfirmed);
-            return ValidationResult.block(
+            return PreflightResult.block(
                     "The user did not specify " + fields + " in their message. "
                             + "Do NOT call createJiraIssue. Reply to the user, list the allowed options "
                             + "from getJiraIssueTypeMetaWithFields metadata, and wait for their choice."
             );
-        } catch (Exception ignored) {
-            return ValidationResult.allow();
+        } catch (Exception exception) {
+            log.warn("[JiraPreflight] Failed to validate createJiraIssue arguments: {}", exception.getMessage());
+            return PreflightResult.block(
+                    "Could not validate createJiraIssue arguments. Ask the user to confirm every required field "
+                            + "before calling createJiraIssue."
+            );
         }
     }
 
@@ -149,18 +139,4 @@ public class JiraCreateIssuePreflightGuard {
         String bare = toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
         return "createJiraIssue".equals(bare);
     }
-
-    // #region agent log
-    private static void debugLog(String location, String message, Map<String, ?> data) {
-        try {
-            StringBuilder json = new StringBuilder();
-            json.append("{\"sessionId\":\"b7bc7c\",\"timestamp\":").append(System.currentTimeMillis());
-            json.append(",\"location\":\"").append(location).append("\"");
-            json.append(",\"message\":\"").append(message).append("\"");
-            json.append(",\"data\":").append(OBJECT_MAPPER.writeValueAsString(data)).append("}");
-            Files.writeString(DEBUG_LOG, json + "\n", StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception ignored) {
-        }
-    }
-    // #endregion
 }

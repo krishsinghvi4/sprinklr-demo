@@ -1,14 +1,14 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
-import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-
 @Component
 public class McpCircuitBreakerFactory {
+
+    /** Base Resilience4j config name; tuned via {@code resilience4j.circuitbreaker.configs.mcpDefault.*}. */
+    static final String BASE_CONFIG_NAME = "mcpDefault";
 
     private final CircuitBreakerRegistry registry;
 
@@ -18,11 +18,6 @@ public class McpCircuitBreakerFactory {
 
     public CircuitBreaker forConnection(String connectionId) {
         String name = "mcp-" + connectionId;
-        return registry.circuitBreaker(name, () -> CircuitBreakerConfig.custom()
-                .slidingWindowSize(10)
-                .failureRateThreshold(50)
-                .waitDurationInOpenState(Duration.ofSeconds(30))
-                .permittedNumberOfCallsInHalfOpenState(3)
-                .build());
+        return registry.circuitBreaker(name, BASE_CONFIG_NAME);
     }
 }

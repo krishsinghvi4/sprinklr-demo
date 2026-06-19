@@ -54,4 +54,10 @@ class JiraCreateIssuePreflightGuardTest {
         var result = guard.validate("getJiraIssueTypeMetaWithFields", "{}", "anything");
         assertTrue(result.allowed());
     }
+
+    @Test
+    void blocksOnMalformedArgumentsJson() {
+        var result = guard.validate("createJiraIssue", "{not-json", "create a ticket");
+        assertFalse(result.allowed());
+    }
 }

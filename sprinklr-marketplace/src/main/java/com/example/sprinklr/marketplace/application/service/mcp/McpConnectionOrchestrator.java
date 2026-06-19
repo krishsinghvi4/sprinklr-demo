@@ -10,6 +10,7 @@ import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect.CompositeMcpConnectValidationAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -33,19 +34,22 @@ public class McpConnectionOrchestrator {
     private final McpDiscoveryPort discoveryPort;
     private final CredentialVaultPort credentialVault;
     private final McpProviderResolver providerResolver;
+    private final CompositeMcpConnectValidationAdapter connectValidationAdapter;
 
     public McpConnectionOrchestrator(
             McpCatalogLoader catalogLoader,
             McpRegistryPort registryPort,
             McpDiscoveryPort discoveryPort,
             CredentialVaultPort credentialVault,
-            McpProviderResolver providerResolver
+            McpProviderResolver providerResolver,
+            CompositeMcpConnectValidationAdapter connectValidationAdapter
     ) {
         this.catalogLoader = catalogLoader;
         this.registryPort = registryPort;
         this.discoveryPort = discoveryPort;
         this.credentialVault = credentialVault;
         this.providerResolver = providerResolver;
+        this.connectValidationAdapter = connectValidationAdapter;
     }
 
     public McpMarketplaceService.ConnectionView connectWithCredentials(
@@ -79,6 +83,20 @@ public class McpConnectionOrchestrator {
             );
         } catch (McpConnectionException | McpDiscoveryException exception) {
             log.warn("[MCP] Connect failed userId={} catalogServerId={}: {}",
+                    userId, catalogServerId, exception.getMessage());
+            throw exception;
+        }
+
+        try {
+            connectValidationAdapter.validateLiveConnection(
+                    catalogEntry,
+                    catalogEntry.endpointUrl(),
+                    authHeaders,
+                    discoveryResult.sessionId(),
+                    discoveryResult.protocolVersion()
+            );
+        } catch (McpConnectionException exception) {
+            log.warn("[MCP] Connect validation failed userId={} catalogServerId={}: {}",
                     userId, catalogServerId, exception.getMessage());
             throw exception;
         }

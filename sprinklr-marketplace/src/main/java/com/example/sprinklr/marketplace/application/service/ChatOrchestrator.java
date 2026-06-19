@@ -15,11 +15,11 @@ import com.example.sprinklr.marketplace.domain.model.ToolResult;
 import com.example.sprinklr.marketplace.domain.port.inbound.ChatUseCase;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
 import com.example.sprinklr.marketplace.infrastructure.config.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraCreateIssuePreflightGuard;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +54,7 @@ public class ChatOrchestrator implements ChatUseCase {
     private final McpRegistryPort mcpRegistryPort;
     private final McpProperties mcpProperties;
     private final ChatProperties chatProperties;
-    private final JiraCreateIssuePreflightGuard jiraCreateIssuePreflightGuard;
+    private final McpInvocationPreflightPort mcpInvocationPreflightPort;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -63,7 +63,7 @@ public class ChatOrchestrator implements ChatUseCase {
             McpRegistryPort mcpRegistryPort,
             McpProperties mcpProperties,
             ChatProperties chatProperties,
-            JiraCreateIssuePreflightGuard jiraCreateIssuePreflightGuard
+            McpInvocationPreflightPort mcpInvocationPreflightPort
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -71,7 +71,7 @@ public class ChatOrchestrator implements ChatUseCase {
         this.mcpRegistryPort = mcpRegistryPort;
         this.mcpProperties = mcpProperties;
         this.chatProperties = chatProperties;
-        this.jiraCreateIssuePreflightGuard = jiraCreateIssuePreflightGuard;
+        this.mcpInvocationPreflightPort = mcpInvocationPreflightPort;
     }
 
     /**
@@ -316,13 +316,9 @@ public class ChatOrchestrator implements ChatUseCase {
     }
 
     private McpInvocationResult invokeWithPreflight(McpInvocation invocation, String userPrompt) {
-        var validation = jiraCreateIssuePreflightGuard.validate(
-                invocation.toolName(),
-                invocation.argumentsJson(),
-                userPrompt
-        );
+        var validation = mcpInvocationPreflightPort.validate(invocation, userPrompt);
         if (!validation.allowed()) {
-            log.info("[Orchestrator] Blocked createJiraIssue - user did not confirm required fields");
+            log.info("[Orchestrator] Blocked tool={} via preflight guard", invocation.toolName());
             String message = "Tool '" + invocation.toolName() + "' blocked. " + validation.blockMessage();
             return new McpInvocationResult(invocation.toolCallId(), false, null, message);
         }
