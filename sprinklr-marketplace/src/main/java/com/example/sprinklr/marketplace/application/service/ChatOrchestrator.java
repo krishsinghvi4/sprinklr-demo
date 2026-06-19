@@ -24,7 +24,6 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorForm
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -36,6 +35,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Flow;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Orchestrates chat turns, deciding when to call MCP tools and when to answer directly.
@@ -88,11 +88,14 @@ public class ChatOrchestrator implements ChatUseCase {
     }
 
     /**
-     * Drives the turn: call LLM, invoke tools if requested, then summarize.
+     * Drives the turn: call LLM, invoke tools if requested, then respond with the final text.
      */
     private void runAgenticLoop(ChatRequest request, Flow.Subscriber<String> responseSubscriber) {
+        long turnStartMs = System.currentTimeMillis();
         Set<String> usedConnections = new HashSet<>();
+        StreamingSession streamingSession = new StreamingSession(responseSubscriber);
         try {
+            long setupStartMs = System.currentTimeMillis();
             String conversationId = resolveConversationId(request);
             int priorTurnLimit = Math.max(0, chatProperties.getHistoryTurnLimit() - 1);
             List<Message> history = new ArrayList<>();
@@ -116,30 +119,35 @@ public class ChatOrchestrator implements ChatUseCase {
             List<String> currentTurnToolMessageIds = new ArrayList<>();
 
             List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(request.userId());
-            log.info("[Orchestrator] Starting agentic loop conversationId={} userTools={} historyTurnLimit={} priorTurnsLoaded={}",
-                    conversationId, userTools.size(), chatProperties.getHistoryTurnLimit(), priorTurnLimit);
+            long setupMs = System.currentTimeMillis() - setupStartMs;
+            log.info("[Orchestrator] Setup complete in {}ms conversationId={} userTools={} historyTurnLimit={} priorTurnsLoaded={}",
+                    setupMs, conversationId, userTools.size(), chatProperties.getHistoryTurnLimit(), priorTurnLimit);
 
             int iteration = 0;
             int totalToolCalls = 0;
 
             while (iteration < mcpProperties.getMaxAgenticIterations()) {
+                long llmStartMs = System.currentTimeMillis();
                 LlmResponse llmResponse = llmPort.complete(
                         new LlmRequest(request.prompt(), history, userTools, currentTurnUserMessageId)
                 );
+                long llmMs = System.currentTimeMillis() - llmStartMs;
+                String responseType = llmResponse.toolCalls().isEmpty() ? "text" : "tool_calls";
+                log.info("[Orchestrator] LLM iteration {} completed in {}ms conversationId={} responseType={} toolCallCount={}",
+                        iteration, llmMs, conversationId, responseType, llmResponse.toolCalls().size());
 
                 if (llmResponse.toolCalls().isEmpty()) {
                     if (iteration == 0) {
                         handleTextOnlyResponse(conversationId, llmResponse, responseSubscriber);
                     } else {
-                        streamSummaryResponse(
-                                request,
+                        handlePostToolResponse(
                                 conversationId,
-                                history,
-                                currentTurnUserMessageId,
+                                llmResponse,
                                 currentTurnToolMessageIds,
-                                responseSubscriber
+                                streamingSession
                         );
                     }
+                    logTurnComplete(conversationId, turnStartMs, iteration, totalToolCalls);
                     return;
                 }
 
@@ -147,11 +155,17 @@ public class ChatOrchestrator implements ChatUseCase {
                     log.info("[Orchestrator] Tool call limit reached conversationId={} total={}",
                             conversationId, totalToolCalls);
                     deliverLimitMessage(conversationId, responseSubscriber);
+                    logTurnComplete(conversationId, turnStartMs, iteration, totalToolCalls);
                     return;
                 }
 
                 String toolMessageId = executeToolBatch(
-                        request, conversationId, history, llmResponse, usedConnections
+                        request,
+                        conversationId,
+                        history,
+                        llmResponse,
+                        usedConnections,
+                        streamingSession
                 );
                 currentTurnToolMessageIds.add(toolMessageId);
                 totalToolCalls += llmResponse.toolCalls().size();
@@ -160,11 +174,17 @@ public class ChatOrchestrator implements ChatUseCase {
 
             log.info("[Orchestrator] Agentic iteration limit reached conversationId={}", conversationId);
             deliverLimitMessage(conversationId, responseSubscriber);
+            logTurnComplete(conversationId, turnStartMs, iteration, totalToolCalls);
         } catch (Exception exception) {
             signalError(responseSubscriber, exception);
-        } finally {
-            clearMcpSessions(usedConnections);
+            log.warn("[Orchestrator] Turn failed after {}ms: {}",
+                    System.currentTimeMillis() - turnStartMs, exception.getMessage());
         }
+    }
+
+    private void logTurnComplete(String conversationId, long turnStartMs, int iterations, int totalToolCalls) {
+        log.info("[Orchestrator] Turn complete conversationId={} totalMs={} iterations={} toolCalls={}",
+                conversationId, System.currentTimeMillis() - turnStartMs, iterations, totalToolCalls);
     }
 
     /**
@@ -177,7 +197,8 @@ public class ChatOrchestrator implements ChatUseCase {
             String conversationId,
             List<Message> history,
             LlmResponse llmResponse,
-            Set<String> usedConnections
+            Set<String> usedConnections,
+            StreamingSession streamingSession
     ) {
         Message assistantToolCallMessage = new Message(
                 newId(),
@@ -196,11 +217,16 @@ public class ChatOrchestrator implements ChatUseCase {
                 .peek(invocation -> usedConnections.add(invocation.serverId()))
                 .toList();
 
-        List<McpInvocationResult> invocationResults = Flux.fromIterable(invocations)
-                .concatMap(invocation -> Mono.fromCallable(() -> invokeWithPreflight(invocation, request.prompt()))
-                        .subscribeOn(Schedulers.boundedElastic()))
-                .collectList()
-                .block();
+        List<McpInvocationResult> invocationResults = new ArrayList<>();
+        for (McpInvocation invocation : invocations) {
+            streamingSession.emitProgress("Running " + invocation.toolName() + "…\n");
+            long toolStartMs = System.currentTimeMillis();
+            McpInvocationResult result = invokeWithPreflight(invocation, request.prompt());
+            long toolMs = System.currentTimeMillis() - toolStartMs;
+            log.info("[Orchestrator] MCP tool {} completed in {}ms conversationId={} success={}",
+                    invocation.toolName(), toolMs, conversationId, result.success());
+            invocationResults.add(result);
+        }
 
         List<ToolResult> toolResults = invocationResults.stream()
                 .map(this::toToolResult)
@@ -221,25 +247,43 @@ public class ChatOrchestrator implements ChatUseCase {
     }
 
     /**
-     * After tool execution, runs a final LLM pass to summarize and respond.
+     * Delivers the final agentic LLM text after tool execution (no extra summary LLM call).
      */
-    private void streamSummaryResponse(
-            ChatRequest request,
+    private void handlePostToolResponse(
             String conversationId,
-            List<Message> history,
-            String currentTurnUserMessageId,
+            LlmResponse llmResponse,
             List<String> currentTurnToolMessageIds,
-            Flow.Subscriber<String> responseSubscriber
+            StreamingSession streamingSession
     ) {
-        Flow.Subscriber<String> capturingSummarySubscriber = createCapturingSummarySubscriber(
-                conversationId,
-                currentTurnToolMessageIds,
-                responseSubscriber
-        );
-        llmPort.streamSummary(
-                new LlmRequest(request.prompt(), history, List.of(), currentTurnUserMessageId),
-                capturingSummarySubscriber
-        );
+        String content = llmResponse.content() != null ? llmResponse.content() : "";
+        log.info("[Orchestrator] Post-tool response conversationId={} chars={}",
+                conversationId, content.length());
+
+        streamingSession.emitFinal(content);
+        persistPostToolAssistantMessage(conversationId, content, currentTurnToolMessageIds);
+    }
+
+    private void persistPostToolAssistantMessage(
+            String conversationId,
+            String content,
+            List<String> currentTurnToolMessageIds
+    ) {
+        if (!content.isEmpty()) {
+            Message assistantMessage = new Message(
+                    newId(),
+                    conversationId,
+                    MessageRole.ASSISTANT,
+                    content,
+                    List.of(),
+                    List.of(),
+                    Instant.now()
+            );
+            chatHistoryPort.saveMessage(assistantMessage);
+        }
+
+        for (String toolMessageId : currentTurnToolMessageIds) {
+            chatHistoryPort.truncateToolResults(toolMessageId);
+        }
     }
 
     private void deliverLimitMessage(String conversationId, Flow.Subscriber<String> responseSubscriber) {
@@ -351,59 +395,6 @@ public class ChatOrchestrator implements ChatUseCase {
         return new ToolResult(result.toolCallId(), content);
     }
 
-    private Flow.Subscriber<String> createCapturingSummarySubscriber(
-            String conversationId,
-            List<String> currentTurnToolMessageIds,
-            Flow.Subscriber<String> originalSubscriber
-    ) {
-        return new Flow.Subscriber<String>() {
-            private final StringBuilder summaryBuffer = new StringBuilder();
-
-            @Override
-            public void onSubscribe(Flow.Subscription subscription) {
-                originalSubscriber.onSubscribe(subscription);
-            }
-
-            @Override
-            public void onNext(String chunk) {
-                summaryBuffer.append(chunk);
-                originalSubscriber.onNext(chunk);
-            }
-
-            @Override
-            public void onError(Throwable throwable) {
-                log.error("[Orchestrator] Summary stream error: {}", throwable.getMessage());
-                originalSubscriber.onError(throwable);
-            }
-
-            @Override
-            public void onComplete() {
-                String completeSummary = summaryBuffer.toString();
-                log.info("[Orchestrator] Summary complete conversationId={} chars={}",
-                        conversationId, completeSummary.length());
-
-                if (!completeSummary.isEmpty()) {
-                    Message assistantSummaryMessage = new Message(
-                            newId(),
-                            conversationId,
-                            MessageRole.ASSISTANT,
-                            completeSummary,
-                            List.of(),
-                            List.of(),
-                            Instant.now()
-                    );
-                    chatHistoryPort.saveMessage(assistantSummaryMessage);
-                }
-
-                for (String toolMessageId : currentTurnToolMessageIds) {
-                    chatHistoryPort.truncateToolResults(toolMessageId);
-                }
-
-                originalSubscriber.onComplete();
-            }
-        };
-    }
-
     private void signalError(Flow.Subscriber<String> responseSubscriber, Throwable error) {
         try {
             if (LlmErrorFormatter.isVpnOrNetworkFailure(error)) {
@@ -423,7 +414,9 @@ public class ChatOrchestrator implements ChatUseCase {
         responseSubscriber.onSubscribe(new Flow.Subscription() {
             @Override
             public void request(long n) {
-                responseSubscriber.onNext(content);
+                if (!content.isEmpty()) {
+                    responseSubscriber.onNext(content);
+                }
                 responseSubscriber.onComplete();
             }
 
@@ -433,15 +426,56 @@ public class ChatOrchestrator implements ChatUseCase {
         });
     }
 
-    private void clearMcpSessions(Set<String> connectionIds) {
-        if (connectionIds.isEmpty()) {
-            return;
-        }
-        connectionIds.forEach(mcpRegistryPort::clearSession);
-        log.info("[Orchestrator] Cleared MCP sessions count={}", connectionIds.size());
-    }
-
     private String newId() {
         return UUID.randomUUID().toString();
+    }
+
+    /**
+     * Manages multi-chunk SSE delivery for tool-turn progress and final response.
+     */
+    private static final class StreamingSession {
+        private final Flow.Subscriber<String> subscriber;
+        private final AtomicBoolean subscribed = new AtomicBoolean(false);
+        private final AtomicBoolean completed = new AtomicBoolean(false);
+
+        private StreamingSession(Flow.Subscriber<String> subscriber) {
+            this.subscriber = subscriber;
+        }
+
+        void emitProgress(String chunk) {
+            if (chunk == null || chunk.isEmpty() || completed.get()) {
+                return;
+            }
+            ensureSubscribed();
+            subscriber.onNext(chunk);
+        }
+
+        void emitFinal(String content) {
+            if (completed.get()) {
+                return;
+            }
+            ensureSubscribed();
+            if (content != null && !content.isEmpty()) {
+                subscriber.onNext(content);
+            }
+            subscriber.onComplete();
+            completed.set(true);
+        }
+
+        private void ensureSubscribed() {
+            if (subscribed.compareAndSet(false, true)) {
+                subscriber.onSubscribe(new Flow.Subscription() {
+                    @Override
+                    public void request(long n) {
+                        // ChatController requests Long.MAX_VALUE; chunks are pushed as produced.
+                    }
+
+                    @Override
+                    public void cancel() {
+                        completed.set(true);
+                    }
+                });
+            }
+        }
     }
 }
