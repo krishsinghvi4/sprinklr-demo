@@ -2,6 +2,8 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
 import com.example.sprinklr.marketplace.domain.model.LlmRequest;
 import com.example.sprinklr.marketplace.domain.model.LlmResponse;
+import com.example.sprinklr.marketplace.domain.model.Message;
+import com.example.sprinklr.marketplace.domain.model.MessageRole;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
 import org.slf4j.Logger;
@@ -48,14 +50,23 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
                 null
         ));
 
+        boolean toolResultsAlreadyInTurn = hasToolResultsInCurrentTurn(request);
         if (LlmToolUseRetryPolicy.shouldRetryForToolUse(
                 request.tools().size(),
                 result.toolCalls().isEmpty(),
                 request.prompt(),
-                result.content()
+                result.content(),
+                toolResultsAlreadyInTurn
         )) {
-            log.info("[LLM] Model returned text-only despite {} tools; retrying with connected-tools nudge",
-                    request.tools().size());
+            LlmToolUseRetryPolicy.RetryReason retryReason = LlmToolUseRetryPolicy.retryReasonForToolUse(
+                    request.tools().size(),
+                    result.toolCalls().isEmpty(),
+                    request.prompt(),
+                    result.content(),
+                    toolResultsAlreadyInTurn
+            ).orElse(null);
+            log.info("[LLM] Model returned text-only before any tool use despite {} tools; retrying (reason={})",
+                    request.tools().size(), retryReason);
 
             result = llmService.complete(new LlmCompletionCommand(
                     request.history(),
@@ -67,6 +78,26 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
         }
 
         return new LlmResponse(result.content(), result.toolCalls());
+    }
+
+    /**
+     * Once tool results exist in the current turn, text-only is expected (agentic loop exit).
+     */
+    private static boolean hasToolResultsInCurrentTurn(LlmRequest request) {
+        if (request.currentTurnUserMessageId() == null || request.currentTurnUserMessageId().isBlank()) {
+            return false;
+        }
+        boolean pastCurrentUserMessage = false;
+        for (Message message : request.history()) {
+            if (request.currentTurnUserMessageId().equals(message.id())) {
+                pastCurrentUserMessage = true;
+                continue;
+            }
+            if (pastCurrentUserMessage && message.role() == MessageRole.TOOL) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

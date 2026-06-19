@@ -1,26 +1,49 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
+import java.util.Optional;
+
 /**
  * Heuristics for retrying an LLM completion when tools are available but the model skips them.
  */
 final class LlmToolUseRetryPolicy {
 
+    enum RetryReason {
+        FALSE_DISCONNECTED,
+        LIVE_DATA_PROMPT
+    }
+
     private LlmToolUseRetryPolicy() {
+    }
+
+    static Optional<RetryReason> retryReasonForToolUse(
+            int toolCount,
+            boolean textOnlyResponse,
+            String prompt,
+            String responseContent,
+            boolean toolResultsAlreadyInTurn
+    ) {
+        if (toolCount <= 0 || !textOnlyResponse || toolResultsAlreadyInTurn) {
+            return Optional.empty();
+        }
+        if (falselyClaimsDisconnected(responseContent)) {
+            return Optional.of(RetryReason.FALSE_DISCONNECTED);
+        }
+        if (requestsLiveIntegrationData(prompt)) {
+            return Optional.of(RetryReason.LIVE_DATA_PROMPT);
+        }
+        return Optional.empty();
     }
 
     static boolean shouldRetryForToolUse(
             int toolCount,
             boolean textOnlyResponse,
             String prompt,
-            String responseContent
+            String responseContent,
+            boolean toolResultsAlreadyInTurn
     ) {
-        if (toolCount <= 0 || !textOnlyResponse) {
-            return false;
-        }
-        if (falselyClaimsDisconnected(responseContent)) {
-            return true;
-        }
-        return requestsLiveIntegrationData(prompt);
+        return retryReasonForToolUse(
+                toolCount, textOnlyResponse, prompt, responseContent, toolResultsAlreadyInTurn
+        ).isPresent();
     }
 
     static boolean falselyClaimsDisconnected(String content) {
@@ -49,21 +72,46 @@ final class LlmToolUseRetryPolicy {
             return false;
         }
         String lower = prompt.toLowerCase();
+        if (isGeneralKnowledgeQuestion(lower)) {
+            return false;
+        }
         boolean mentionsIntegration = lower.contains("jira")
                 || lower.contains("gitlab")
                 || lower.contains("merge request")
                 || lower.contains("pipeline")
                 || lower.contains("deployment")
                 || lower.contains("teams");
-        boolean requestsData = lower.contains("list")
-                || lower.contains("fetch")
+        boolean requestsLiveData = requestsPossessiveLiveData(lower)
+                || requestsExplicitFetch(lower);
+        return mentionsIntegration && requestsLiveData;
+    }
+
+    private static boolean isGeneralKnowledgeQuestion(String lower) {
+        return lower.startsWith("what is ")
+                || lower.startsWith("what are ")
+                || lower.startsWith("how does ")
+                || lower.startsWith("explain ")
+                || lower.contains(" used for")
+                || lower.contains("tell me about ");
+    }
+
+    private static boolean requestsPossessiveLiveData(String lower) {
+        return lower.contains("my jira")
+                || lower.contains("my gitlab")
+                || lower.contains("my ticket")
+                || lower.contains("my tickets")
+                || lower.contains("my merge request")
+                || lower.contains("my pipeline")
+                || lower.contains("my deployment")
+                || lower.contains("assigned to me")
                 || lower.contains("get my")
                 || lower.contains("show my")
-                || lower.contains("assigned")
-                || lower.contains("open ticket")
-                || lower.contains("create")
-                || lower.contains("update")
-                || lower.contains("search");
-        return mentionsIntegration && requestsData;
+                || lower.contains("list my");
+    }
+
+    private static boolean requestsExplicitFetch(String lower) {
+        return (lower.contains("fetch") || lower.contains("list") || lower.contains("search"))
+                && (lower.contains("ticket") || lower.contains("issue") || lower.contains("merge request")
+                || lower.contains("pipeline") || lower.contains("deployment"));
     }
 }

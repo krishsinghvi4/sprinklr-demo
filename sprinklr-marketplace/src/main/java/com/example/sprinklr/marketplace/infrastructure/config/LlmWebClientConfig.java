@@ -21,7 +21,7 @@ import java.time.Duration;
  * block orchestrator threads indefinitely. Cookie auth is applied as a default header
  * when configured — the cookie value itself is never logged.
  */
-//basically this creates a webclient for non blocking http calls , ie if 200 users want to chat at the same time they can without exhausting thread pool resouces 
+//this creates a webclient for non blocking http calls , ie if 200 users want to chat at the same time they can without exhausting thread pool resouces
 @Configuration
 public class LlmWebClientConfig {
 

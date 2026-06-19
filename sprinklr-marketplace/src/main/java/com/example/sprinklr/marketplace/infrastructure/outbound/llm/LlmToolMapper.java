@@ -53,26 +53,7 @@ public class LlmToolMapper {
 
     private LlmApiTool toApiTool(McpTool tool) {
         Object parameters = parseParameters(tool.name(), tool.inputSchemaJson());
-        String description = enrichDescription(tool.name(), tool.description());
-        return LlmApiTool.function(tool.name(), description, parameters);
-    }
-
-    private String enrichDescription(String toolName, String description) {
-        if (toolName == null) {
-            return description;
-        }
-        String bareName = toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
-        if ("getJiraIssueTypeMetaWithFields".equals(bareName)) {
-            return description + " Use this to list required fields and allowed options for the user. "
-                    + "Metadata options are NOT defaults — never pass an option to createJiraIssue unless the user explicitly chose it.";
-        }
-        if ("createJiraIssue".equals(bareName)) {
-            return description + " IMPORTANT: Call getJiraIssueTypeMetaWithFields first to learn required fields. "
-                    + "Use fieldId keys from that response in additional_fields; never invent customfield IDs. "
-                    + "Put components inside additional_fields (e.g. {\"components\":[{\"name\":\"<user-chosen>\"}]}), never top-level. "
-                    + "Do NOT call this tool until the user has explicitly stated every required field value in their message.";
-        }
-        return description;
+        return LlmApiTool.function(tool.name(), tool.description(), parameters);
     }
 
   /**

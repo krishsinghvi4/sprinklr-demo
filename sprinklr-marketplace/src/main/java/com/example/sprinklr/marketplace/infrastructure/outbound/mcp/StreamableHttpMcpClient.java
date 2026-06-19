@@ -201,7 +201,7 @@ public class StreamableHttpMcpClient {
                         method, exception.getStatusCode().value(), truncate(exception.getResponseBodyAsString()));
                 if (exception.getStatusCode().value() == 401 || exception.getStatusCode().value() == 403) {
                     throw new McpConnectionException(
-                            "Invalid credentials — check email and API token",
+                            "Invalid credentials — check your API token or personal access token",
                             "MCP auth failed: " + exception.getMessage());
                 }
                 throw new McpConnectionException(
@@ -229,7 +229,7 @@ public class StreamableHttpMcpClient {
 
         if (status.value() == 401 || status.value() == 403) {
             throw new McpConnectionException(
-                    "Invalid credentials — check email and API token",
+                    "Invalid credentials — check your API token or personal access token",
                     "MCP auth failed with status " + status.value());
         }
 

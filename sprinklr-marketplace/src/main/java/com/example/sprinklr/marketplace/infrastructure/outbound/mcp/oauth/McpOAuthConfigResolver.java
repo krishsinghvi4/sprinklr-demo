@@ -6,8 +6,8 @@ import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Resolves effective OAuth settings for a catalog entry, falling back to global McpProperties
- * for legacy catalog entries that only specify authType.
+ * Resolves effective OAuth settings for a catalog entry.
+ * Per-issuer metadata, resource, and scopes must be declared in the catalog auth.oauth block.
  */
 @Component
 public class McpOAuthConfigResolver {
@@ -25,9 +25,9 @@ public class McpOAuthConfigResolver {
         McpOAuthCatalogConfig catalogOAuth = entry.authConfig().oauth();
         return new McpOAuthCatalogConfig(
                 catalogOAuth.providerKey(),
-                catalogOAuth.metadataUrl(),
-                resolveResource(catalogOAuth),
-                resolveScopes(catalogOAuth),
+                requireNonBlank(catalogOAuth.metadataUrl(), "metadataUrl", entry.id()),
+                requireNonBlank(catalogOAuth.resource(), "resource", entry.id()),
+                requireNonBlank(catalogOAuth.scopes(), "scopes", entry.id()),
                 catalogOAuth.useDcr(),
                 catalogOAuth.usePkce(),
                 catalogOAuth.includeResourceParam(),
@@ -39,17 +39,11 @@ public class McpOAuthConfigResolver {
         return properties.getOauthRedirectUri();
     }
 
-    private String resolveResource(McpOAuthCatalogConfig catalogOAuth) {
-        if (catalogOAuth.resource() != null && !catalogOAuth.resource().isBlank()) {
-            return catalogOAuth.resource();
+    private static String requireNonBlank(String value, String fieldName, String catalogId) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(
+                    "OAuth catalog entry '" + catalogId + "' is missing auth.oauth." + fieldName);
         }
-        return properties.getOauthResource();
-    }
-
-    private String resolveScopes(McpOAuthCatalogConfig catalogOAuth) {
-        if (catalogOAuth.scopes() != null && !catalogOAuth.scopes().isBlank()) {
-            return catalogOAuth.scopes();
-        }
-        return properties.getOauthScopes();
+        return value;
     }
 }

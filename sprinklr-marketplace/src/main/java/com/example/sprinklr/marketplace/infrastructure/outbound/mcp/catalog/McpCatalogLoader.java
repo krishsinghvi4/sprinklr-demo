@@ -7,7 +7,6 @@ import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
 import com.example.sprinklr.marketplace.domain.model.McpCredentialField;
 import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.AtlassianOAuthAuthStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.BasicEmailTokenAuthStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.GitLabPrivateTokenAuthStrategy;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -24,7 +23,7 @@ import java.util.Optional;
 
 /**
  * Loads the MCP server catalog from JSON and exposes catalog-driven auth/connect metadata.
- * Supports legacy entries (authType only) and the extended auth block schema.
+ * OAuth entries must declare an explicit {@code auth.oauth} block with all issuer settings.
  */
 @Component
 public class McpCatalogLoader {
@@ -60,14 +59,14 @@ public class McpCatalogLoader {
     private McpCatalogEntry parseEntry(JsonNode node) {
         List<McpCredentialField> fields = parseCredentialFields(node.path("credentialFields"));
         String authType = node.path("authType").asText();
-        McpAuthConfig authConfig = parseAuthConfig(node, authType);
+        String catalogId = node.path("id").asText();
+        McpAuthConfig authConfig = parseAuthConfig(node, authType, catalogId);
         McpConnectMethod connectMethod = parseConnectMethod(node, authConfig);
 
-        String id = node.path("id").asText();
-        String endpointUrl = resolveEndpointUrl(id, node.path("endpointUrl").asText());
+        String endpointUrl = resolveEndpointUrl(catalogId, node.path("endpointUrl").asText());
 
         return new McpCatalogEntry(
-                id,
+                catalogId,
                 node.path("displayName").asText(),
                 node.path("description").asText(""),
                 endpointUrl,
@@ -92,44 +91,47 @@ public class McpCatalogLoader {
         return fields;
     }
 
-    private McpAuthConfig parseAuthConfig(JsonNode node, String authType) {
+    private McpAuthConfig parseAuthConfig(JsonNode node, String authType, String catalogId) {
         JsonNode authNode = node.path("auth");
         if (!authNode.isMissingNode() && !authNode.isNull()) {
             McpAuthKind kind = McpAuthKind.valueOf(authNode.path("kind").asText("CREDENTIALS"));
             if (kind == McpAuthKind.OAUTH) {
-                JsonNode oauthNode = authNode.path("oauth");
-                String resource = oauthNode.has("resource") && !oauthNode.path("resource").asText("").isBlank()
-                        ? oauthNode.path("resource").asText()
-                        : properties.getOauthResource();
-                return new McpAuthConfig(kind, new McpOAuthCatalogConfig(
-                        oauthNode.path("providerKey").asText(node.path("id").asText()),
-                        oauthNode.path("metadataUrl").asText(properties.getOauthMetadataUrl()),
-                        resource,
-                        oauthNode.path("scopes").asText(properties.getOauthScopes()),
-                        oauthNode.path("useDcr").asBoolean(true),
-                        oauthNode.path("usePkce").asBoolean(true),
-                        oauthNode.path("includeResourceParam").asBoolean(true),
-                        oauthNode.path("requiresRefreshToken").asBoolean(true)
-                ));
+                return new McpAuthConfig(kind, parseRequiredOAuthConfig(authNode.path("oauth"), catalogId));
             }
             return new McpAuthConfig(McpAuthKind.CREDENTIALS, null);
         }
 
-        // Legacy inference from authType for backward compatibility.
-        if (AtlassianOAuthAuthStrategy.AUTH_TYPE.equals(authType)
-                || authType.startsWith("OAUTH_")) {
-            return new McpAuthConfig(McpAuthKind.OAUTH, new McpOAuthCatalogConfig(
-                    inferProviderKey(authType, node.path("id").asText()),
-                    properties.getOauthMetadataUrl(),
-                    properties.getOauthResource(),
-                    properties.getOauthScopes(),
-                    true,
-                    true,
-                    true,
-                    true
-            ));
+        if (authType.startsWith("OAUTH_")) {
+            throw new IllegalStateException(
+                    "OAuth catalog entry '" + catalogId + "' must declare an auth.oauth block "
+                            + "with metadataUrl, resource, and scopes.");
         }
         return new McpAuthConfig(McpAuthKind.CREDENTIALS, null);
+    }
+
+    private McpOAuthCatalogConfig parseRequiredOAuthConfig(JsonNode oauthNode, String catalogId) {
+        String metadataUrl = requireOAuthField(oauthNode, "metadataUrl", catalogId);
+        String resource = requireOAuthField(oauthNode, "resource", catalogId);
+        String scopes = requireOAuthField(oauthNode, "scopes", catalogId);
+        return new McpOAuthCatalogConfig(
+                oauthNode.path("providerKey").asText(catalogId),
+                metadataUrl,
+                resource,
+                scopes,
+                oauthNode.path("useDcr").asBoolean(true),
+                oauthNode.path("usePkce").asBoolean(true),
+                oauthNode.path("includeResourceParam").asBoolean(true),
+                oauthNode.path("requiresRefreshToken").asBoolean(true)
+        );
+    }
+
+    private static String requireOAuthField(JsonNode oauthNode, String fieldName, String catalogId) {
+        String value = oauthNode.path(fieldName).asText("").trim();
+        if (value.isBlank()) {
+            throw new IllegalStateException(
+                    "OAuth catalog entry '" + catalogId + "' is missing auth.oauth." + fieldName);
+        }
+        return value;
     }
 
     private McpConnectMethod parseConnectMethod(JsonNode node, McpAuthConfig authConfig) {
@@ -157,15 +159,5 @@ public class McpCatalogLoader {
             }
         }
         return catalogEndpointUrl;
-    }
-
-    private String inferProviderKey(String authType, String catalogId) {
-        if (AtlassianOAuthAuthStrategy.AUTH_TYPE.equals(authType)) {
-            return "atlassian";
-        }
-        if (authType.startsWith("OAUTH_")) {
-            return authType.substring("OAUTH_".length()).toLowerCase();
-        }
-        return catalogId;
     }
 }

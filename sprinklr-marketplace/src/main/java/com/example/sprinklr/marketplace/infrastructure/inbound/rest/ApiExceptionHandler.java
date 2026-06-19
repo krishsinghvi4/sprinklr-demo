@@ -43,11 +43,14 @@ public class ApiExceptionHandler {
     @ExceptionHandler(McpConnectionException.class)
     public ResponseEntity<MessageResponse> handleMcpConnection(McpConnectionException exception) {
         log.warn("[API] MCP connection error: {}", exception.getMessage());
-        HttpStatus status = exception.getUserMessage().toLowerCase().contains("credential")
-                || exception.getUserMessage().toLowerCase().contains("invalid")
-                ? HttpStatus.UNAUTHORIZED
+        String lowerMessage = exception.getUserMessage().toLowerCase();
+        boolean credentialFailure = lowerMessage.contains("credential")
+                || lowerMessage.contains("invalid")
+                || lowerMessage.contains("token");
+        HttpStatus status = credentialFailure
+                ? HttpStatus.UNPROCESSABLE_ENTITY
                 : HttpStatus.BAD_GATEWAY;
-        McpErrorCode code = status == HttpStatus.UNAUTHORIZED
+        McpErrorCode code = credentialFailure
                 ? McpErrorCode.AUTH_ERROR
                 : McpErrorCode.MCP_UNAVAILABLE;
         return ResponseEntity.status(status)
