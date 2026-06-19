@@ -56,6 +56,39 @@ class GitLabRequiredArgsPreflightGuardTest {
     }
 
     @Test
+    void allowsWhenProjectPathProvidedInEarlierTurnAndUserConfirms() {
+        String args = """
+                {
+                  "project_id": "sprinklr/main/sprinklr.app",
+                  "sha": "e454499742155df35e3333bea031925df7a72ba5"
+                }
+                """;
+        String conversationContext = """
+                for branch master is there any conflict for commit e454499742155df35e3333bea031925df7a72ba5?
+                https://gitlab.com/sprinklr/main/sprinklr.app/-/commit/e454499742155df35e3333bea031925df7a72ba5
+                Is the project path sprinklr/main/sprinklr.app? If so, please confirm.
+                yes
+                """;
+
+        var result = guard.validate("gitlab.get_commit", args, conversationContext);
+        assertTrue(result.allowed());
+    }
+
+    @Test
+    void allowsUrlEncodedProjectIdWhenPathInConversation() {
+        String args = """
+                {
+                  "project_id": "sprinklr%2Fmain%2Fsprinklr.app",
+                  "sha": "abc123"
+                }
+                """;
+        String conversationContext = "check commit abc123 in sprinklr/main/sprinklr.app on master";
+
+        var result = guard.validate("gitlab.get_commit", args, conversationContext);
+        assertTrue(result.allowed());
+    }
+
+    @Test
     void blocksWhenProjectIdNotMentionedInPrompt() {
         String args = """
                 {

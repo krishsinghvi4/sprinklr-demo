@@ -157,6 +157,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
             );
         } catch (McpConnectionException exception) {
             if (exception.getMessage() != null && exception.getMessage().contains("404")) {
+                log.info("[MCP] Session stale (404), re-initializing connectionId={}", connection.id());
                 StreamableHttpMcpClient.McpSession refreshedSession =
                         reinitializeSession(connection, catalogEntry, authHeaders);
                 result = mcpClient.callTool(
@@ -248,6 +249,8 @@ public class HttpMcpClientAdapter implements McpServerPort {
     ) {
         String sessionId = connection.mcpSessionId();
         if (sessionId == null || sessionId.isBlank()) {
+            log.info("[MCP] No stored session, initializing connectionId={} catalog={}",
+                    connection.id(), connection.catalogServerId());
             StreamableHttpMcpClient.McpSession session = mcpClient.initialize(catalogEntry.endpointUrl(), authHeaders);
             McpConnectionDocument updated = new McpConnectionDocument(
                     connection.id(),
