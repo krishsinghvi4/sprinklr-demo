@@ -14,7 +14,8 @@ public record McpCatalogEntry(
         String authType,
         McpAuthConfig authConfig,
         McpConnectMethod connectMethod,
-        List<McpCredentialField> credentialFields
+        List<McpCredentialField> credentialFields,
+        String llmSkillPath
 ) {
 
     public McpCatalogEntry {

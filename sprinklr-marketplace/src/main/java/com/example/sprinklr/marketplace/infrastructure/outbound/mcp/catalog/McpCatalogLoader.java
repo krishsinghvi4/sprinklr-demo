@@ -65,6 +65,11 @@ public class McpCatalogLoader {
 
         String endpointUrl = resolveEndpointUrl(catalogId, node.path("endpointUrl").asText());
 
+        String llmSkillPath = node.path("llmSkillPath").asText(null);
+        if (llmSkillPath != null && llmSkillPath.isBlank()) {
+            llmSkillPath = null;
+        }
+
         return new McpCatalogEntry(
                 catalogId,
                 node.path("displayName").asText(),
@@ -74,7 +79,8 @@ public class McpCatalogLoader {
                 authType,
                 authConfig,
                 connectMethod,
-                fields
+                fields,
+                llmSkillPath
         );
     }
 

@@ -35,7 +35,8 @@ public final class McpCatalogTestFixtures {
                 AtlassianOAuthAuthStrategy.AUTH_TYPE,
                 authConfig,
                 McpConnectMethod.OAUTH_REDIRECT,
-                List.of()
+                List.of(),
+                null
         );
     }
 }

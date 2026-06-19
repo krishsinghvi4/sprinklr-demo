@@ -71,7 +71,8 @@ class McpProviderResolverTest {
                 "GITLAB_PRIVATE_TOKEN",
                 new McpAuthConfig(McpAuthKind.CREDENTIALS, null),
                 McpConnectMethod.CREDENTIAL_FORM,
-                List.of()
+                List.of(),
+                null
         );
     }
 }

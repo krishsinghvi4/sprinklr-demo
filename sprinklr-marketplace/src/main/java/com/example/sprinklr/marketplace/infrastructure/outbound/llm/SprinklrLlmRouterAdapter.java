@@ -29,10 +29,16 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
 
     private final LlmService llmService;
     private final LlmSystemPromptLoader systemPromptLoader;
+    private final McpSkillPromptAssembler skillPromptAssembler;
 
-    public SprinklrLlmRouterAdapter(LlmService llmService, LlmSystemPromptLoader systemPromptLoader) {
+    public SprinklrLlmRouterAdapter(
+            LlmService llmService,
+            LlmSystemPromptLoader systemPromptLoader,
+            McpSkillPromptAssembler skillPromptAssembler
+    ) {
         this.llmService = llmService;
         this.systemPromptLoader = systemPromptLoader;
+        this.skillPromptAssembler = skillPromptAssembler;
     }
 
     /**
@@ -41,13 +47,14 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
     @Override
     public LlmResponse complete(LlmRequest request) {
         boolean fullToolHistoryForCurrentTurn = !request.tools().isEmpty();
+        String systemPrompt = skillPromptAssembler.assemble(request.tools());
 
         LlmCompletionResult result = llmService.complete(new LlmCompletionCommand(
                 request.history(),
                 request.tools(),
                 request.currentTurnUserMessageId(),
                 fullToolHistoryForCurrentTurn,
-                null
+                systemPrompt
         ));
 
         boolean toolResultsAlreadyInTurn = hasToolResultsInCurrentTurn(request);
@@ -73,7 +80,7 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
                     request.tools(),
                     request.currentTurnUserMessageId(),
                     fullToolHistoryForCurrentTurn,
-                    systemPromptLoader.getSystemPrompt() + CONNECTED_TOOLS_NUDGE
+                    systemPrompt + CONNECTED_TOOLS_NUDGE
             ));
         }
 

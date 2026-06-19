@@ -2,6 +2,7 @@
   "servers": [
     {
       "id": "atlassian-jira",
+      "llmSkillPath": "classpath:llm/mcp-skills/jira.txt",
       "displayName": "Jira (Atlassian)",
       "description": "Official Atlassian MCP — search issues, update tickets, add comments.",
       "endpointUrl": "https://mcp.atlassian.com/v1/mcp/authv2",
@@ -25,6 +26,7 @@
     },
     {
       "id": "gitlab-mcp",
+      "llmSkillPath": "classpath:llm/mcp-skills/gitlab.txt",
       "displayName": "GitLab",
       "description": "GitLab MCP — merge requests, issues, pipelines, and repository search (Sprinklr GitLab PAT).",
       "endpointUrl": "http://127.0.0.1:3333/mcp",

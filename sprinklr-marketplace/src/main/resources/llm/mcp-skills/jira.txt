@@ -1,0 +1,27 @@
+## Jira MCP guidance
+
+### Required-field rule (all tools)
+Never call a Jira tool with required parameters the user did not provide in their message. If any required value is missing, respond with text only (no tool calls) and ask the user to supply it.
+
+### Fetch assigned tickets
+1. Call `getAccessibleAtlassianResources` when you need a `cloudId`.
+2. Call `searchJiraIssuesUsingJql` with JQL like `assignee = currentUser() ORDER BY updated DESC`.
+
+### Query ticket details
+- Use `getJiraIssue` with the issue key (e.g. ITOPS-123) from the user's message or a prior search in the current turn.
+- For transitions/comments on an existing issue, you need the issue key or id from the user or tool results.
+
+### Actions
+- **Update status:** `getTransitionsForJiraIssue` → `transitionJiraIssue`
+- **Assign:** `lookupJiraAccountId` (when assignee named) → `editJiraIssue`
+- **Add comment:** `addCommentToJiraIssue`
+
+### User profile
+- Call `atlassianUserInfo` when the user asks about their Jira profile.
+
+### Creating Jira issues
+Call `getJiraIssueTypeMetaWithFields` to discover required fields and their allowed options (components, Environment - Ops, etc.). Use the exact `fieldId` keys from that metadata inside `additional_fields` — never guess custom field IDs. Put required fields like `components` inside `additional_fields` (format: `{"components":[{"name":"<user-chosen component>"}],"customfield_10053":{"value":"<user-chosen option>"}}`). Never send `components` as a top-level parameter. For select-list custom fields, use `{"value": "Option Name"}` with the exact option label from metadata.
+
+**CRITICAL:** If the user did not explicitly name a required field value in their message, respond with text only (no tool calls) — list the allowed options from metadata and ask them to choose. Never pick the first option, an example option, or any value from metadata on your own.
+
+**Create efficiency:** When the user already names a project key (e.g. ITOPS), skip `getVisibleJiraProjects` and use that key directly. Do NOT call `createJiraIssue` until every required field value appears in the user's message. Typical path: `getAccessibleAtlassianResources` → `getJiraIssueTypeMetaWithFields` → (text response asking user for missing required fields) → user replies with choices → `lookupJiraAccountId` (if assignee named) → `createJiraIssue`.
