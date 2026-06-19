@@ -3,6 +3,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian;
 import com.example.sprinklr.marketplace.domain.model.McpInvocation;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.McpInvocationPreflightStrategy;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -76,12 +77,12 @@ public class JiraCreateIssuePreflightGuard implements McpInvocationPreflightStra
         for (JsonNode component : components) {
             if (component.has("name")) {
                 String name = component.path("name").asText();
-                if (!userMentionedValue(userPrompt, name)) {
+                if (!UserPromptValueMatcher.userMentionedValue(userPrompt, name)) {
                     unconfirmed.add("component \"" + name + "\"");
                 }
             } else if (component.has("id")) {
                 String id = component.path("id").asText();
-                if (!userMentionedValue(userPrompt, id)) {
+                if (!UserPromptValueMatcher.userMentionedValue(userPrompt, id)) {
                     unconfirmed.add("component id \"" + id + "\"");
                 }
             }
@@ -99,37 +100,11 @@ public class JiraCreateIssuePreflightGuard implements McpInvocationPreflightStra
             JsonNode valueNode = entry.getValue();
             if (valueNode.isObject() && valueNode.has("value") && valueNode.get("value").isTextual()) {
                 String value = valueNode.path("value").asText();
-                if (!userMentionedValue(userPrompt, value)) {
+                if (!UserPromptValueMatcher.userMentionedValue(userPrompt, value)) {
                     unconfirmed.add(key + " value \"" + value + "\"");
                 }
             }
         }
-    }
-
-    private boolean userMentionedValue(String userPrompt, String value) {
-        if (value == null || value.isBlank()) {
-            return true;
-        }
-        String normalizedPrompt = normalize(userPrompt);
-        String normalizedValue = normalize(value);
-        if (normalizedPrompt.contains(normalizedValue)) {
-            return true;
-        }
-        String[] tokens = normalizedValue.split("\\s+");
-        if (tokens.length <= 1) {
-            return false;
-        }
-        int matched = 0;
-        for (String token : tokens) {
-            if (token.length() > 2 && normalizedPrompt.contains(token)) {
-                matched++;
-            }
-        }
-        return matched >= tokens.length - 1;
-    }
-
-    private String normalize(String text) {
-        return text.toLowerCase().replace('-', ' ').replace('_', ' ').trim();
     }
 
     private static boolean isCreateJiraIssue(String toolName) {

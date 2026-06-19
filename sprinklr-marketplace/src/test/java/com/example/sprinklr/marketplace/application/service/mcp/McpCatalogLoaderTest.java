@@ -27,5 +27,7 @@ class McpCatalogLoaderTest {
         assertTrue(gitlab.authConfig().isCredentials());
         assertEquals(1, gitlab.credentialFields().size());
         assertEquals("http://127.0.0.1:3333/mcp", gitlab.endpointUrl());
+        assertEquals("classpath:llm/mcp-skills/jira.txt", jira.llmSkillPath());
+        assertEquals("classpath:llm/mcp-skills/gitlab.txt", gitlab.llmSkillPath());
     }
 }

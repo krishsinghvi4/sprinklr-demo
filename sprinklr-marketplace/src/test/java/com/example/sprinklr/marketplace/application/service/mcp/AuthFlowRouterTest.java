@@ -38,7 +38,8 @@ class AuthFlowRouterTest {
                 "GITLAB_PRIVATE_TOKEN",
                 new McpAuthConfig(McpAuthKind.CREDENTIALS, null),
                 McpConnectMethod.CREDENTIAL_FORM,
-                List.of()
+                List.of(),
+                null
         );
         AuthFlowHandler handler = router.requireHandler(gitlab);
         assertSame(CredentialAuthFlowHandler.class, handler.getClass());
@@ -64,7 +65,8 @@ class AuthFlowRouterTest {
                         true
                 )),
                 McpConnectMethod.OAUTH_REDIRECT,
-                List.of()
+                List.of(),
+                null
         );
         assertEquals(McpConnectMethod.OAUTH_REDIRECT, legacy.connectMethod());
     }

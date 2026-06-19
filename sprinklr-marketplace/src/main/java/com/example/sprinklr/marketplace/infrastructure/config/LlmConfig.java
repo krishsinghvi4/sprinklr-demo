@@ -1,6 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.config;
 
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
+import com.example.sprinklr.marketplace.infrastructure.outbound.llm.McpSkillPromptAssembler;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.SprinklrLlmRouterAdapter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.StubLlmAdapter;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -28,8 +29,9 @@ public class LlmConfig {
     @ConditionalOnProperty(name = "app.llm.stub-enabled", havingValue = "false")
     public LlmPort sprinklrLlmRouterPort(
             com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmService llmService,
-            LlmSystemPromptLoader systemPromptLoader
+            LlmSystemPromptLoader systemPromptLoader,
+            McpSkillPromptAssembler skillPromptAssembler
     ) {
-        return new SprinklrLlmRouterAdapter(llmService, systemPromptLoader);
+        return new SprinklrLlmRouterAdapter(llmService, systemPromptLoader, skillPromptAssembler);
     }
 }
