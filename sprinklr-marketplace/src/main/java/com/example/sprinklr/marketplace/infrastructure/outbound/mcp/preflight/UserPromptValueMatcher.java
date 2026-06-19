@@ -36,6 +36,10 @@ public final class UserPromptValueMatcher {
             return true;
         }
 
+        if (pathSegmentsMentioned(normalizedPrompt, decodedValue)) {
+            return true;
+        }
+
         String[] tokens = normalizedValue.split("\\s+");
         if (tokens.length <= 1) {
             return false;
@@ -47,6 +51,33 @@ public final class UserPromptValueMatcher {
             }
         }
         return matched >= tokens.length - 1;
+    }
+
+    /**
+     * For slash-separated paths (e.g. group/subgroup/repo), require every significant segment
+     * to appear in the conversation text.
+     */
+    private static boolean pathSegmentsMentioned(String normalizedPrompt, String decodedPath) {
+        if (decodedPath == null || !decodedPath.contains("/")) {
+            return false;
+        }
+        String[] segments = decodedPath.split("/");
+        int required = 0;
+        int matched = 0;
+        for (String segment : segments) {
+            if (segment == null || segment.isBlank()) {
+                continue;
+            }
+            String normalizedSegment = normalize(segment);
+            if (normalizedSegment.length() <= 2) {
+                continue;
+            }
+            required++;
+            if (normalizedPrompt.contains(normalizedSegment)) {
+                matched++;
+            }
+        }
+        return required > 0 && matched >= required;
     }
 
     public static String branchNameMentionedInPrompt(String userPrompt) {

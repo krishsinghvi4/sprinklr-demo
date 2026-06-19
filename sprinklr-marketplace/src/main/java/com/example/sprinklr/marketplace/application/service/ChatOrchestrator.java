@@ -221,7 +221,10 @@ public class ChatOrchestrator implements ChatUseCase {
         for (McpInvocation invocation : invocations) {
             streamingSession.emitProgress("Running " + invocation.toolName() + "…\n");
             long toolStartMs = System.currentTimeMillis();
-            McpInvocationResult result = invokeWithPreflight(invocation, request.prompt());
+            McpInvocationResult result = invokeWithPreflight(
+                    invocation,
+                    buildConversationContextForPreflight(history)
+            );
             long toolMs = System.currentTimeMillis() - toolStartMs;
             log.info("[Orchestrator] MCP tool {} completed in {}ms conversationId={} success={}",
                     invocation.toolName(), toolMs, conversationId, result.success());
@@ -359,14 +362,41 @@ public class ChatOrchestrator implements ChatUseCase {
         return chatHistoryPort.saveConversation(conversation).id();
     }
 
-    private McpInvocationResult invokeWithPreflight(McpInvocation invocation, String userPrompt) {
-        var validation = mcpInvocationPreflightPort.validate(invocation, userPrompt);
+    private McpInvocationResult invokeWithPreflight(McpInvocation invocation, String conversationContext) {
+        log.info("[Orchestrator] Preflight check starting tool={} connectionId={} (runs after LLM tool_calls, before MCP invoke)",
+                invocation.toolName(), invocation.serverId());
+        var validation = mcpInvocationPreflightPort.validate(invocation, conversationContext);
         if (!validation.allowed()) {
-            log.info("[Orchestrator] Blocked tool={} via preflight guard", invocation.toolName());
+            log.info("[Orchestrator] Blocked tool={} via preflight guard: {}",
+                    invocation.toolName(), validation.blockMessage());
             String message = "Tool '" + invocation.toolName() + "' blocked. " + validation.blockMessage();
             return new McpInvocationResult(invocation.toolCallId(), false, null, message);
         }
+        log.info("[Orchestrator] Preflight passed tool={} — invoking MCP", invocation.toolName());
         return mcpServerPort.invoke(invocation);
+    }
+
+    /**
+     * Builds USER + ASSISTANT text from the loaded history window for preflight guards.
+     * Guards use this (not just the latest user message) so values from earlier turns or
+     * assistant confirmations (e.g. user replying "yes") still validate.
+     */
+    private String buildConversationContextForPreflight(List<Message> history) {
+        StringBuilder context = new StringBuilder();
+        for (Message message : history) {
+            if (message.role() != MessageRole.USER && message.role() != MessageRole.ASSISTANT) {
+                continue;
+            }
+            String content = message.content();
+            if (content == null || content.isBlank()) {
+                continue;
+            }
+            if (context.length() > 0) {
+                context.append('\n');
+            }
+            context.append(content);
+        }
+        return context.toString();
     }
 
     private McpInvocation toInvocation(String userId, ToolCall toolCall) {
