@@ -10,7 +10,7 @@ import java.util.Map;
  * Request body for Sprinklr IntuitionX {@code /chat-completion}.
  * Field names match the router's OpenAI-compatible JSON contract (snake_case).
  */
-//backend must send in this format to the LLM ,Non null so that the values that arent speicified just dont go to the LLM to save bloat
+//backend must send in this format to the LLM ,Non null so that the values that arent specified just don't go to the LLM to save bloat
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChatCompletionRequest(
         String model,

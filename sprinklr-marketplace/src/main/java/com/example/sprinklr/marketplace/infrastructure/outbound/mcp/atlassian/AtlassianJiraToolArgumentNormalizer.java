@@ -14,10 +14,6 @@ import java.util.Set;
 
 /**
  * Repairs common LLM mistakes when calling Atlassian hosted MCP Jira write tools.
- * <p>
- * Atlassian hosted {@code createJiraIssue} only accepts {@code components}, {@code priority},
- * {@code labels}, and custom fields inside {@code additional_fields} (schema {@code additionalProperties}
- * is false at top level). The model often sends {@code components} at the top level instead.
  */
 @Component
 public class AtlassianJiraToolArgumentNormalizer {
@@ -27,21 +23,27 @@ public class AtlassianJiraToolArgumentNormalizer {
 
     private static final Set<String> JIRA_WRITE_TOOLS = Set.of("createJiraIssue", "editJiraIssue");
 
-    /** Jira fields that must live in additional_fields for Atlassian hosted MCP. */
     private static final Set<String> ADDITIONAL_FIELDS_ONLY_KEYS = Set.of(
             "components",
             "priority",
             "labels"
     );
 
+    private final JiraIssueTypeFieldShapeCache fieldShapeCache;
+
+    public AtlassianJiraToolArgumentNormalizer(JiraIssueTypeFieldShapeCache fieldShapeCache) {
+        this.fieldShapeCache = fieldShapeCache;
+    }
+
     public boolean supports(String toolName) {
         return bareToolName(toolName) != null && JIRA_WRITE_TOOLS.contains(bareToolName(toolName));
     }
 
-    /**
-     * @return normalized JSON arguments, or the original string when parsing/normalization is not possible
-     */
     public String normalize(String toolName, String argumentsJson) {
+        return normalize(toolName, argumentsJson, null);
+    }
+
+    public String normalize(String toolName, String argumentsJson, String connectionId) {
         if (!supports(toolName) || argumentsJson == null || argumentsJson.isBlank()) {
             return argumentsJson;
         }
@@ -50,7 +52,7 @@ public class AtlassianJiraToolArgumentNormalizer {
             if (!root.isObject()) {
                 return argumentsJson;
             }
-            ObjectNode normalized = normalizeWriteArguments((ObjectNode) root);
+            ObjectNode normalized = normalizeWriteArguments((ObjectNode) root, connectionId);
             String result = OBJECT_MAPPER.writeValueAsString(normalized);
             if (!result.equals(argumentsJson)) {
                 log.info("[MCP] Normalized Atlassian Jira tool={} args before={} after={}",
@@ -64,17 +66,54 @@ public class AtlassianJiraToolArgumentNormalizer {
         }
     }
 
-    private ObjectNode normalizeWriteArguments(ObjectNode root) {
+    private ObjectNode normalizeWriteArguments(ObjectNode root, String connectionId) {
         ObjectNode additionalFields = ensureAdditionalFieldsObject(root);
         nestFieldsIntoAdditionalFields(root, additionalFields);
         normalizeComponentsInAdditionalFields(additionalFields);
         normalizeCustomFieldValues(additionalFields);
+        normalizeFieldValueShapes(additionalFields, connectionId);
+        removeUnsupportedCreateFields(additionalFields);
         if (additionalFields.isEmpty()) {
             root.remove("additional_fields");
         } else {
             root.set("additional_fields", additionalFields);
         }
         return root;
+    }
+
+    private void normalizeFieldValueShapes(ObjectNode additionalFields, String connectionId) {
+        Iterator<Map.Entry<String, JsonNode>> iterator = additionalFields.fields();
+        while (iterator.hasNext()) {
+            Map.Entry<String, JsonNode> entry = iterator.next();
+            String key = entry.getKey();
+            if ("components".equals(key) || "labels".equals(key) || "priority".equals(key)) {
+                continue;
+            }
+            String shape = fieldShapeCache.valueShape(connectionId, key);
+            JsonNode value = entry.getValue();
+            if ("option_array".equals(shape) || "version_array".equals(shape)) {
+                additionalFields.set(key, ensureArrayValue(value));
+                continue;
+            }
+            if ("option_object".equals(shape) && value.isArray() && value.size() == 1 && value.get(0).isObject()) {
+                additionalFields.set(key, value.get(0).deepCopy());
+            }
+        }
+    }
+
+    private ArrayNode ensureArrayValue(JsonNode value) {
+        if (value.isArray()) {
+            return (ArrayNode) value.deepCopy();
+        }
+        ArrayNode array = OBJECT_MAPPER.createArrayNode();
+        if (value.isObject()) {
+            array.add(value.deepCopy());
+        } else if (value.isTextual()) {
+            ObjectNode wrapped = OBJECT_MAPPER.createObjectNode();
+            wrapped.put("value", value.asText());
+            array.add(wrapped);
+        }
+        return array;
     }
 
     private ObjectNode ensureAdditionalFieldsObject(ObjectNode root) {
@@ -177,10 +216,11 @@ public class AtlassianJiraToolArgumentNormalizer {
         return component;
     }
 
-    /**
-     * Jira select-list custom fields reject bare strings; they expect {@code {"value": "..."}}
-     * or {@code {"name": "..."}} depending on field type.
-     */
+    private void removeUnsupportedCreateFields(ObjectNode additionalFields) {
+        additionalFields.remove("issuelinks");
+        additionalFields.remove("Linked Issues");
+    }
+
     private void normalizeCustomFieldValues(ObjectNode additionalFields) {
         Iterator<Map.Entry<String, JsonNode>> iterator = additionalFields.fields();
         while (iterator.hasNext()) {

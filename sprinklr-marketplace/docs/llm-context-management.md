@@ -264,10 +264,10 @@ Tool calls returned in one LLM response are executed **sequentially in order** (
 Before each MCP invoke:
 
 ```java
-mcpInvocationPreflightPort.validate(invocation, request.prompt());
+mcpInvocationPreflightPort.validate(invocation, buildConversationContextForPreflight(history));
 ```
 
-- Validation sees the **current turn's user prompt only** (`request.prompt()`), not full conversation history.
+- Validation sees **USER + ASSISTANT text** from the loaded history window (not just the latest user message), so values from earlier turns still count.
 - If blocked (e.g. `JiraCreateIssuePreflightGuard`), a **synthetic failure** is stored as the tool result: `"Tool '…' blocked. …"`.
 - That error is included in the next LLM iteration's TOOL messages so the model can ask the user for missing fields.
 
@@ -371,7 +371,7 @@ True token streaming for `streamSummary()` is listed as future work in `docs/con
 | [`LlmToolMapper.java`](../src/main/java/com/example/sprinklr/marketplace/infrastructure/outbound/llm/LlmToolMapper.java) | MCP tool schema → router `tools` |
 | [`LlmSystemPromptLoader.java`](../src/main/java/com/example/sprinklr/marketplace/infrastructure/config/LlmSystemPromptLoader.java) | Loads system + summary prompt files |
 | [`system-prompt.txt`](../src/main/resources/llm/system-prompt.txt) | Base copilot instructions |
-| [`JiraCreateIssuePreflightGuard.java`](../src/main/java/com/example/sprinklr/marketplace/infrastructure/outbound/mcp/atlassian/JiraCreateIssuePreflightGuard.java) | Runtime block for invented Jira field values |
+| [`JiraCreateIssuePreflightGuard.java`](../src/main/java/com/example/sprinklr/marketplace/infrastructure/outbound/mcp/atlassian/JiraCreateIssuePreflightGuard.java) | Runtime block when metadata not cached or required create fields are missing |
 
 ---
 

@@ -5,6 +5,9 @@ import com.example.sprinklr.marketplace.domain.model.McpInvocationResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeCreateRequirementsCache;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeFieldShapeCache;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeMetadataProcessor;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRefreshService;
@@ -13,12 +16,16 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpC
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -41,6 +48,8 @@ public class HttpMcpClientAdapter implements McpServerPort {
     private final McpOAuthTokenRefreshService oauthTokenRefreshService;
     private final McpCircuitBreakerFactory circuitBreakerFactory;
     private final AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer;
+    private final JiraIssueTypeFieldShapeCache jiraIssueTypeFieldShapeCache;
+    private final JiraIssueTypeCreateRequirementsCache jiraIssueTypeCreateRequirementsCache;
 
     public HttpMcpClientAdapter(
             McpConnectionRepository connectionRepository,
@@ -50,7 +59,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
             StreamableHttpMcpClient mcpClient,
             McpOAuthTokenRefreshService oauthTokenRefreshService,
             McpCircuitBreakerFactory circuitBreakerFactory,
-            AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer
+            AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer,
+            JiraIssueTypeFieldShapeCache jiraIssueTypeFieldShapeCache,
+            JiraIssueTypeCreateRequirementsCache jiraIssueTypeCreateRequirementsCache
     ) {
         this.connectionRepository = connectionRepository;
         this.credentialVault = credentialVault;
@@ -60,6 +71,8 @@ public class HttpMcpClientAdapter implements McpServerPort {
         this.oauthTokenRefreshService = oauthTokenRefreshService;
         this.circuitBreakerFactory = circuitBreakerFactory;
         this.atlassianJiraToolArgumentNormalizer = atlassianJiraToolArgumentNormalizer;
+        this.jiraIssueTypeFieldShapeCache = jiraIssueTypeFieldShapeCache;
+        this.jiraIssueTypeCreateRequirementsCache = jiraIssueTypeCreateRequirementsCache;
     }
 
     /**
@@ -139,7 +152,8 @@ public class HttpMcpClientAdapter implements McpServerPort {
         StreamableHttpMcpClient.McpSession session = resolveSession(connection, catalogEntry, authHeaders);
         String argumentsJson = atlassianJiraToolArgumentNormalizer.normalize(
                 invocation.toolName(),
-                invocation.argumentsJson()
+                invocation.argumentsJson(),
+                connection.id()
         );
         JsonNode result = callToolWithSessionRecovery(
                 connection,
@@ -198,6 +212,17 @@ public class HttpMcpClientAdapter implements McpServerPort {
         }
 
         String content = formatToolResult(result);
+        if (isJiraMetadataTool(invocation.toolName())) {
+            content = processJiraIssueTypeMetadata(
+                    content,
+                    connection,
+                    catalogEntry,
+                    authHeaders,
+                    session,
+                    invocation.toolName(),
+                    argumentsJson
+            );
+        }
         log.info("[MCP] Tool success connectionId={} tool={} resultLen={}",
                 connection.id(), invocation.toolName(), content.length());
 
@@ -274,7 +299,11 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 || lower.contains("etimedout")
                 || lower.contains("socket hang up")
                 || lower.contains("connection reset")
-                || lower.contains("connection refused");
+                || lower.contains("connection refused")
+                || lower.contains("server not initialized")
+                || lower.contains("session expired")
+                || lower.contains("invalid session")
+                || lower.contains("unknown session");
     }
 
     /**
@@ -382,6 +411,113 @@ public class HttpMcpClientAdapter implements McpServerPort {
             }
         }
         return "Unknown MCP tool error";
+    }
+
+    private String processJiraIssueTypeMetadata(
+            String rawContent,
+            McpConnectionDocument connection,
+            McpCatalogEntry catalogEntry,
+            Map<String, String> authHeaders,
+            StreamableHttpMcpClient.McpSession session,
+            String toolName,
+            String argumentsJson
+    ) {
+        try {
+            JsonNode firstPage = OBJECT_MAPPER.readTree(rawContent);
+            List<JsonNode> additionalPages = new ArrayList<>();
+            int fetchedCount = JiraIssueTypeMetadataProcessor.analyzeSinglePage(firstPage).fetchedFieldCount();
+            int startAt = JiraIssueTypeMetadataProcessor.nextStartAt(firstPage, fetchedCount);
+            JsonNode latestPage = firstPage;
+            int pageGuard = 0;
+
+            while (JiraIssueTypeMetadataProcessor.needsMorePages(latestPage, fetchedCount) && pageGuard < 25) {
+                pageGuard++;
+                String pagedArgs = withMetadataPagination(argumentsJson, startAt);
+                log.info("[JiraMetadata] Fetching paginated field metadata connectionId={} startAt={}",
+                        connection.id(), startAt);
+                JsonNode nextResult = callToolWithSessionRecovery(
+                        connection,
+                        catalogEntry,
+                        authHeaders,
+                        session,
+                        toolName,
+                        pagedArgs
+                );
+                Optional<String> pageError = extractMcpToolError(nextResult);
+                if (pageError.isPresent()) {
+                    log.warn("[JiraMetadata] Paginated metadata fetch failed startAt={}: {}",
+                            startAt, pageError.get());
+                    break;
+                }
+                JsonNode nextPage = OBJECT_MAPPER.readTree(formatToolResult(nextResult));
+                additionalPages.add(nextPage);
+                fetchedCount += JiraIssueTypeMetadataProcessor.analyzeSinglePage(nextPage).fetchedFieldCount();
+                latestPage = nextPage;
+                startAt = JiraIssueTypeMetadataProcessor.nextStartAt(nextPage, fetchedCount);
+            }
+
+            JiraIssueTypeMetadataProcessor.ProcessedMetadata processed = additionalPages.isEmpty()
+                    ? JiraIssueTypeMetadataProcessor.analyzeSinglePage(firstPage)
+                    : JiraIssueTypeMetadataProcessor.mergePages(firstPage, additionalPages);
+
+            jiraIssueTypeFieldShapeCache.put(
+                    connection.id(),
+                    JiraIssueTypeMetadataProcessor.fieldShapes(processed)
+            );
+
+            JiraIssueTypeMetadataProcessor.parseCreateScope(argumentsJson).ifPresent(scope -> {
+                List<JiraIssueTypeMetadataProcessor.RequiredField> requiredFields =
+                        JiraIssueTypeMetadataProcessor.requiredUserInputFields(processed);
+                LinkedHashSet<String> issueTypeKeys = new LinkedHashSet<>(scope.issueTypeLookupKeys());
+                JiraIssueTypeMetadataProcessor.extractIssueTypeIdentity(processed).ifPresent(identity -> {
+                    if (identity.name() != null) {
+                        issueTypeKeys.add(identity.name());
+                    }
+                    if (identity.id() != null) {
+                        issueTypeKeys.add(identity.id());
+                    }
+                });
+                jiraIssueTypeCreateRequirementsCache.putAliases(
+                        connection.id(),
+                        scope.projectKey(),
+                        List.copyOf(issueTypeKeys),
+                        requiredFields
+                );
+            });
+
+            return JiraIssueTypeMetadataProcessor.summarize(processed).orElse(rawContent);
+        } catch (Exception exception) {
+            log.warn("[JiraMetadata] Failed to process metadata for connectionId={}: {}",
+                    connection.id(), exception.getMessage());
+            return rawContent;
+        }
+    }
+
+    private String withMetadataPagination(String argumentsJson, int startAt) throws Exception {
+        JsonNode root = OBJECT_MAPPER.readTree(argumentsJson);
+        if (!root.isObject()) {
+            ObjectNode args = OBJECT_MAPPER.createObjectNode();
+            args.put("startAt", startAt);
+            return OBJECT_MAPPER.writeValueAsString(args);
+        }
+        ObjectNode args = (ObjectNode) root;
+        args.put("startAt", startAt);
+        if (!args.has("maxResults")) {
+            args.put("maxResults", 200);
+        }
+        return OBJECT_MAPPER.writeValueAsString(args);
+    }
+
+    private static boolean isJiraMetadataTool(String toolName) {
+        return bareToolName(toolName) != null
+                && "getJiraIssueTypeMetaWithFields".equals(bareToolName(toolName));
+    }
+
+    private static String bareToolName(String toolName) {
+        if (toolName == null) {
+            return null;
+        }
+        return toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
     }
 
     private boolean isLikelyAuthError(String message) {
