@@ -12,6 +12,8 @@ public class McpProperties {
 
     private int connectTimeoutMs = 10_000;
     private int readTimeoutMs = 60_000;
+    /** Max MCP HTTP response body size buffered in memory (default 5 MB). */
+    private int maxResponseBytes = 5_242_880;
     private int maxAgenticIterations = 10;
     private int maxToolCallsPerTurn = 15;
     private String encryptionKey = "";

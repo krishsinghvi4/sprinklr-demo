@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
@@ -30,11 +31,18 @@ public class McpWebClientConfig {
                 .responseTimeout(Duration.ofMillis(properties.getReadTimeoutMs()))
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, properties.getConnectTimeoutMs());
 
-        log.info("[MCP] WebClient configured connectTimeoutMs={} readTimeoutMs={}",
-                properties.getConnectTimeoutMs(), properties.getReadTimeoutMs());
+        ExchangeStrategies exchangeStrategies = ExchangeStrategies.builder()
+                .codecs(configurer -> configurer.defaultCodecs()
+                        .maxInMemorySize(properties.getMaxResponseBytes()))
+                .build();
+
+        log.info("[MCP] WebClient configured connectTimeoutMs={} readTimeoutMs={} maxResponseBytes={}",
+                properties.getConnectTimeoutMs(), properties.getReadTimeoutMs(),
+                properties.getMaxResponseBytes());
 
         return WebClient.builder()
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .exchangeStrategies(exchangeStrategies)
                 .build();
     }
 }
