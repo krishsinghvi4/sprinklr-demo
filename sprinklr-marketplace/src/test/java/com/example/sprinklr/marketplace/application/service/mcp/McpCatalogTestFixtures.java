@@ -6,6 +6,7 @@ import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
 import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.AtlassianOAuthAuthStrategy;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.GitLabPrivateTokenAuthStrategy;
 
 import java.util.List;
 
@@ -35,6 +36,22 @@ public final class McpCatalogTestFixtures {
                 AtlassianOAuthAuthStrategy.AUTH_TYPE,
                 authConfig,
                 McpConnectMethod.OAUTH_REDIRECT,
+                List.of(),
+                null
+        );
+    }
+
+    public static McpCatalogEntry gitlabEntry() {
+        McpAuthConfig authConfig = new McpAuthConfig(McpAuthKind.CREDENTIALS, null);
+        return new McpCatalogEntry(
+                "gitlab-mcp",
+                "GitLab",
+                "desc",
+                "http://127.0.0.1:3333/mcp",
+                "gitlab",
+                GitLabPrivateTokenAuthStrategy.AUTH_TYPE,
+                authConfig,
+                McpConnectMethod.CREDENTIAL_FORM,
                 List.of(),
                 null
         );

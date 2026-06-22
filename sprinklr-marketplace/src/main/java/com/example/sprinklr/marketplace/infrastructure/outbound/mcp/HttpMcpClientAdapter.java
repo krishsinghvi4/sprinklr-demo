@@ -137,43 +137,35 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 .buildAuthHeaders(credentials);
 
         StreamableHttpMcpClient.McpSession session = resolveSession(connection, catalogEntry, authHeaders);
-        String sessionId = session.sessionId();
-        String protocolVersion = session.protocolVersion() != null
-                ? session.protocolVersion()
-                : DEFAULT_PROTOCOL_VERSION;
         String argumentsJson = atlassianJiraToolArgumentNormalizer.normalize(
                 invocation.toolName(),
                 invocation.argumentsJson()
         );
-        JsonNode result;
-        try {
+        JsonNode result = callToolWithSessionRecovery(
+                connection,
+                catalogEntry,
+                authHeaders,
+                session,
+                invocation.toolName(),
+                argumentsJson
+        );
+
+        Optional<String> toolError = extractMcpToolError(result);
+        if (toolError.isPresent() && isRecoverableTransportError(toolError.get())) {
+            log.info("[MCP] Tool returned recoverable transport error, re-initializing connectionId={} tool={}",
+                    connection.id(), invocation.toolName());
+            StreamableHttpMcpClient.McpSession refreshedSession =
+                    reinitializeSession(connection, catalogEntry, authHeaders);
             result = mcpClient.callTool(
                     catalogEntry.endpointUrl(),
                     authHeaders,
-                    sessionId,
-                    protocolVersion,
+                    refreshedSession.sessionId(),
+                    refreshedSession.protocolVersion(),
                     invocation.toolName(),
                     argumentsJson
             );
-        } catch (McpConnectionException exception) {
-            if (exception.getMessage() != null && exception.getMessage().contains("404")) {
-                log.info("[MCP] Session stale (404), re-initializing connectionId={}", connection.id());
-                StreamableHttpMcpClient.McpSession refreshedSession =
-                        reinitializeSession(connection, catalogEntry, authHeaders);
-                result = mcpClient.callTool(
-                        catalogEntry.endpointUrl(),
-                        authHeaders,
-                        refreshedSession.sessionId(),
-                        refreshedSession.protocolVersion(),
-                        invocation.toolName(),
-                        argumentsJson
-                );
-            } else {
-                throw new McpInvocationException(exception.getUserMessage(), exception.getMessage());
-            }
+            toolError = extractMcpToolError(result);
         }
-
-        Optional<String> toolError = extractMcpToolError(result);
         if (toolError.isPresent() && isLikelyAuthError(toolError.get())) {
             log.info("[MCP] Tool returned auth error, forcing OAuth refresh connectionId={} tool={}",
                     connection.id(), invocation.toolName());
@@ -210,6 +202,79 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 connection.id(), invocation.toolName(), content.length());
 
         return new McpInvocationResult(invocation.toolCallId(), true, content, null);
+    }
+
+    /**
+     * Invokes a tool and re-initializes the MCP session once on stale-session or transient transport errors.
+     */
+    private JsonNode callToolWithSessionRecovery(
+            McpConnectionDocument connection,
+            McpCatalogEntry catalogEntry,
+            Map<String, String> authHeaders,
+            StreamableHttpMcpClient.McpSession session,
+            String toolName,
+            String argumentsJson
+    ) {
+        try {
+            return mcpClient.callTool(
+                    catalogEntry.endpointUrl(),
+                    authHeaders,
+                    session.sessionId(),
+                    session.protocolVersion(),
+                    toolName,
+                    argumentsJson
+            );
+        } catch (McpConnectionException exception) {
+            return retryAfterSessionReinit(
+                    connection, catalogEntry, authHeaders, toolName, argumentsJson, exception.getMessage(), exception);
+        } catch (McpDiscoveryException exception) {
+            return retryAfterSessionReinit(
+                    connection, catalogEntry, authHeaders, toolName, argumentsJson, exception.getMessage(), exception);
+        }
+    }
+
+    private JsonNode retryAfterSessionReinit(
+            McpConnectionDocument connection,
+            McpCatalogEntry catalogEntry,
+            Map<String, String> authHeaders,
+            String toolName,
+            String argumentsJson,
+            String detail,
+            RuntimeException original
+    ) {
+        if (!isRecoverableTransportError(detail)) {
+            if (original instanceof McpConnectionException connectionException) {
+                throw new McpInvocationException(connectionException.getUserMessage(), detail);
+            }
+            McpDiscoveryException discoveryException = (McpDiscoveryException) original;
+            throw new McpInvocationException(discoveryException.getUserMessage(), detail);
+        }
+        log.info("[MCP] Recoverable transport error, re-initializing connectionId={} tool={} detail={}",
+                connection.id(), toolName, detail);
+        StreamableHttpMcpClient.McpSession refreshedSession =
+                reinitializeSession(connection, catalogEntry, authHeaders);
+        return mcpClient.callTool(
+                catalogEntry.endpointUrl(),
+                authHeaders,
+                refreshedSession.sessionId(),
+                refreshedSession.protocolVersion(),
+                toolName,
+                argumentsJson
+        );
+    }
+
+    static boolean isRecoverableTransportError(String detail) {
+        if (detail == null || detail.isBlank()) {
+            return false;
+        }
+        String lower = detail.toLowerCase();
+        return lower.contains("404")
+                || lower.contains("econnreset")
+                || lower.contains("econnrefused")
+                || lower.contains("etimedout")
+                || lower.contains("socket hang up")
+                || lower.contains("connection reset")
+                || lower.contains("connection refused");
     }
 
     /**

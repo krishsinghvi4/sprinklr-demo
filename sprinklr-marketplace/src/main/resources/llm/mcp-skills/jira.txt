@@ -1,37 +1,44 @@
 ## Jira MCP guidance
 
+**Cloud ID rule (all Jira tools):** Always call `getAccessibleAtlassianResources` first in every turn before any other Jira tool — including create, edit, search, transition, and comment. Never reuse a `cloudId` from conversation history or a prior turn; fetch it fresh each time.
+
 ### Required-field rule (all tools)
 Never call a Jira tool with required parameters the user did not provide in their message. If any required value is missing, respond with text only (no tool calls) and ask the user to supply it.
 
 ### Fetch assigned tickets
-1. Call `getAccessibleAtlassianResources` when you need a `cloudId`.
-2. Call `searchJiraIssuesUsingJql` with JQL like `assignee = currentUser() ORDER BY updated DESC`.
+1. `getAccessibleAtlassianResources` → get `cloudId`
+2. `searchJiraIssuesUsingJql` with JQL like `assignee = currentUser() ORDER BY updated DESC`.
 
 ### Query ticket details
-- Use `getJiraIssue` with the issue key (e.g. ITOPS-123) from the user's message or a prior search in the current turn.
+- `getAccessibleAtlassianResources` first, then `getJiraIssue` with the issue key (e.g. ITOPS-123) from the user's message or a prior search in the current turn.
 - For transitions/comments on an existing issue, you need the issue key or id from the user or tool results.
 
 ### Actions
-- **Update status:** `getTransitionsForJiraIssue` → `transitionJiraIssue`
-- **Assign:** `lookupJiraAccountId` (when assignee named) → `editJiraIssue`
-- **Add comment:** `addCommentToJiraIssue`
+- **Update status:** `getAccessibleAtlassianResources` → `getTransitionsForJiraIssue` → `transitionJiraIssue`
+- **Assign / edit fields:** `getAccessibleAtlassianResources` → `lookupJiraAccountId` (when assignee named) → `editJiraIssue`
+- **Add comment:** `getAccessibleAtlassianResources` → `addCommentToJiraIssue`
+
+### Editing Jira issues
+**Every edit workflow (including summary, description, assignee, or any field change):**
+1. `getAccessibleAtlassianResources` — always first, even if you used a `cloudId` earlier in the conversation
+2. `editJiraIssue` with the fresh `cloudId` from step 1
+
+Do NOT call `editJiraIssue` without calling `getAccessibleAtlassianResources` in the same turn first. If an edit fails with a permissions or cloud-access error, call `getAccessibleAtlassianResources` and retry — do not ask the user to reauthorize unless that retry also fails.
 
 ### User profile
 - Call `atlassianUserInfo` when the user asks about their Jira profile.
 
 ### Creating Jira issues
-** first step is always getAccessibleAtlassianResources to get cloud ID
-**if not sure about what cloud id is , call getAccessibleAtlassianResources . Only after trying to use the correct cloud id can you think about
-
-**Always fetch metadata before every create** — including follow-ups like "create another with the same details" or adding a description. Never skip `getJiraIssueTypeMetaWithFields` because a similar ticket was created earlier in the conversation. Field IDs, required fields, and allowed option labels can only come from that tool's response for the specific project + issue type — never from memory, conversation summaries, or examples in this prompt.
 
 **Create workflow (every time):**
-1. `getAccessibleAtlassianResources` (when you need `cloudId`)
+1. `getAccessibleAtlassianResources` — always first
 2. `getJiraProjectIssueTypesMetadata` (when you need the issue type id/name)
 3. `getJiraIssueTypeMetaWithFields` for the target project + issue type
 4. If any required field value is missing from the user's message → text only, list allowed options from metadata, wait for user reply
 5. `lookupJiraAccountId` (when assignee is named)
 6. `createJiraIssue`
+
+**Always fetch metadata before every create** — including follow-ups like "create another with the same details" or adding a description. Never skip `getJiraIssueTypeMetaWithFields` because a similar ticket was created earlier in the conversation. Field IDs, required fields, and allowed option labels can only come from that tool's response for the specific project + issue type — never from memory, conversation summaries, or examples in this prompt.
 
 **`createJiraIssue` argument shape:**
 - Top-level: `cloudId`, `projectKey`, `issueTypeName`, `summary`, `assignee_account_id` (if assigning), and `description` (when the user provides one)
