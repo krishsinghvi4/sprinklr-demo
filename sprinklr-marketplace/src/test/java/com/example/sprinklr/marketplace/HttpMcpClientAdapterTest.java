@@ -9,6 +9,8 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.HttpMcpClien
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpCircuitBreakerFactory;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeCreateRequirementsCache;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeFieldShapeCache;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.AtlassianOAuthAuthStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
@@ -46,7 +48,8 @@ class HttpMcpClientAdapterTest {
         StreamableHttpMcpClient mcpClient = mock(StreamableHttpMcpClient.class);
         McpOAuthTokenRefreshService oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
         McpCircuitBreakerFactory circuitBreakerFactory = mock(McpCircuitBreakerFactory.class);
-        AtlassianJiraToolArgumentNormalizer argumentNormalizer = new AtlassianJiraToolArgumentNormalizer();
+        AtlassianJiraToolArgumentNormalizer argumentNormalizer =
+                new AtlassianJiraToolArgumentNormalizer(new JiraIssueTypeFieldShapeCache());
 
         McpConnectionDocument connection = new McpConnectionDocument(
                 "conn-1",
@@ -92,7 +95,9 @@ class HttpMcpClientAdapterTest {
                 mcpClient,
                 oauthTokenRefreshService,
                 circuitBreakerFactory,
-                argumentNormalizer
+                argumentNormalizer,
+                new JiraIssueTypeFieldShapeCache(),
+                new JiraIssueTypeCreateRequirementsCache()
         );
 
         var result = adapter.invoke(new McpInvocation("conn-1", "jira.search", "{}", "call-1"));
