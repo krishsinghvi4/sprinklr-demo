@@ -9,8 +9,6 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.HttpMcpClien
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpCircuitBreakerFactory;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeCreateRequirementsCache;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeFieldShapeCache;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.AtlassianOAuthAuthStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
@@ -49,7 +47,7 @@ class HttpMcpClientAdapterTest {
         McpOAuthTokenRefreshService oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
         McpCircuitBreakerFactory circuitBreakerFactory = mock(McpCircuitBreakerFactory.class);
         AtlassianJiraToolArgumentNormalizer argumentNormalizer =
-                new AtlassianJiraToolArgumentNormalizer(new JiraIssueTypeFieldShapeCache());
+                new AtlassianJiraToolArgumentNormalizer();
 
         McpConnectionDocument connection = new McpConnectionDocument(
                 "conn-1",
@@ -95,9 +93,7 @@ class HttpMcpClientAdapterTest {
                 mcpClient,
                 oauthTokenRefreshService,
                 circuitBreakerFactory,
-                argumentNormalizer,
-                new JiraIssueTypeFieldShapeCache(),
-                new JiraIssueTypeCreateRequirementsCache()
+                argumentNormalizer
         );
 
         var result = adapter.invoke(new McpInvocation("conn-1", "jira.search", "{}", "call-1"));

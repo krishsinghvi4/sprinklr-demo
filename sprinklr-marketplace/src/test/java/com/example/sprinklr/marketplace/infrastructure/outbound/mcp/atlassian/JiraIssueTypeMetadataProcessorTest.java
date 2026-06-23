@@ -185,15 +185,70 @@ class JiraIssueTypeMetadataProcessorTest {
     }
 
     @Test
-    void parseCreateScope_readsProjectAndIssueTypeFromArguments() throws Exception {
+    void parseCreateScope_readsIssueTypeAlias() throws Exception {
         String args = """
                 {
                   "projectKey": "ITOPS",
-                  "issueTypeName": "Story"
+                  "issueType": "Story"
                 }
                 """;
         var scope = JiraIssueTypeMetadataProcessor.parseCreateScope(args).orElseThrow();
-        assertEquals("ITOPS", scope.projectKey());
         assertEquals("Story", scope.issueTypeName());
+    }
+
+    @Test
+    void resolveCreateScope_enrichesIssueTypeNameFromMetadataResponse() throws Exception {
+        String raw = """
+                {
+                  "projects": [{
+                    "key": "PAID",
+                    "issuetypes": [{
+                      "id": "26",
+                      "name": "Story",
+                      "fields": { "summary": { "required": true, "name": "Summary" } }
+                    }]
+                  }]
+                }
+                """;
+        var processed = JiraIssueTypeMetadataProcessor.analyzeSinglePage(MAPPER.readTree(raw));
+        String args = """
+                {
+                  "projectIdOrKey": "PAID",
+                  "issueTypeId": "26"
+                }
+                """;
+        var scope = JiraIssueTypeMetadataProcessor.resolveCreateScope(args, processed).orElseThrow();
+        assertEquals("PAID", scope.projectKey());
+        assertEquals("26", scope.issueTypeId());
+        assertEquals("Story", scope.issueTypeName());
+    }
+
+    @Test
+    void parseProjectIssueTypesResponse_readsIssueTypesArray() throws Exception {
+        String raw = """
+                {
+                  "issueTypes": [
+                    { "id": "1", "name": "Story" },
+                    { "id": "2", "name": "Bug" }
+                  ]
+                }
+                """;
+        var refs = JiraIssueTypeMetadataProcessor.parseProjectIssueTypesResponse(raw);
+        assertEquals(2, refs.size());
+        assertEquals("Story", refs.get(0).name());
+        assertEquals("Bug", refs.get(1).name());
+    }
+
+    @Test
+    void summarize_includesScopeWhenProvided() throws Exception {
+        var processed = JiraIssueTypeMetadataProcessor.analyzeSinglePage(MAPPER.readTree("""
+                { "fields": { "summary": { "required": true, "name": "Summary" } } }
+                """));
+        var scope = new JiraIssueTypeMetadataProcessor.CreateScope("ITOPS", "Story", "10001");
+        String summary = JiraIssueTypeMetadataProcessor.summarize(processed, java.util.Optional.of(scope)).orElseThrow();
+        JsonNode node = MAPPER.readTree(summary);
+        assertEquals("ITOPS", node.path("projectKey").asText());
+        assertEquals("Story", node.path("issueTypeName").asText());
+        assertEquals("10001", node.path("issueTypeId").asText());
     }
 }

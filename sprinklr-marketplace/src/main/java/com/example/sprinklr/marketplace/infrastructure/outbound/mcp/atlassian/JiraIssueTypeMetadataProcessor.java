@@ -65,6 +65,8 @@ public final class JiraIssueTypeMetadataProcessor {
 
     public record IssueTypeIdentity(String id, String name) {}
 
+    public record IssueTypeRef(String id, String name) {}
+
     /**
      * Merges additional paginated field pages into the first MCP result node.
      */
@@ -158,7 +160,12 @@ public final class JiraIssueTypeMetadataProcessor {
             if (projectKey == null) {
                 return Optional.empty();
             }
-            String issueTypeName = firstNonBlankOrNull(root.path("issueTypeName").asText(null));
+            String issueTypeName = firstNonBlankOrNull(
+                    root.path("issueTypeName").asText(null),
+                    root.path("issueType").asText(null),
+                    root.path("type").asText(null),
+                    root.path("issue_type").asText(null)
+            );
             String issueTypeId = firstNonBlankOrNull(root.path("issueTypeId").asText(null));
             if (issueTypeName == null && issueTypeId == null) {
                 return Optional.empty();
@@ -170,22 +177,158 @@ public final class JiraIssueTypeMetadataProcessor {
         }
     }
 
+    /**
+     * Resolves project + issue type from tool arguments, enriched from the metadata response when possible.
+     */
+    public static Optional<CreateScope> resolveCreateScope(String argumentsJson, ProcessedMetadata processed) {
+        Optional<CreateScope> fromArgs = parseCreateScope(argumentsJson);
+        Optional<CreateScope> fromResponse = extractScopeFromMetadataResponse(processed);
+        if (fromArgs.isPresent()) {
+            return Optional.of(enrichScope(fromArgs.get(), fromResponse, processed));
+        }
+        return fromResponse;
+    }
+
+    public static Optional<String> parseProjectKeyFromArguments(String argumentsJson) {
+        if (argumentsJson == null || argumentsJson.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            JsonNode root = MAPPER.readTree(argumentsJson);
+            if (!root.isObject()) {
+                return Optional.empty();
+            }
+            return Optional.ofNullable(firstNonBlankOrNull(
+                    root.path("projectKey").asText(null),
+                    root.path("projectIdOrKey").asText(null),
+                    root.path("projectId").asText(null),
+                    root.path("projectKeyOrId").asText(null)
+            ));
+        } catch (Exception exception) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Parses issue types from a {@code getJiraProjectIssueTypesMetadata} tool result.
+     */
+    public static List<IssueTypeRef> parseProjectIssueTypesResponse(String rawContent) {
+        if (rawContent == null || rawContent.isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode root = MAPPER.readTree(rawContent);
+            LinkedHashSet<IssueTypeRef> refs = new LinkedHashSet<>();
+            collectIssueTypeRefs(root.path("issueTypes"), refs);
+            collectIssueTypeRefs(root.path("issuetypes"), refs);
+            collectIssueTypeRefs(root.path("values"), refs);
+            JsonNode projects = root.path("projects");
+            if (projects.isArray()) {
+                for (JsonNode project : projects) {
+                    collectIssueTypeRefs(project.path("issuetypes"), refs);
+                    collectIssueTypeRefs(project.path("issueTypes"), refs);
+                }
+            }
+            return List.copyOf(refs);
+        } catch (Exception exception) {
+            log.warn("[JiraMetadata] Failed to parse project issue types: {}", exception.getMessage());
+            return List.of();
+        }
+    }
+
+    public static Optional<CreateScope> extractScopeFromMetadataResponse(ProcessedMetadata processed) {
+        JsonNode projects = processed.mergedRoot().path("projects");
+        if (!projects.isArray()) {
+            return Optional.empty();
+        }
+        CreateScope soleMatch = null;
+        int matchCount = 0;
+        for (JsonNode project : projects) {
+            String projectKey = firstNonBlankOrNull(
+                    project.path("key").asText(null),
+                    project.path("id").asText(null)
+            );
+            if (projectKey == null) {
+                continue;
+            }
+            JsonNode issueTypes = project.path("issuetypes");
+            if (!issueTypes.isArray()) {
+                issueTypes = project.path("issueTypes");
+            }
+            if (!issueTypes.isArray()) {
+                continue;
+            }
+            for (JsonNode issueType : issueTypes) {
+                if (!hasFieldsNode(issueType)) {
+                    continue;
+                }
+                String id = firstNonBlankOrNull(issueType.path("id").asText(null));
+                String name = firstNonBlankOrNull(issueType.path("name").asText(null));
+                if (id == null && name == null) {
+                    continue;
+                }
+                soleMatch = new CreateScope(projectKey, name, id);
+                matchCount++;
+            }
+        }
+        if (matchCount == 1 && soleMatch != null) {
+            return Optional.of(soleMatch);
+        }
+        return Optional.empty();
+    }
+
     public static Optional<IssueTypeIdentity> extractIssueTypeIdentity(ProcessedMetadata processed) {
+        return extractIssueTypeIdentity(processed, null, null, null);
+    }
+
+    public static Optional<IssueTypeIdentity> extractIssueTypeIdentity(
+            ProcessedMetadata processed,
+            String projectKeyHint,
+            String issueTypeNameHint,
+            String issueTypeIdHint
+    ) {
         JsonNode projects = processed.mergedRoot().path("projects");
         if (!projects.isArray()) {
             return Optional.empty();
         }
         for (JsonNode project : projects) {
+            String projectKey = firstNonBlankOrNull(
+                    project.path("key").asText(null),
+                    project.path("id").asText(null)
+            );
+            if (projectKeyHint != null && !projectKeyHint.isBlank()
+                    && projectKey != null
+                    && !projectKey.equalsIgnoreCase(projectKeyHint)) {
+                continue;
+            }
             JsonNode issueTypes = project.path("issuetypes");
+            if (!issueTypes.isArray()) {
+                issueTypes = project.path("issueTypes");
+            }
             if (!issueTypes.isArray()) {
                 continue;
             }
+            IssueTypeIdentity fallback = null;
             for (JsonNode issueType : issueTypes) {
                 String id = firstNonBlankOrNull(issueType.path("id").asText(null));
                 String name = firstNonBlankOrNull(issueType.path("name").asText(null));
-                if (id != null || name != null) {
-                    return Optional.of(new IssueTypeIdentity(id, name));
+                if (id == null && name == null) {
+                    continue;
                 }
+                IssueTypeIdentity candidate = new IssueTypeIdentity(id, name);
+                if (issueTypeIdHint != null && id != null && issueTypeIdHint.equals(id)) {
+                    return Optional.of(candidate);
+                }
+                if (issueTypeNameHint != null && name != null
+                        && issueTypeNameHint.equalsIgnoreCase(name)) {
+                    return Optional.of(candidate);
+                }
+                if (hasFieldsNode(issueType) && fallback == null) {
+                    fallback = candidate;
+                }
+            }
+            if (fallback != null) {
+                return Optional.of(fallback);
             }
         }
         return Optional.empty();
@@ -212,6 +355,10 @@ public final class JiraIssueTypeMetadataProcessor {
      * @return compact JSON for the LLM tool result, or empty when parsing fails
      */
     public static Optional<String> summarize(ProcessedMetadata processed) {
+        return summarize(processed, Optional.empty());
+    }
+
+    public static Optional<String> summarize(ProcessedMetadata processed, Optional<CreateScope> scope) {
         try {
             Map<String, JsonNode> fieldsById = new LinkedHashMap<>();
             collectTopLevelFields(processed.mergedRoot(), fieldsById);
@@ -232,6 +379,15 @@ public final class JiraIssueTypeMetadataProcessor {
 
             ObjectNode summary = MAPPER.createObjectNode();
             summary.put("metadataKind", "jiraIssueTypeCreateFieldsSummary");
+            scope.ifPresent(createScope -> {
+                summary.put("projectKey", createScope.projectKey());
+                if (createScope.issueTypeName() != null) {
+                    summary.put("issueTypeName", createScope.issueTypeName());
+                }
+                if (createScope.issueTypeId() != null) {
+                    summary.put("issueTypeId", createScope.issueTypeId());
+                }
+            });
             summary.put("topLevelFieldCount", processed.topLevelFieldCount());
             summary.put("requiredFieldCount", requiredFields.size());
             summary.put("requiredUserInputCount", requiredUserInput.size());
@@ -528,5 +684,58 @@ public final class JiraIssueTypeMetadataProcessor {
             }
         }
         return null;
+    }
+
+    private static CreateScope enrichScope(
+            CreateScope fromArgs,
+            Optional<CreateScope> fromResponse,
+            ProcessedMetadata processed
+    ) {
+        String projectKey = fromArgs.projectKey();
+        String issueTypeName = fromArgs.issueTypeName();
+        String issueTypeId = fromArgs.issueTypeId();
+
+        Optional<IssueTypeIdentity> identity = extractIssueTypeIdentity(
+                processed,
+                projectKey,
+                issueTypeName,
+                issueTypeId
+        );
+        if (identity.isPresent()) {
+            IssueTypeIdentity resolved = identity.get();
+            if (issueTypeName == null) {
+                issueTypeName = resolved.name();
+            }
+            if (issueTypeId == null) {
+                issueTypeId = resolved.id();
+            }
+        } else if (fromResponse.isPresent()) {
+            CreateScope responseScope = fromResponse.get();
+            if (issueTypeName == null) {
+                issueTypeName = responseScope.issueTypeName();
+            }
+            if (issueTypeId == null) {
+                issueTypeId = responseScope.issueTypeId();
+            }
+        }
+        return new CreateScope(projectKey, issueTypeName, issueTypeId);
+    }
+
+    private static void collectIssueTypeRefs(JsonNode issueTypesNode, Set<IssueTypeRef> refs) {
+        if (!issueTypesNode.isArray()) {
+            return;
+        }
+        for (JsonNode issueType : issueTypesNode) {
+            String id = firstNonBlankOrNull(issueType.path("id").asText(null));
+            String name = firstNonBlankOrNull(issueType.path("name").asText(null));
+            if (id != null || name != null) {
+                refs.add(new IssueTypeRef(id, name));
+            }
+        }
+    }
+
+    private static boolean hasFieldsNode(JsonNode issueType) {
+        JsonNode fields = issueType.path("fields");
+        return !fields.isMissingNode() && !fields.isNull();
     }
 }

@@ -30,36 +30,41 @@ Do NOT call `editJiraIssue` without calling `getAccessibleAtlassianResources` in
 
 ### Creating Jira issues
 
-**First response for create intents (e.g. "create a story in ITOPS"):**
-Do NOT ask generic questions about summary, description, or "required custom fields". Instead, call tools immediately:
+When the user says something like "create a story in ITOPS", follow this 4-phase flow every time.
+
+**Phase 1 — Parse intent:** Extract the project key (e.g. ITOPS) and requested issue type (e.g. Story) from the user's message.
+
+**Phase 2 — Validate issue type (tool turn):**
 1. `getAccessibleAtlassianResources`
-2. `getJiraIssueTypeMetaWithFields` for that project + issue type (call `getJiraProjectIssueTypesMetadata` only if you need the issue type id)
-3. Reply with `requiredUserInput` from the metadata summary — list each field by display name with its `allowedOptions`. Never guess field names like "component, priority, etc."
+2. `getJiraProjectIssueTypesMetadata` for the project
+3. Check whether the requested issue type appears in the results (case-insensitive match on name)
+4. If not found → reply with text only, list the available issue types, and stop
+5. If found → continue to Phase 3 in the same turn (do not ask the user yet)
 
-Only ask for `summary` if metadata marks it `required: true`. Only ask for `description` if metadata marks it required or the user offered one.
+**Phase 3 — Fetch required fields (tool turn, then ask user):**
+1. `getJiraIssueTypeMetaWithFields` for the confirmed project + issue type
+2. Read `requiredUserInput` from the summarized response (`metadataKind: "jiraIssueTypeCreateFieldsSummary"`)
+3. Reply with text only — list each required field by display name with its `allowedOptions`
+4. Do NOT call `createJiraIssue` yet
 
-**Create workflow (every time):**
-1. `getAccessibleAtlassianResources` — always first
-2. `getJiraProjectIssueTypesMetadata` (when you need the issue type id/name)
-3. `getJiraIssueTypeMetaWithFields` for the target project + issue type
-4. If any required field value is still missing after the user has had a chance to choose → text only, list allowed options from metadata, wait for user reply
-5. `lookupJiraAccountId` (when assignee is named)
-6. `createJiraIssue`
+**Phase 4 — Create (after user provides values):**
+1. Include every `requiredUserInput` field in the `createJiraIssue` arguments (user must have named or chosen each value)
+2. Optional: `lookupJiraAccountId` when the user named an assignee
+3. `createJiraIssue`
 
-**Always fetch metadata before every create** — including follow-ups like "create another with the same details" or adding a description. Never skip `getJiraIssueTypeMetaWithFields` because a similar ticket was created earlier in the conversation. Field IDs, required fields, and allowed option labels can only come from that tool's response for the specific project + issue type — never from memory, conversation summaries, or examples in this prompt.
+**First response for create intents (e.g. "create a story in ITOPS"):**
+Run Phases 1–3 immediately (tools only, no generic questions). Do NOT ask about summary or description before fetching metadata — only ask for fields that appear in `requiredUserInput`.
 
-When the metadata tool returns `metadataKind: "jiraIssueTypeCreateFieldsSummary"`, use `requiredUserInput` as the fields to ask the user for. Use `additionalFieldsKey` (never the display `name`) as keys inside `additional_fields`. Follow each field's `placement` and `valueShape` exactly. Do not send fields with `placement: "skip"` or `placement: "create_args"`.
+**Issue type change = fresh workflow:** If the user switches issue type (Story → Bug, etc.), re-run Phases 2–3 for the new type. Never reuse `requiredUserInput`, field IDs, or allowed options from a different issue type.
+
+**Always fetch metadata before every create** — including follow-ups like "create another with the same details". Field IDs and required fields come only from the latest `getJiraIssueTypeMetaWithFields` result for the specific project + issue type.
 
 **`createJiraIssue` argument shape:**
 - Top-level: `cloudId`, `projectKey`, `issueTypeName`, `summary`, `assignee_account_id` (if assigning), and `description` (when the user provides one)
-- `additional_fields`: only `components`, `priority`, `labels`, and project-specific custom fields from metadata
-- Put `components` and custom fields inside `additional_fields` — never as top-level parameters
-- Example shape (use `additionalFieldsKey` from metadata, not display names):
-  `{"summary":"…","description":"…","additional_fields":{"customfield_12345":{"value":"AI"},"fixVersions":[{"name":"Release_Backlog"}]}}`
-- `valueShape: option_object` → `{"value":"Exact Label"}`; `option_array` → `[{"value":"Exact Label"}]`; `version_array` → `[{"name":"Version Name"}]`
+- `additional_fields`: `components`, `priority`, `labels`, and project-specific custom fields from metadata
+- Use `additionalFieldsKey` (never the display `name`) as keys inside `additional_fields`
+- Follow each field's `placement` and `valueShape` from metadata: `option_object` → `{"value":"Exact Label"}`; `option_array` → `[{"value":"Exact Label"}]`; `version_array` → `[{"name":"Version Name"}]`
 
-**Description:** When the user asks for a description, set the top-level `description` parameter. Do NOT put `description` inside `additional_fields`. Adding a description does not change which custom fields are required — still include every required field from the latest metadata call.
+**Field values:** If the user did not explicitly name a required field value, respond with text only — list allowed options from metadata and ask them to choose. Never pick an option on your own.
 
-**CRITICAL:** If the user did not explicitly name a required field value in their message, respond with text only (no tool calls) — list the allowed options from metadata and ask them to choose. Never pick the first option, an example option, or any value from metadata on your own. For "same as before" requests, the user must still have named each required value in the current or prior messages; re-fetch metadata and reuse only the exact `fieldId` keys and option labels from that fresh tool result.
-
-**Create efficiency:** When the user already names a project key (e.g. ITOPS), skip `getVisibleJiraProjects`. Do NOT call `createJiraIssue` until you have fresh metadata from `getJiraIssueTypeMetaWithFields` for this create and every required field is filled in the createJiraIssue arguments after the user has provided or chosen values.
+**Create efficiency:** When the user already names a project key, skip `getVisibleJiraProjects`.

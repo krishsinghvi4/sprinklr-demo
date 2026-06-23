@@ -5,8 +5,6 @@ import com.example.sprinklr.marketplace.domain.model.McpInvocationResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeCreateRequirementsCache;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeFieldShapeCache;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeMetadataProcessor;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
@@ -24,7 +22,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +36,8 @@ public class HttpMcpClientAdapter implements McpServerPort {
     private static final Logger log = LoggerFactory.getLogger(HttpMcpClientAdapter.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String DEFAULT_PROTOCOL_VERSION = "2025-03-26";
+    private static final int MAX_TRANSIENT_TOOL_ATTEMPTS = 3;
+    private static final long TRANSIENT_RETRY_BACKOFF_MS = 500L;
 
     private final McpConnectionRepository connectionRepository;
     private final CredentialVaultPort credentialVault;
@@ -48,8 +47,6 @@ public class HttpMcpClientAdapter implements McpServerPort {
     private final McpOAuthTokenRefreshService oauthTokenRefreshService;
     private final McpCircuitBreakerFactory circuitBreakerFactory;
     private final AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer;
-    private final JiraIssueTypeFieldShapeCache jiraIssueTypeFieldShapeCache;
-    private final JiraIssueTypeCreateRequirementsCache jiraIssueTypeCreateRequirementsCache;
 
     public HttpMcpClientAdapter(
             McpConnectionRepository connectionRepository,
@@ -59,9 +56,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
             StreamableHttpMcpClient mcpClient,
             McpOAuthTokenRefreshService oauthTokenRefreshService,
             McpCircuitBreakerFactory circuitBreakerFactory,
-            AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer,
-            JiraIssueTypeFieldShapeCache jiraIssueTypeFieldShapeCache,
-            JiraIssueTypeCreateRequirementsCache jiraIssueTypeCreateRequirementsCache
+            AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer
     ) {
         this.connectionRepository = connectionRepository;
         this.credentialVault = credentialVault;
@@ -71,8 +66,6 @@ public class HttpMcpClientAdapter implements McpServerPort {
         this.oauthTokenRefreshService = oauthTokenRefreshService;
         this.circuitBreakerFactory = circuitBreakerFactory;
         this.atlassianJiraToolArgumentNormalizer = atlassianJiraToolArgumentNormalizer;
-        this.jiraIssueTypeFieldShapeCache = jiraIssueTypeFieldShapeCache;
-        this.jiraIssueTypeCreateRequirementsCache = jiraIssueTypeCreateRequirementsCache;
     }
 
     /**
@@ -155,7 +148,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 invocation.argumentsJson(),
                 connection.id()
         );
-        JsonNode result = callToolWithSessionRecovery(
+        JsonNode result = callToolWithTransientRetry(
                 connection,
                 catalogEntry,
                 authHeaders,
@@ -164,22 +157,17 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 argumentsJson
         );
 
+        result = retryOnRecoverableToolResultError(
+                connection,
+                catalogEntry,
+                authHeaders,
+                session,
+                invocation.toolName(),
+                argumentsJson,
+                result
+        );
+
         Optional<String> toolError = extractMcpToolError(result);
-        if (toolError.isPresent() && isRecoverableTransportError(toolError.get())) {
-            log.info("[MCP] Tool returned recoverable transport error, re-initializing connectionId={} tool={}",
-                    connection.id(), invocation.toolName());
-            StreamableHttpMcpClient.McpSession refreshedSession =
-                    reinitializeSession(connection, catalogEntry, authHeaders);
-            result = mcpClient.callTool(
-                    catalogEntry.endpointUrl(),
-                    authHeaders,
-                    refreshedSession.sessionId(),
-                    refreshedSession.protocolVersion(),
-                    invocation.toolName(),
-                    argumentsJson
-            );
-            toolError = extractMcpToolError(result);
-        }
         if (toolError.isPresent() && isLikelyAuthError(toolError.get())) {
             log.info("[MCP] Tool returned auth error, forcing OAuth refresh connectionId={} tool={}",
                     connection.id(), invocation.toolName());
@@ -230,9 +218,10 @@ public class HttpMcpClientAdapter implements McpServerPort {
     }
 
     /**
-     * Invokes a tool and re-initializes the MCP session once on stale-session or transient transport errors.
+     * Invokes a tool with automatic retries for transient transport failures.
+     * Re-initializes the MCP session on the first recoverable failure, then retries with backoff.
      */
-    private JsonNode callToolWithSessionRecovery(
+    private JsonNode callToolWithTransientRetry(
             McpConnectionDocument connection,
             McpCatalogEntry catalogEntry,
             Map<String, String> authHeaders,
@@ -240,52 +229,103 @@ public class HttpMcpClientAdapter implements McpServerPort {
             String toolName,
             String argumentsJson
     ) {
-        try {
-            return mcpClient.callTool(
-                    catalogEntry.endpointUrl(),
-                    authHeaders,
-                    session.sessionId(),
-                    session.protocolVersion(),
-                    toolName,
-                    argumentsJson
-            );
-        } catch (McpConnectionException exception) {
-            return retryAfterSessionReinit(
-                    connection, catalogEntry, authHeaders, toolName, argumentsJson, exception.getMessage(), exception);
-        } catch (McpDiscoveryException exception) {
-            return retryAfterSessionReinit(
-                    connection, catalogEntry, authHeaders, toolName, argumentsJson, exception.getMessage(), exception);
+        StreamableHttpMcpClient.McpSession activeSession = session;
+        RuntimeException lastFailure = null;
+        String lastDetail = null;
+
+        for (int attempt = 1; attempt <= MAX_TRANSIENT_TOOL_ATTEMPTS; attempt++) {
+            try {
+                JsonNode result = mcpClient.callTool(
+                        catalogEntry.endpointUrl(),
+                        authHeaders,
+                        activeSession.sessionId(),
+                        activeSession.protocolVersion(),
+                        toolName,
+                        argumentsJson
+                );
+                return result;
+            } catch (McpConnectionException | McpDiscoveryException exception) {
+                lastFailure = exception;
+                lastDetail = exception.getMessage();
+
+                if (!isRecoverableTransportError(lastDetail) || attempt >= MAX_TRANSIENT_TOOL_ATTEMPTS) {
+                    break;
+                }
+
+                log.info("[MCP] Transient transport error attempt={}/{} connectionId={} tool={} detail={}",
+                        attempt, MAX_TRANSIENT_TOOL_ATTEMPTS, connection.id(), toolName, lastDetail);
+
+                if (attempt == 1) {
+                    activeSession = reinitializeSession(connection, catalogEntry, authHeaders);
+                }
+                sleepBeforeTransientRetry(attempt);
+            }
         }
+
+        throw toInvocationException(lastFailure, lastDetail);
     }
 
-    private JsonNode retryAfterSessionReinit(
+    private JsonNode retryOnRecoverableToolResultError(
             McpConnectionDocument connection,
             McpCatalogEntry catalogEntry,
             Map<String, String> authHeaders,
+            StreamableHttpMcpClient.McpSession session,
             String toolName,
             String argumentsJson,
-            String detail,
-            RuntimeException original
+            JsonNode result
     ) {
-        if (!isRecoverableTransportError(detail)) {
-            if (original instanceof McpConnectionException connectionException) {
-                throw new McpInvocationException(connectionException.getUserMessage(), detail);
+        StreamableHttpMcpClient.McpSession activeSession = session;
+        JsonNode latestResult = result;
+
+        for (int attempt = 1; attempt <= MAX_TRANSIENT_TOOL_ATTEMPTS; attempt++) {
+            Optional<String> toolError = extractMcpToolError(latestResult);
+            if (toolError.isEmpty() || !isRecoverableTransportError(toolError.get())) {
+                return latestResult;
             }
-            McpDiscoveryException discoveryException = (McpDiscoveryException) original;
-            throw new McpInvocationException(discoveryException.getUserMessage(), detail);
+            if (attempt >= MAX_TRANSIENT_TOOL_ATTEMPTS) {
+                return latestResult;
+            }
+
+            log.info("[MCP] Tool returned recoverable transport error attempt={}/{} connectionId={} tool={}",
+                    attempt, MAX_TRANSIENT_TOOL_ATTEMPTS, connection.id(), toolName);
+
+            if (attempt == 1) {
+                activeSession = reinitializeSession(connection, catalogEntry, authHeaders);
+            }
+            sleepBeforeTransientRetry(attempt);
+
+            latestResult = mcpClient.callTool(
+                    catalogEntry.endpointUrl(),
+                    authHeaders,
+                    activeSession.sessionId(),
+                    activeSession.protocolVersion(),
+                    toolName,
+                    argumentsJson
+            );
         }
-        log.info("[MCP] Recoverable transport error, re-initializing connectionId={} tool={} detail={}",
-                connection.id(), toolName, detail);
-        StreamableHttpMcpClient.McpSession refreshedSession =
-                reinitializeSession(connection, catalogEntry, authHeaders);
-        return mcpClient.callTool(
-                catalogEntry.endpointUrl(),
-                authHeaders,
-                refreshedSession.sessionId(),
-                refreshedSession.protocolVersion(),
-                toolName,
-                argumentsJson
-        );
+
+        return latestResult;
+    }
+
+    private static McpInvocationException toInvocationException(RuntimeException failure, String detail) {
+        if (failure instanceof McpConnectionException connectionException) {
+            return new McpInvocationException(connectionException.getUserMessage(), detail);
+        }
+        if (failure instanceof McpDiscoveryException discoveryException) {
+            String userMessage = isRecoverableTransportError(detail)
+                    ? "Temporary connection issue with the server — please try again"
+                    : discoveryException.getUserMessage();
+            return new McpInvocationException(userMessage, detail);
+        }
+        return new McpInvocationException("Tool invocation failed — please try again", detail);
+    }
+
+    private static void sleepBeforeTransientRetry(int attempt) {
+        try {
+            Thread.sleep(TRANSIENT_RETRY_BACKOFF_MS * attempt);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     static boolean isRecoverableTransportError(String detail) {
@@ -435,7 +475,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 String pagedArgs = withMetadataPagination(argumentsJson, startAt);
                 log.info("[JiraMetadata] Fetching paginated field metadata connectionId={} startAt={}",
                         connection.id(), startAt);
-                JsonNode nextResult = callToolWithSessionRecovery(
+                JsonNode nextResult = callToolWithTransientRetry(
                         connection,
                         catalogEntry,
                         authHeaders,
@@ -460,32 +500,10 @@ public class HttpMcpClientAdapter implements McpServerPort {
                     ? JiraIssueTypeMetadataProcessor.analyzeSinglePage(firstPage)
                     : JiraIssueTypeMetadataProcessor.mergePages(firstPage, additionalPages);
 
-            jiraIssueTypeFieldShapeCache.put(
-                    connection.id(),
-                    JiraIssueTypeMetadataProcessor.fieldShapes(processed)
-            );
+            Optional<JiraIssueTypeMetadataProcessor.CreateScope> scope =
+                    JiraIssueTypeMetadataProcessor.resolveCreateScope(argumentsJson, processed);
 
-            JiraIssueTypeMetadataProcessor.parseCreateScope(argumentsJson).ifPresent(scope -> {
-                List<JiraIssueTypeMetadataProcessor.RequiredField> requiredFields =
-                        JiraIssueTypeMetadataProcessor.requiredUserInputFields(processed);
-                LinkedHashSet<String> issueTypeKeys = new LinkedHashSet<>(scope.issueTypeLookupKeys());
-                JiraIssueTypeMetadataProcessor.extractIssueTypeIdentity(processed).ifPresent(identity -> {
-                    if (identity.name() != null) {
-                        issueTypeKeys.add(identity.name());
-                    }
-                    if (identity.id() != null) {
-                        issueTypeKeys.add(identity.id());
-                    }
-                });
-                jiraIssueTypeCreateRequirementsCache.putAliases(
-                        connection.id(),
-                        scope.projectKey(),
-                        List.copyOf(issueTypeKeys),
-                        requiredFields
-                );
-            });
-
-            return JiraIssueTypeMetadataProcessor.summarize(processed).orElse(rawContent);
+            return JiraIssueTypeMetadataProcessor.summarize(processed, scope).orElse(rawContent);
         } catch (Exception exception) {
             log.warn("[JiraMetadata] Failed to process metadata for connectionId={}: {}",
                     connection.id(), exception.getMessage());

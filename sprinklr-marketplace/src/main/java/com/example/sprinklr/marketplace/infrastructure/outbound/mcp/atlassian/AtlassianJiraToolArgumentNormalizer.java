@@ -29,12 +29,6 @@ public class AtlassianJiraToolArgumentNormalizer {
             "labels"
     );
 
-    private final JiraIssueTypeFieldShapeCache fieldShapeCache;
-
-    public AtlassianJiraToolArgumentNormalizer(JiraIssueTypeFieldShapeCache fieldShapeCache) {
-        this.fieldShapeCache = fieldShapeCache;
-    }
-
     public boolean supports(String toolName) {
         return bareToolName(toolName) != null && JIRA_WRITE_TOOLS.contains(bareToolName(toolName));
     }
@@ -52,7 +46,7 @@ public class AtlassianJiraToolArgumentNormalizer {
             if (!root.isObject()) {
                 return argumentsJson;
             }
-            ObjectNode normalized = normalizeWriteArguments((ObjectNode) root, connectionId);
+            ObjectNode normalized = normalizeWriteArguments((ObjectNode) root);
             String result = OBJECT_MAPPER.writeValueAsString(normalized);
             if (!result.equals(argumentsJson)) {
                 log.info("[MCP] Normalized Atlassian Jira tool={} args before={} after={}",
@@ -66,12 +60,11 @@ public class AtlassianJiraToolArgumentNormalizer {
         }
     }
 
-    private ObjectNode normalizeWriteArguments(ObjectNode root, String connectionId) {
+    private ObjectNode normalizeWriteArguments(ObjectNode root) {
         ObjectNode additionalFields = ensureAdditionalFieldsObject(root);
         nestFieldsIntoAdditionalFields(root, additionalFields);
         normalizeComponentsInAdditionalFields(additionalFields);
         normalizeCustomFieldValues(additionalFields);
-        normalizeFieldValueShapes(additionalFields, connectionId);
         removeUnsupportedCreateFields(additionalFields);
         if (additionalFields.isEmpty()) {
             root.remove("additional_fields");
@@ -79,41 +72,6 @@ public class AtlassianJiraToolArgumentNormalizer {
             root.set("additional_fields", additionalFields);
         }
         return root;
-    }
-
-    private void normalizeFieldValueShapes(ObjectNode additionalFields, String connectionId) {
-        Iterator<Map.Entry<String, JsonNode>> iterator = additionalFields.fields();
-        while (iterator.hasNext()) {
-            Map.Entry<String, JsonNode> entry = iterator.next();
-            String key = entry.getKey();
-            if ("components".equals(key) || "labels".equals(key) || "priority".equals(key)) {
-                continue;
-            }
-            String shape = fieldShapeCache.valueShape(connectionId, key);
-            JsonNode value = entry.getValue();
-            if ("option_array".equals(shape) || "version_array".equals(shape)) {
-                additionalFields.set(key, ensureArrayValue(value));
-                continue;
-            }
-            if ("option_object".equals(shape) && value.isArray() && value.size() == 1 && value.get(0).isObject()) {
-                additionalFields.set(key, value.get(0).deepCopy());
-            }
-        }
-    }
-
-    private ArrayNode ensureArrayValue(JsonNode value) {
-        if (value.isArray()) {
-            return (ArrayNode) value.deepCopy();
-        }
-        ArrayNode array = OBJECT_MAPPER.createArrayNode();
-        if (value.isObject()) {
-            array.add(value.deepCopy());
-        } else if (value.isTextual()) {
-            ObjectNode wrapped = OBJECT_MAPPER.createObjectNode();
-            wrapped.put("value", value.asText());
-            array.add(wrapped);
-        }
-        return array;
     }
 
     private ObjectNode ensureAdditionalFieldsObject(ObjectNode root) {

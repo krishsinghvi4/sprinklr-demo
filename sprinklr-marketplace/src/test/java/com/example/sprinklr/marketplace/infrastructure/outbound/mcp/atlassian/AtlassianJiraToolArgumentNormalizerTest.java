@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
-import java.util.Map;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -13,8 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AtlassianJiraToolArgumentNormalizerTest {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private final AtlassianJiraToolArgumentNormalizer normalizer =
-            new AtlassianJiraToolArgumentNormalizer(new JiraIssueTypeFieldShapeCache());
+    private final AtlassianJiraToolArgumentNormalizer normalizer = new AtlassianJiraToolArgumentNormalizer();
 
     @Test
     void keepsComponentsInAdditionalFieldsAndWrapsSelectCustomFieldValues() throws Exception {
@@ -96,29 +93,6 @@ class AtlassianJiraToolArgumentNormalizerTest {
 
         assertFalse(root.has("components"));
         assertEquals("API", root.path("additional_fields").path("components").path(0).path("name").asText());
-    }
-
-    @Test
-    void preservesOptionArrayWhenFieldShapeCacheSaysArray() throws Exception {
-        JiraIssueTypeFieldShapeCache cache = new JiraIssueTypeFieldShapeCache();
-        cache.put("conn-1", Map.of("customfield_18501", "option_array"));
-        AtlassianJiraToolArgumentNormalizer shapeAwareNormalizer =
-                new AtlassianJiraToolArgumentNormalizer(cache);
-
-        String input = """
-                {
-                  "projectKey": "PAID",
-                  "additional_fields": {
-                    "customfield_18501": {"value": "AI"}
-                  }
-                }
-                """;
-
-        String normalized = shapeAwareNormalizer.normalize("createJiraIssue", input, "conn-1");
-        JsonNode root = OBJECT_MAPPER.readTree(normalized);
-        assertTrue(root.path("additional_fields").path("customfield_18501").isArray());
-        assertEquals("AI",
-                root.path("additional_fields").path("customfield_18501").path(0).path("value").asText());
     }
 
     @Test
