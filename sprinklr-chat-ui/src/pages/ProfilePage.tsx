@@ -15,6 +15,7 @@ import {
   mapApiError,
   resolveConnectMethod,
 } from '../types/profile'
+import { formatCostUsd, formatTokenCount } from '../utils/formatUsage'
 
 type ServerActionPhase = 'idle' | 'connecting' | 'disconnecting' | 'redirecting_oauth'
 
@@ -210,6 +211,51 @@ export default function ProfilePage() {
                   </dd>
                 </div>
               </dl>
+            </section>
+
+            <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">LLM Usage</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Estimated token usage and cost from your chat sessions.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-gray-500 border-b border-gray-100">
+                      <th className="pb-2 font-medium">Period</th>
+                      <th className="pb-2 font-medium text-right">Tokens</th>
+                      <th className="pb-2 font-medium text-right">Est. cost</th>
+                      <th className="pb-2 font-medium text-right">LLM calls</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-gray-900">
+                    <tr className="border-b border-gray-50">
+                      <td className="py-2.5 text-gray-600">All time</td>
+                      <td className="py-2.5 text-right font-medium">
+                        {formatTokenCount(profile.usage.allTime.totalTokens)}
+                      </td>
+                      <td className="py-2.5 text-right font-medium">
+                        {formatCostUsd(profile.usage.allTime.estimatedCostUsd)}
+                      </td>
+                      <td className="py-2.5 text-right text-gray-600">
+                        {profile.usage.allTime.llmCallCount.toLocaleString()}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="py-2.5 text-gray-600">This month</td>
+                      <td className="py-2.5 text-right font-medium">
+                        {formatTokenCount(profile.usage.currentMonth.totalTokens)}
+                      </td>
+                      <td className="py-2.5 text-right font-medium">
+                        {formatCostUsd(profile.usage.currentMonth.estimatedCostUsd)}
+                      </td>
+                      <td className="py-2.5 text-right text-gray-600">
+                        {profile.usage.currentMonth.llmCallCount.toLocaleString()}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </section>
 
             <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">

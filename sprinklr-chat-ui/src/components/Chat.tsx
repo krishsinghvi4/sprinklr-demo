@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
-import Markdown from 'react-markdown'
 import { Send, Bot, User, Loader } from 'lucide-react'
+import AssistantMessageContent from './AssistantMessageContent'
 import { Message, ChatRequest } from '../types/chat'
 import { streamChat, fetchChatHistory } from '../services/chatService'
 
@@ -192,9 +192,7 @@ export default function Chat({ userId, conversationId }: ChatProps) {
                 }`}
               >
                 {message.role === 'assistant' ? (
-                  <Markdown className="prose prose-sm max-w-none">
-                    {message.content}
-                  </Markdown>
+                  <AssistantMessageContent content={message.content} />
                 ) : (
                   <p className="whitespace-pre-wrap">{message.content}</p>
                 )}

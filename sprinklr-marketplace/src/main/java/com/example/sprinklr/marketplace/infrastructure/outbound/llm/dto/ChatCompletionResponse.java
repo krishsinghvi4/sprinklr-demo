@@ -8,8 +8,31 @@ import java.util.List;
 /** Top-level router response for non-streaming chat completion. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record ChatCompletionResponse(
-        List<ChatCompletionChoice> choices
+        List<ChatCompletionChoice> choices,
+        UsageDto usage,
+        Double spending,
+        AdditionalDto additional
 ) {
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record AdditionalDto(
+            SpendingDto spending
+    ) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SpendingDto(
+            Double total
+    ) {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record UsageDto(
+            @JsonProperty("prompt_tokens") Integer promptTokens,
+            @JsonProperty("completion_tokens") Integer completionTokens,
+            @JsonProperty("total_tokens") Integer totalTokens
+    ) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record ChatCompletionChoice(

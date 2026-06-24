@@ -129,7 +129,14 @@ public class ChatOrchestrator implements ChatUseCase {
             while (iteration < mcpProperties.getMaxAgenticIterations()) {
                 long llmStartMs = System.currentTimeMillis();
                 LlmResponse llmResponse = llmPort.complete(
-                        new LlmRequest(request.prompt(), history, userTools, currentTurnUserMessageId)
+                        new LlmRequest(
+                                request.prompt(),
+                                history,
+                                userTools,
+                                currentTurnUserMessageId,
+                                request.userId(),
+                                conversationId
+                        )
                 );
                 long llmMs = System.currentTimeMillis() - llmStartMs;
                 String responseType = llmResponse.toolCalls().isEmpty() ? "text" : "tool_calls";

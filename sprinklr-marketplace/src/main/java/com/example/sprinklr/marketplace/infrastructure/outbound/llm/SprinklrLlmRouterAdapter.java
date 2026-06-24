@@ -54,7 +54,8 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
                 request.tools(),
                 request.currentTurnUserMessageId(),
                 fullToolHistoryForCurrentTurn,
-                systemPrompt
+                systemPrompt,
+                usageContext(request)
         ));
 
         boolean toolResultsAlreadyInTurn = hasToolResultsInCurrentTurn(request);
@@ -80,11 +81,19 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
                     request.tools(),
                     request.currentTurnUserMessageId(),
                     fullToolHistoryForCurrentTurn,
-                    systemPrompt + CONNECTED_TOOLS_NUDGE
+                    systemPrompt + CONNECTED_TOOLS_NUDGE,
+                    usageContext(request)
             ));
         }
 
         return new LlmResponse(result.content(), result.toolCalls());
+    }
+
+    private static LlmUsageContext usageContext(LlmRequest request) {
+        if (request.userId() == null || request.userId().isBlank()) {
+            return null;
+        }
+        return new LlmUsageContext(request.userId(), request.conversationId());
     }
 
     /**

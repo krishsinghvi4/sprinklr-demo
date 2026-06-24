@@ -30,6 +30,7 @@ public class LlmProperties {
     private double temperature;
     private int maxCompletionTokens;
     private TrackingParams trackingParams = new TrackingParams();
+    private Pricing pricing = new Pricing();
     private int connectTimeoutMs = 30000;
     private int readTimeoutMs = 120000;
     private String systemPromptPath = "classpath:llm/system-prompt.txt";
@@ -38,5 +39,14 @@ public class LlmProperties {
     @Setter
     public static class TrackingParams {
         private String feature;
+    }
+
+    @Getter
+    @Setter
+    public static class Pricing {
+        /** USD cost per 1K prompt tokens. */
+        private double promptCostPer1kUsd = 0.002;
+        /** USD cost per 1K completion tokens. */
+        private double completionCostPer1kUsd = 0.008;
     }
 }

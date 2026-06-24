@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
+import com.example.sprinklr.marketplace.domain.model.LlmTokenUsage;
 import com.example.sprinklr.marketplace.domain.model.ToolCall;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.ChatCompletionResponse;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiToolCall;
@@ -7,6 +8,8 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 /**
@@ -55,7 +58,7 @@ public class LlmResponseParser {
                 throw new LlmClientException("LLM router returned neither content nor tool_calls");
             }
 
-            return new LlmCompletionResult(content, toolCalls);
+            return new LlmCompletionResult(content, toolCalls, mapUsage(response));
         } catch (LlmClientException e) {
             throw e;
         } catch (Exception e) {
@@ -66,6 +69,39 @@ public class LlmResponseParser {
     /**
      * Converts API tool call payloads into domain tool calls with safe defaults.
      */
+    private LlmTokenUsage mapUsage(ChatCompletionResponse response) {
+        ChatCompletionResponse.UsageDto usage = response.usage();
+        if (usage == null) {
+            return null;
+        }
+        int prompt = usage.promptTokens() != null ? usage.promptTokens() : 0;
+        int completion = usage.completionTokens() != null ? usage.completionTokens() : 0;
+        int total = usage.totalTokens() != null ? usage.totalTokens() : prompt + completion;
+        if (prompt == 0 && completion == 0 && total == 0) {
+            return null;
+        }
+        return new LlmTokenUsage(prompt, completion, total, resolveSpendingUsd(response));
+    }
+
+    private BigDecimal resolveSpendingUsd(ChatCompletionResponse response) {
+        Double spending = response.spending();
+        if (spending != null && spending > 0) {
+            return toUsd(spending);
+        }
+        ChatCompletionResponse.AdditionalDto additional = response.additional();
+        if (additional != null && additional.spending() != null && additional.spending().total() != null) {
+            Double nestedTotal = additional.spending().total();
+            if (nestedTotal > 0) {
+                return toUsd(nestedTotal);
+            }
+        }
+        return null;
+    }
+
+    private BigDecimal toUsd(double amount) {
+        return BigDecimal.valueOf(amount).setScale(4, RoundingMode.HALF_UP);
+    }
+
     private List<ToolCall> mapToolCalls(List<LlmApiToolCall> apiToolCalls) {
         if (apiToolCalls == null || apiToolCalls.isEmpty()) {
             return List.of();

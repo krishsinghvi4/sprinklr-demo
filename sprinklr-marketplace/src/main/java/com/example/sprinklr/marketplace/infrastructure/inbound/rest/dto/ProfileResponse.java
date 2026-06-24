@@ -4,19 +4,22 @@ import com.example.sprinklr.marketplace.application.service.McpMarketplaceServic
 import com.example.sprinklr.marketplace.application.service.ProfileService;
 import com.example.sprinklr.marketplace.domain.model.McpCredentialField;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 
 public record ProfileResponse(
         UserProfileDto user,
-        MarketplaceDto marketplace
+        MarketplaceDto marketplace,
+        UsageDto usage
 ) {
 
     public static ProfileResponse from(ProfileService.ProfileView view) {
         return new ProfileResponse(
                 UserProfileDto.from(view.user()),
-                MarketplaceDto.from(view.marketplace())
+                MarketplaceDto.from(view.marketplace()),
+                UsageDto.from(view.usage())
         );
     }
 
@@ -87,6 +90,36 @@ public record ProfileResponse(
                     connection.status(),
                     connection.toolCount(),
                     connection.connectedAt()
+            );
+        }
+    }
+
+    public record UsageDto(
+            UsagePeriodDto allTime,
+            UsagePeriodDto currentMonth
+    ) {
+        static UsageDto from(ProfileService.UsageView usage) {
+            return new UsageDto(
+                    UsagePeriodDto.from(usage.allTime()),
+                    UsagePeriodDto.from(usage.currentMonth())
+            );
+        }
+    }
+
+    public record UsagePeriodDto(
+            long totalTokens,
+            long promptTokens,
+            long completionTokens,
+            BigDecimal estimatedCostUsd,
+            long llmCallCount
+    ) {
+        static UsagePeriodDto from(ProfileService.UsagePeriodView period) {
+            return new UsagePeriodDto(
+                    period.totalTokens(),
+                    period.promptTokens(),
+                    period.completionTokens(),
+                    period.estimatedCostUsd(),
+                    period.llmCallCount()
             );
         }
     }

@@ -1,6 +1,8 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
+import com.example.sprinklr.marketplace.domain.model.LlmUsageEvent;
 import com.example.sprinklr.marketplace.domain.model.McpTool;
+import com.example.sprinklr.marketplace.domain.port.outbound.LlmUsagePort;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.ChatCompletionRequest;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiMessage;
@@ -11,6 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +37,7 @@ public class LlmService {
     private final LlmToolMapper toolMapper;
     private final ChatCompletionClient completionClient;
     private final LlmResponseParser responseParser;
+    private final LlmUsagePort llmUsagePort;
     private final CircuitBreaker circuitBreaker;
 
     public LlmService(
@@ -40,6 +46,7 @@ public class LlmService {
             LlmToolMapper toolMapper,
             ChatCompletionClient completionClient,
             LlmResponseParser responseParser,
+            LlmUsagePort llmUsagePort,
             CircuitBreakerRegistry circuitBreakerRegistry
     ) {
         this.properties = properties;
@@ -47,6 +54,7 @@ public class LlmService {
         this.toolMapper = toolMapper;
         this.completionClient = completionClient;
         this.responseParser = responseParser;
+        this.llmUsagePort = llmUsagePort;
         this.circuitBreaker = circuitBreakerRegistry.circuitBreaker("llmRouter");
     }
 
@@ -103,7 +111,43 @@ public class LlmService {
                     result.content() != null ? truncate(result.content(), 200) : "null");
         }
 
+        recordUsageIfPresent(command, result);
+
         return result;
+    }
+
+    private void recordUsageIfPresent(LlmCompletionCommand command, LlmCompletionResult result) {
+        LlmUsageContext context = command.usageContext();
+        if (context == null || context.userId() == null || context.userId().isBlank()) {
+            return;
+        }
+        if (result.usage() == null) {
+            return;
+        }
+        BigDecimal cost = result.usage().spendingUsd() != null
+                ? result.usage().spendingUsd()
+                : estimateCost(result.usage().promptTokens(), result.usage().completionTokens());
+        llmUsagePort.record(new LlmUsageEvent(
+                context.userId(),
+                context.conversationId(),
+                properties.getModel(),
+                result.usage().promptTokens(),
+                result.usage().completionTokens(),
+                result.usage().totalTokens(),
+                cost,
+                Instant.now()
+        ));
+        if (log.isDebugEnabled()) {
+            log.debug("[LLM] Recorded usage userId={} tokens={} costUsd={}",
+                    context.userId(), result.usage().totalTokens(), cost);
+        }
+    }
+
+    private BigDecimal estimateCost(int promptTokens, int completionTokens) {
+        double promptRate = properties.getPricing().getPromptCostPer1kUsd();
+        double completionRate = properties.getPricing().getCompletionCostPer1kUsd();
+        double cost = (promptTokens / 1000.0) * promptRate + (completionTokens / 1000.0) * completionRate;
+        return BigDecimal.valueOf(cost).setScale(4, RoundingMode.HALF_UP);
     }
 
     private ChatCompletionRequest buildRequest(
