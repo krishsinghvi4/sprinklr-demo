@@ -23,9 +23,23 @@ public record LlmCompletionCommand(
         /**
          * When non-null, replaces the default system prompt (e.g. post-tool summary pass).
          */
-        String systemPromptOverride
+        String systemPromptOverride,
+        /**
+         * When present, LLM token usage is recorded for the user after a successful completion.
+         */
+        LlmUsageContext usageContext
 ) {
     public LlmCompletionCommand(List<Message> history, List<McpTool> tools, boolean includeFullToolHistory) {
-        this(history, tools, null, includeFullToolHistory, null);
+        this(history, tools, null, includeFullToolHistory, null, null);
+    }
+
+    public LlmCompletionCommand(
+            List<Message> history,
+            List<McpTool> tools,
+            String currentTurnUserMessageId,
+            boolean fullToolHistoryForCurrentTurn,
+            String systemPromptOverride
+    ) {
+        this(history, tools, currentTurnUserMessageId, fullToolHistoryForCurrentTurn, systemPromptOverride, null);
     }
 }

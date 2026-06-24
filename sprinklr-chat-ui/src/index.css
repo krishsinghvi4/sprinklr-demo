@@ -2,6 +2,35 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .assistant-html table {
+    @apply w-full text-sm border-collapse;
+  }
+
+  .assistant-html th,
+  .assistant-html td {
+    @apply border border-gray-300 px-2 py-1.5 text-left align-top;
+  }
+
+  .assistant-html th {
+    @apply bg-gray-100 font-medium text-gray-700;
+  }
+
+  .assistant-html a {
+    @apply text-blue-700 underline;
+  }
+
+  .assistant-html ul,
+  .assistant-html ol {
+    @apply my-2 pl-5 space-y-1;
+  }
+
+  .assistant-html h3,
+  .assistant-html h4 {
+    @apply font-semibold text-gray-900 mt-2 mb-1;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

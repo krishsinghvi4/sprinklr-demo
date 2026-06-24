@@ -7,11 +7,17 @@ public record LlmRequest(
         String prompt,
         List<Message> history,
         List<McpTool> tools,
-        String currentTurnUserMessageId
+        String currentTurnUserMessageId,
+        String userId,
+        String conversationId
 ) {
 
     public LlmRequest(String prompt, List<Message> history, List<McpTool> tools) {
-        this(prompt, history, tools, null);
+        this(prompt, history, tools, null, null, null);
+    }
+
+    public LlmRequest(String prompt, List<Message> history, List<McpTool> tools, String currentTurnUserMessageId) {
+        this(prompt, history, tools, currentTurnUserMessageId, null, null);
     }
 
     public LlmRequest {

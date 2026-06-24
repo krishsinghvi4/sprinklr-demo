@@ -47,9 +47,23 @@ export interface UserProfile {
   createdAt: string
 }
 
+export interface UsagePeriodSummary {
+  totalTokens: number
+  promptTokens: number
+  completionTokens: number
+  estimatedCostUsd: number
+  llmCallCount: number
+}
+
+export interface UsageSummary {
+  allTime: UsagePeriodSummary
+  currentMonth: UsagePeriodSummary
+}
+
 export interface ProfileResponse {
   user: UserProfile
   marketplace: Marketplace
+  usage: UsageSummary
 }
 
 export interface ConnectMcpServerRequest {
