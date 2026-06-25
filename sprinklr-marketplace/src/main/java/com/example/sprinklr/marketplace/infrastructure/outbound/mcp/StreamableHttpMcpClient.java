@@ -1,5 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
 
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -12,7 +14,6 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
-import reactor.core.publisher.Mono;
 
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;

@@ -16,12 +16,16 @@ const ALLOWED_TAGS = [
   'li',
   'a',
   'p',
+  'pre',
   'strong',
   'span',
   'div',
   'h3',
   'h4',
 ]
+
+const INLINE_HTML_BLOCK_PATTERN =
+  /<(?:pre|table|ul|ol|div|h3|h4)\b[^>]*>[\s\S]*?<\/(?:pre|table|ul|ol|div|h3|h4)>/gi
 
 interface ContentSegment {
   type: 'markdown' | 'html'
@@ -60,6 +64,54 @@ export function splitAssistantContent(content: string): ContentSegment[] {
   return segments
 }
 
+/** Pulls block-level HTML the LLM placed outside ```html fences into renderable segments. */
+export function expandMarkdownSegments(segments: ContentSegment[]): ContentSegment[] {
+  const expanded: ContentSegment[] = []
+
+  for (const segment of segments) {
+    if (segment.type === 'html') {
+      expanded.push(segment)
+      continue
+    }
+
+    const inlinePattern = new RegExp(INLINE_HTML_BLOCK_PATTERN.source, INLINE_HTML_BLOCK_PATTERN.flags)
+    let lastIndex = 0
+    let foundInline = false
+
+    for (const match of segment.value.matchAll(inlinePattern)) {
+      foundInline = true
+      const matchIndex = match.index ?? 0
+      if (matchIndex > lastIndex) {
+        const markdown = segment.value.slice(lastIndex, matchIndex).trim()
+        if (markdown) {
+          expanded.push({ type: 'markdown', value: markdown })
+        }
+      }
+      const html = match[0]?.trim()
+      if (html) {
+        expanded.push({ type: 'html', value: html })
+      }
+      lastIndex = matchIndex + match[0].length
+    }
+
+    if (!foundInline) {
+      expanded.push(segment)
+      continue
+    }
+
+    const trailing = segment.value.slice(lastIndex).trim()
+    if (trailing) {
+      expanded.push({ type: 'markdown', value: trailing })
+    }
+  }
+
+  return expanded
+}
+
+export function parseAssistantContent(content: string): ContentSegment[] {
+  return expandMarkdownSegments(splitAssistantContent(content))
+}
+
 const ALLOWED_ATTR = ['href', 'target', 'rel']
 
 DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
@@ -86,7 +138,7 @@ interface AssistantMessageContentProps {
 }
 
 export default function AssistantMessageContent({ content }: AssistantMessageContentProps) {
-  const segments = splitAssistantContent(content)
+  const segments = parseAssistantContent(content)
 
   return (
     <div className="space-y-3">

@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.application.service;
 
+import com.example.sprinklr.marketplace.application.service.tool.ToolSelectionService;
 import com.example.sprinklr.marketplace.domain.model.ChatRequest;
 import com.example.sprinklr.marketplace.domain.model.Conversation;
 import com.example.sprinklr.marketplace.domain.model.LlmRequest;
@@ -10,14 +11,18 @@ import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.PendingWorkflowState;
 import com.example.sprinklr.marketplace.domain.model.ToolCall;
+import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.model.ToolResult;
+import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.inbound.ChatUseCase;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.PendingWorkflowPort;
 import com.example.sprinklr.marketplace.infrastructure.config.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
@@ -28,8 +33,10 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -55,6 +62,8 @@ public class ChatOrchestrator implements ChatUseCase {
     private final McpProperties mcpProperties;
     private final ChatProperties chatProperties;
     private final McpInvocationPreflightPort mcpInvocationPreflightPort;
+    private final ToolSelectionService toolSelectionService;
+    private final PendingWorkflowPort pendingWorkflowPort;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -63,7 +72,9 @@ public class ChatOrchestrator implements ChatUseCase {
             McpRegistryPort mcpRegistryPort,
             McpProperties mcpProperties,
             ChatProperties chatProperties,
-            McpInvocationPreflightPort mcpInvocationPreflightPort
+            McpInvocationPreflightPort mcpInvocationPreflightPort,
+            ToolSelectionService toolSelectionService,
+            PendingWorkflowPort pendingWorkflowPort
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -72,6 +83,8 @@ public class ChatOrchestrator implements ChatUseCase {
         this.mcpProperties = mcpProperties;
         this.chatProperties = chatProperties;
         this.mcpInvocationPreflightPort = mcpInvocationPreflightPort;
+        this.toolSelectionService = toolSelectionService;
+        this.pendingWorkflowPort = pendingWorkflowPort;
     }
 
     /**
@@ -119,9 +132,21 @@ public class ChatOrchestrator implements ChatUseCase {
             List<String> currentTurnToolMessageIds = new ArrayList<>();
 
             List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(request.userId());
+
+            // Stage 1+2: scope the tool set for this turn (router pick + deterministic dependency expansion).
+            // When the feature is off, fall back to sending every active tool (legacy behavior).
+            TurnToolScope scope = resolveTurnToolScope(request, conversationId, history, userTools);
+            List<McpTool> toolsForTurn = scope.tools();
+            String continuationContext = scope.continuationContext();
+
             long setupMs = System.currentTimeMillis() - setupStartMs;
-            log.info("[Orchestrator] Setup complete in {}ms conversationId={} userTools={} historyTurnLimit={} priorTurnsLoaded={}",
-                    setupMs, conversationId, userTools.size(), chatProperties.getHistoryTurnLimit(), priorTurnLimit);
+            log.info("[Orchestrator] Setup complete in {}ms conversationId={} userTools={} scopedTools={} continuation={} historyTurnLimit={} priorTurnsLoaded={}",
+                    setupMs, conversationId, userTools.size(), toolsForTurn.size(),
+                    continuationContext != null, chatProperties.getHistoryTurnLimit(), priorTurnLimit);
+
+            // Accumulate tools executed this turn so continuation state can be persisted for the next turn.
+            List<String> executedToolNames = new ArrayList<>();
+            List<String> executedToolSummaries = new ArrayList<>();
 
             int iteration = 0;
             int totalToolCalls = 0;
@@ -132,10 +157,11 @@ public class ChatOrchestrator implements ChatUseCase {
                         new LlmRequest(
                                 request.prompt(),
                                 history,
-                                userTools,
+                                toolsForTurn,
                                 currentTurnUserMessageId,
                                 request.userId(),
-                                conversationId
+                                conversationId,
+                                continuationContext
                         )
                 );
                 long llmMs = System.currentTimeMillis() - llmStartMs;
@@ -154,6 +180,7 @@ public class ChatOrchestrator implements ChatUseCase {
                                 streamingSession
                         );
                     }
+                    persistContinuationIfNeeded(request, conversationId, executedToolNames, executedToolSummaries);
                     logTurnComplete(conversationId, turnStartMs, iteration, totalToolCalls);
                     return;
                 }
@@ -162,6 +189,7 @@ public class ChatOrchestrator implements ChatUseCase {
                     log.info("[Orchestrator] Tool call limit reached conversationId={} total={}",
                             conversationId, totalToolCalls);
                     deliverLimitMessage(conversationId, responseSubscriber);
+                    persistContinuationIfNeeded(request, conversationId, executedToolNames, executedToolSummaries);
                     logTurnComplete(conversationId, turnStartMs, iteration, totalToolCalls);
                     return;
                 }
@@ -172,7 +200,9 @@ public class ChatOrchestrator implements ChatUseCase {
                         history,
                         llmResponse,
                         usedConnections,
-                        streamingSession
+                        streamingSession,
+                        executedToolNames,
+                        executedToolSummaries
                 );
                 currentTurnToolMessageIds.add(toolMessageId);
                 totalToolCalls += llmResponse.toolCalls().size();
@@ -181,6 +211,7 @@ public class ChatOrchestrator implements ChatUseCase {
 
             log.info("[Orchestrator] Agentic iteration limit reached conversationId={}", conversationId);
             deliverLimitMessage(conversationId, responseSubscriber);
+            persistContinuationIfNeeded(request, conversationId, executedToolNames, executedToolSummaries);
             logTurnComplete(conversationId, turnStartMs, iteration, totalToolCalls);
         } catch (Exception exception) {
             signalError(responseSubscriber, exception);
@@ -195,6 +226,101 @@ public class ChatOrchestrator implements ChatUseCase {
     }
 
     /**
+     * Resolves which tools to expose to the agent LLM this turn. With the feature enabled, this is the
+     * router-selected + dependency-expanded scoped set; otherwise it is every active tool (legacy).
+     * Any failure falls back to all tools so chat is never broken.
+     */
+    private TurnToolScope resolveTurnToolScope(
+            ChatRequest request,
+            String conversationId,
+            List<Message> history,
+            List<McpTool> userTools
+    ) {
+        if (!mcpProperties.getToolSelection().isEnabled() || userTools.isEmpty()) {
+            return new TurnToolScope(userTools, null);
+        }
+        try {
+            List<ToolDependencyGraph> graphs =
+                    mcpRegistryPort.findActiveDependencyGraphsForUser(request.userId());
+            Optional<PendingWorkflowState> continuation =
+                    pendingWorkflowPort.find(conversationId, request.userId());
+            ToolSelectionResult selection = toolSelectionService.selectTools(
+                    request.prompt(), history, userTools, graphs, continuation);
+            List<McpTool> tools = selection.scopedTools().isEmpty() ? userTools : selection.scopedTools();
+            return new TurnToolScope(tools, selection.continuationContext());
+        } catch (Exception exception) {
+            log.warn("[Orchestrator] Tool selection failed — using all {} tools: {}",
+                    userTools.size(), exception.getMessage());
+            return new TurnToolScope(userTools, null);
+        }
+    }
+
+    /**
+     * Persists continuation state at the end of a turn that ran tools, so a follow-up turn can reuse
+     * the gathered results instead of re-running prerequisite/metadata tools. No-op when nothing ran.
+     */
+    private void persistContinuationIfNeeded(
+            ChatRequest request,
+            String conversationId,
+            List<String> executedToolNames,
+            List<String> executedToolSummaries
+    ) {
+        if (!mcpProperties.getToolSelection().isEnabled() || executedToolNames.isEmpty()) {
+            return;
+        }
+        Set<String> prefixes = new LinkedHashSet<>();
+        for (String name : executedToolNames) {
+            int dot = name.indexOf('.');
+            prefixes.add(dot > 0 ? name.substring(0, dot) : name);
+        }
+        Instant expiresAt = Instant.now()
+                .plus(mcpProperties.getToolSelection().getContinuationTtlHours(), ChronoUnit.HOURS);
+        try {
+            pendingWorkflowPort.save(new PendingWorkflowState(
+                    conversationId,
+                    request.userId(),
+                    new ArrayList<>(prefixes),
+                    executedToolNames,
+                    executedToolSummaries,
+                    expiresAt
+            ));
+        } catch (Exception exception) {
+            log.warn("[Orchestrator] Failed to persist continuation conversationId={}: {}",
+                    conversationId, exception.getMessage());
+        }
+    }
+
+    /** Captures a successful tool result as compact continuation context for the next turn. */
+    private void recordExecutedTool(
+            String toolName,
+            McpInvocationResult result,
+            List<String> executedToolNames,
+            List<String> executedToolSummaries
+    ) {
+        if (!result.success()) {
+            return;
+        }
+        if (!executedToolNames.contains(toolName)) {
+            executedToolNames.add(toolName);
+        }
+        String content = result.content() != null ? result.content() : "";
+        executedToolSummaries.add(toolName + " -> " + truncateForSummary(content));
+    }
+
+    private static String truncateForSummary(String content) {
+        String collapsed = content.strip();
+        int max = 800;
+        return collapsed.length() <= max ? collapsed : collapsed.substring(0, max) + "…(truncated)";
+    }
+
+    /** Tools to expose this turn plus any continuation context to inject into the agent system prompt. */
+    private record TurnToolScope(List<McpTool> tools, String continuationContext) {
+        private TurnToolScope {
+            tools = tools == null ? List.of() : List.copyOf(tools);
+        }
+    }
+
+    /**
      * Executes a batch of tool calls and records tool results in history.
      *
      * @return id of the persisted TOOL message row
@@ -205,7 +331,9 @@ public class ChatOrchestrator implements ChatUseCase {
             List<Message> history,
             LlmResponse llmResponse,
             Set<String> usedConnections,
-            StreamingSession streamingSession
+            StreamingSession streamingSession,
+            List<String> executedToolNames,
+            List<String> executedToolSummaries
     ) {
         Message assistantToolCallMessage = new Message(
                 newId(),
@@ -219,13 +347,15 @@ public class ChatOrchestrator implements ChatUseCase {
         chatHistoryPort.saveMessage(assistantToolCallMessage);
         history.add(assistantToolCallMessage);
 
-        List<McpInvocation> invocations = llmResponse.toolCalls().stream()
+        List<ToolCall> toolCalls = llmResponse.toolCalls();
+        List<McpInvocation> invocations = toolCalls.stream()
                 .map(toolCall -> toInvocation(request.userId(), toolCall))
                 .peek(invocation -> usedConnections.add(invocation.serverId()))
                 .toList();
 
         List<McpInvocationResult> invocationResults = new ArrayList<>();
-        for (McpInvocation invocation : invocations) {
+        for (int i = 0; i < invocations.size(); i++) {
+            McpInvocation invocation = invocations.get(i);
             streamingSession.emitProgress("Running " + invocation.toolName() + "…\n");
             long toolStartMs = System.currentTimeMillis();
             McpInvocationResult result = invokeWithPreflight(
@@ -236,6 +366,8 @@ public class ChatOrchestrator implements ChatUseCase {
             log.info("[Orchestrator] MCP tool {} completed in {}ms conversationId={} success={}",
                     invocation.toolName(), toolMs, conversationId, result.success());
             invocationResults.add(result);
+            // Record the fully-qualified name + a compact summary for cross-turn continuation reuse.
+            recordExecutedTool(toolCalls.get(i).name(), result, executedToolNames, executedToolSummaries);
         }
 
         List<ToolResult> toolResults = invocationResults.stream()
@@ -390,7 +522,13 @@ public class ChatOrchestrator implements ChatUseCase {
      */
     private String buildConversationContextForPreflight(List<Message> history) {
         StringBuilder context = new StringBuilder();
+        Set<String> calledToolNames = new LinkedHashSet<>();
         for (Message message : history) {
+            // Collect tool names already requested this turn so the dependency guard can tell which
+            // prerequisites have run. Names are appended below as a marker line, not free-form text.
+            for (ToolCall toolCall : message.toolCalls()) {
+                calledToolNames.add(toolCall.name());
+            }
             if (message.role() != MessageRole.USER && message.role() != MessageRole.ASSISTANT) {
                 continue;
             }
@@ -402,6 +540,11 @@ public class ChatOrchestrator implements ChatUseCase {
                 context.append('\n');
             }
             context.append(content);
+        }
+        if (!calledToolNames.isEmpty()) {
+            context.append("\n[tools-called-this-turn: ")
+                    .append(String.join(", ", calledToolNames))
+                    .append(']');
         }
         return context.toString();
     }

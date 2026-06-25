@@ -1,4 +1,4 @@
-package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
+package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions;
 
 /**
  * Machine-readable error codes returned to clients for consistent UI error handling.

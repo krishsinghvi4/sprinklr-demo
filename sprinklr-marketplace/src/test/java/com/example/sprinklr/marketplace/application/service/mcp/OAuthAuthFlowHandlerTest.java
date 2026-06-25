@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpOAuthException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpOAuthException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthConfigResolver;

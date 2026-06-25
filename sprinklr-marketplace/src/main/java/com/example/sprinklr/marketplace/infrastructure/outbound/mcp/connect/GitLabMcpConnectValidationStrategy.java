@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect;
 
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.GitLabPrivateTokenAuthStrategy;
 import com.fasterxml.jackson.databind.JsonNode;

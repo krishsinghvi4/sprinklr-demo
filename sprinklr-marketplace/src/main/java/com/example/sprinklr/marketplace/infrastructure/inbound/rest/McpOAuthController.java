@@ -2,9 +2,9 @@ package com.example.sprinklr.marketplace.infrastructure.inbound.rest;
 
 import com.example.sprinklr.marketplace.application.service.McpOAuthService;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpDiscoveryException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpOAuthException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpOAuthException;
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

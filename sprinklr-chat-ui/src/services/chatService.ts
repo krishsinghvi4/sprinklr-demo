@@ -21,12 +21,14 @@ export async function streamChat(
   onChunk: (chunk: string) => void,
   onError: (error: Error) => void,
   onComplete: () => void,
+  signal?: AbortSignal,
 ): Promise<void> {
   try {
     await fetchEventSource(CHAT_ENDPOINT, {
       method: 'POST',
       headers: getAuthHeaders(),
       body: JSON.stringify(request),
+      signal,
       openWhenHidden: true,
       onmessage: (event) => {
         if (event.data) {
@@ -34,6 +36,9 @@ export async function streamChat(
         }
       },
       onerror: (error) => {
+        if (signal?.aborted) {
+          return
+        }
         console.error('SSE Error:', error)
         onError(new Error('Failed to stream chat response'))
         throw error
@@ -50,6 +55,10 @@ export async function streamChat(
       },
     })
   } catch (error) {
+    if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+      onComplete()
+      return
+    }
     const err = error instanceof Error ? error : new Error('Unknown error')
     onError(err)
   }

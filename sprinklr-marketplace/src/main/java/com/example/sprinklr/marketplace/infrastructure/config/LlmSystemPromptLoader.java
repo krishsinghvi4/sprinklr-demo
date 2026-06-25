@@ -19,6 +19,8 @@ public class LlmSystemPromptLoader {
 
     private final String systemPrompt;
     private final String summaryPrompt;
+    private final String toolRouterPrompt;
+    private final String toolDependencyGraphPrompt;
 
     public LlmSystemPromptLoader(LlmProperties properties, ResourceLoader resourceLoader) {
         Resource resource = resourceLoader.getResource(properties.getSystemPromptPath());
@@ -28,6 +30,9 @@ public class LlmSystemPromptLoader {
         try {
             this.systemPrompt = StreamUtils.copyToString(resource.getInputStream(), StandardCharsets.UTF_8).trim();
             this.summaryPrompt = loadOptionalPrompt(resourceLoader, SUMMARY_PROMPT_PATH, systemPrompt);
+            this.toolRouterPrompt = loadOptionalPrompt(resourceLoader, properties.getToolRouterPromptPath(), "");
+            this.toolDependencyGraphPrompt =
+                    loadOptionalPrompt(resourceLoader, properties.getToolDependencyGraphPromptPath(), "");
         } catch (IOException e) {
             throw new IllegalStateException(
                     "Failed to read LLM system prompt from: " + properties.getSystemPromptPath(), e);
@@ -45,6 +50,16 @@ public class LlmSystemPromptLoader {
 
     public String getSummaryPrompt() {
         return summaryPrompt;
+    }
+
+    /** Base prompt for the chat-time tool router (empty if the file is absent). */
+    public String getToolRouterPrompt() {
+        return toolRouterPrompt;
+    }
+
+    /** Base prompt for connect-time dependency-graph generation (empty if the file is absent). */
+    public String getToolDependencyGraphPrompt() {
+        return toolDependencyGraphPrompt;
     }
 
     private static String loadOptionalPrompt(ResourceLoader resourceLoader, String path, String fallback)

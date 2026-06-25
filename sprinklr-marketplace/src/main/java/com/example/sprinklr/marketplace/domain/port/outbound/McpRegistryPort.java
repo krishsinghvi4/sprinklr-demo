@@ -2,6 +2,7 @@ package com.example.sprinklr.marketplace.domain.port.outbound;
 
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
+import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 
 import java.util.List;
 import java.util.Optional;
@@ -25,4 +26,13 @@ public interface McpRegistryPort {
     void delete(String connectionId, String userId);
 
     List<McpTool> findActiveToolsForUser(String userId);
+
+    /** Stores (or replaces) the LLM-generated dependency graph for a single connection. */
+    void updateDependencyGraph(String connectionId, ToolDependencyGraph graph);
+
+    /** Dependency graphs for all of the user's CONNECTED servers (one per connection that has one). */
+    List<ToolDependencyGraph> findActiveDependencyGraphsForUser(String userId);
+
+    /** The dependency graph for a single connection, if one has been generated. */
+    Optional<ToolDependencyGraph> findDependencyGraphByConnectionId(String connectionId);
 }

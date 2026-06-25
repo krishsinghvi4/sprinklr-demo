@@ -27,6 +27,9 @@ The marketplace must allow users to connect arbitrary MCP servers without backen
 | `McpRegistryPort` | CRUD for user MCP server configs; fetch active tool schemas |
 | `McpDiscoveryPort` | `tools/list` handshake to discover tools from a new server URL |
 | `CredentialVaultPort` | Encrypt/decrypt user API tokens and PATs at rest |
+| `ToolDependencyGraphPort` | Generate a per-server tool dependency graph at connect time (LLM-backed) |
+| `ToolRouterPort` | Select the primary tools relevant to a chat turn (lightweight LLM) |
+| `PendingWorkflowPort` | Persist cross-turn continuation state for multi-step tool workflows |
 
 ### Key Constraint
 **No hardcoded server whitelist.** JIRA, GitLab, MS Teams, and Red are reference integrations, not compile-time enums. The system prompt may list examples, but the runtime tool set is always driven by the user's registered servers.
@@ -53,6 +56,32 @@ Adding MCP servers is **catalog-first**: extend `mcp-catalog.json` with endpoint
 **OAuth persistence:**
 - `mcp_oauth_states` — short-lived CSRF + PKCE verifier; deleted on callback; TTL index for orphans
 - `mcp_dcr_clients` — DCR client credentials keyed by `(providerKey, redirectUri)` for multi-issuer support
+
+### Progressive Tool Context — Router + LLM-generated Dependency Graphs (June 2026)
+
+To stay accurate and cheap as the catalog grows toward hundreds of tools, the backend no longer sends every active tool to the agent LLM each turn. Three LLM roles are involved (two at chat time):
+
+| When | Role | Input | Output |
+|------|------|-------|--------|
+| MCP connect (once per connection) | Dependency graph builder | That server's discovered tools (name + description + required params) | Per-server dependency map (DAG) |
+| Chat turn start | Tool router | Compact catalog of the user's connected tools (names + descriptions only) | A few primary tool names |
+| Chat agentic loop | Agent (existing) | The scoped tools (router picks + expanded prerequisites) with full schemas | tool_calls or text |
+
+Between the router and the agent, a deterministic expander (no LLM) walks the stored graph to add prerequisite tools in topological order, then caps the set (default 15). Tool execution stays sequential.
+
+**Where dependency graphs live (multi-tenant):** Each graph is stored on the user's own `mcp_connections` document (`toolDependencyGraph` + `dependencyGraphStatus`). It is therefore per-user and per-server: a user without Jira never loads a Jira graph, and a Jira graph can never pull in GitLab tools. Graphs are deleted with the connection. A `toolsFingerprint` (hash of the tool-name set) lets a future re-sync detect a stale graph.
+
+| Component | Responsibility |
+|-----------|---------------|
+| `ToolDependencyGraphPort` / `LlmToolDependencyGraphGenerator` | Generate + validate (DAG, known tools) the graph at connect; never throws — returns `FAILED` on persistent error |
+| `ToolRouterPort` / `LlmToolRouterAdapter` | Cheap text-only LLM call selecting primary tools |
+| `ToolSelectionService` (application) | Orchestrates router + deterministic expander + continuation; caps the set |
+| `PendingWorkflowPort` / `MongoPendingWorkflowAdapter` | Cross-turn continuation state (`pending_workflows`, TTL-indexed) |
+| `ToolDependencyPreflightGuard` | Opt-in generic safety net blocking out-of-order calls using the stored graph |
+
+**Prompts (separate files):** `classpath:llm/tool-dependency-graph-prompt.txt` (connect-time) and `classpath:llm/tool-router-prompt.txt` (chat-time), distinct from `system-prompt.txt`.
+
+**Graceful degradation:** the feature is behind `app.mcp.tool-selection.enabled` (default true). If the router fails or a graph is `FAILED`, selection falls back to sending all tools — chat is never broken.
 
 ## 3. Tool Execution — Sequential Only
 

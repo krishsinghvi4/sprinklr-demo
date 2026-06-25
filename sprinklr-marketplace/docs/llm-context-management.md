@@ -10,13 +10,32 @@ Each user chat turn is an **agentic loop**:
 
 1. Load prior conversation history from MongoDB (turn-scoped window).
 2. Persist the new user message and append it to in-memory history.
-3. Load the user's active MCP tool schemas (whitelist for the `tools` array).
-4. Call the LLM (`complete`) with system prompt + mapped history + tools.
+3. Load the user's active MCP tool schemas, then **scope** them for this turn via the tool router + dependency expander (see "Progressive tool context" below). When the feature is off, all active tools are used (legacy).
+4. Call the LLM (`complete`) with system prompt + mapped history + the scoped `tools` (plus any continuation context).
 5. If the LLM returns tool calls → execute them sequentially → append results to history → call LLM again.
 6. If the LLM returns text → deliver to the user via SSE and persist the assistant reply.
 7. After a successful tool turn, **truncate** raw tool JSON in MongoDB to a stub.
 
 There is **no separate summary LLM pass** in the current orchestrator. The final assistant text after tool execution comes from the same `complete()` loop (iteration ≥ 1). `streamSummary()` still exists on `LlmPort` but is **not called** by `ChatOrchestrator` today.
+
+---
+
+## Progressive tool context (router + dependency expansion + continuation)
+
+When `app.mcp.tool-selection.enabled=true`, the orchestrator does not hand every active tool to the agent LLM. Instead `ChatOrchestrator.resolveTurnToolScope()` calls `ToolSelectionService.selectTools(...)` once per turn:
+
+1. **Router pass (stage 1):** `LlmToolRouterAdapter` runs a cheap, text-only LLM call over a compact catalog (tool names + descriptions only — no schemas) and returns the primary tool names for the turn. On any error it returns an empty list.
+2. **Deterministic expansion (stage 2, no LLM):** for each router pick, the per-server `ToolDependencyGraph` (loaded from the user's `mcp_connections`) contributes the tool's prerequisites in topological order (prerequisites first). Only `READY` graphs are used.
+3. **Continuation:** if a `PendingWorkflowState` exists for the conversation (and shares a server prefix with this turn), prerequisites it already satisfied are skipped and its compact tool-result summaries are returned as `continuationContext`.
+4. **Cap:** the ordered set is trimmed to `app.mcp.tool-selection.max-tools` (default 15) and resolved to full `McpTool` schemas.
+
+The scoped tools become `LlmRequest.tools`, and `continuationContext` is passed via the new `LlmRequest.additionalContext` field. `SprinklrLlmRouterAdapter.complete()` appends that context to the system prompt under a "Continuation context" heading and `McpSkillPromptAssembler` only adds skill guidance for the prefixes actually in scope.
+
+**Continuation persistence:** at the end of any turn that ran tools, `ChatOrchestrator.persistContinuationIfNeeded()` saves the executed tool names + truncated result summaries to `pending_workflows` (TTL `continuation-ttl-hours`). The next turn loads this so a multi-step flow (e.g. Jira create: gather fields on turn 1, create on turn 2) does not re-run metadata tools.
+
+**Fallback:** if the router selects nothing (error or genuinely no relevant tool) the service returns all tools, preserving legacy behavior. Setting `enabled=false` bypasses the whole pipeline.
+
+**Ordering safety net:** `ToolDependencyPreflightGuard` (opt-in via `dependency-preflight-enabled`) blocks a tool call whose graph prerequisites have not run yet this turn, using the tool names the orchestrator tags onto the preflight context (`[tools-called-this-turn: ...]`).
 
 ---
 

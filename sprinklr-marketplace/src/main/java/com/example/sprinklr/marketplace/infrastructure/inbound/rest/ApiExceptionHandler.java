@@ -1,11 +1,11 @@
 package com.example.sprinklr.marketplace.infrastructure.inbound.rest;
 
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MessageResponse;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpCircuitOpenException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpDiscoveryException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpErrorCode;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpOAuthException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpCircuitOpenException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpErrorCode;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpOAuthException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
