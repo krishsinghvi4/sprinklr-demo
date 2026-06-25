@@ -41,15 +41,18 @@ public class LlmToolDependencyGraphGenerator implements ToolDependencyGraphPort 
     private final LlmService llmService;
     private final LlmSystemPromptLoader promptLoader;
     private final ToolDependencyGraphResponseParser responseParser;
+    private final McpSkillPromptLoader skillPromptLoader;
 
     public LlmToolDependencyGraphGenerator(
             LlmService llmService,
             LlmSystemPromptLoader promptLoader,
-            ToolDependencyGraphResponseParser responseParser
+            ToolDependencyGraphResponseParser responseParser,
+            McpSkillPromptLoader skillPromptLoader
     ) {
         this.llmService = llmService;
         this.promptLoader = promptLoader;
         this.responseParser = responseParser;
+        this.skillPromptLoader = skillPromptLoader;
     }
 
     @Override
@@ -65,8 +68,12 @@ public class LlmToolDependencyGraphGenerator implements ToolDependencyGraphPort 
         }
 
         Set<String> validNames = tools.stream().map(McpTool::name).collect(Collectors.toSet());
-        String systemPrompt = promptLoader.getToolDependencyGraphPrompt() + "\n\n## Tools for this server\n"
-                + buildToolCatalog(tools);
+        StringBuilder systemPromptBuilder = new StringBuilder(promptLoader.getToolDependencyGraphPrompt())
+                .append("\n\n## Tools for this server\n")
+                .append(buildToolCatalog(tools));
+        skillPromptLoader.findByServerIdPrefix(serverIdPrefix).ifPresent(skill ->
+                systemPromptBuilder.append("\n\n## Server workflow guidance\n").append(skill));
+        String systemPrompt = systemPromptBuilder.toString();
         List<Message> request = List.of(syntheticUserMessage(
                 "Generate the dependency graph JSON for the tools listed in the system prompt."));
 

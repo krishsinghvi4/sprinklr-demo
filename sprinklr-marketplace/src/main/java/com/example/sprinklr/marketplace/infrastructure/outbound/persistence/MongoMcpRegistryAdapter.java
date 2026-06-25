@@ -10,7 +10,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -146,7 +149,7 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
     public void updateDependencyGraph(String connectionId, ToolDependencyGraph graph) {
         repository.findById(connectionId).ifPresentOrElse(existing -> {
             ToolDependencyGraphDocument graphDocument = new ToolDependencyGraphDocument(
-                    graph.edges(),
+                    toEdgeDocuments(graph.edges()),
                     graph.toolsFingerprint(),
                     graph.generatedAt()
             );
@@ -193,11 +196,33 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
         DependencyGraphStatus status = parseGraphStatus(document.dependencyGraphStatus());
         return Optional.of(new ToolDependencyGraph(
                 document.serverIdPrefix(),
-                graphDocument.edges(),
+                toEdgeMap(graphDocument.edges()),
                 graphDocument.toolsFingerprint(),
                 graphDocument.generatedAt(),
                 status
         ));
+    }
+
+    private List<EdgeDocument> toEdgeDocuments(Map<String, List<String>> edges) {
+        if (edges == null || edges.isEmpty()) {
+            return List.of();
+        }
+        List<EdgeDocument> documents = new ArrayList<>();
+        edges.forEach((tool, prerequisites) -> documents.add(new EdgeDocument(tool, prerequisites)));
+        return documents;
+    }
+
+    private Map<String, List<String>> toEdgeMap(List<EdgeDocument> edges) {
+        if (edges == null || edges.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, List<String>> map = new LinkedHashMap<>();
+        for (EdgeDocument edge : edges) {
+            if (edge.tool() != null && !edge.tool().isBlank()) {
+                map.put(edge.tool(), edge.prerequisites() == null ? List.of() : edge.prerequisites());
+            }
+        }
+        return map;
     }
 
     private DependencyGraphStatus parseGraphStatus(String status) {

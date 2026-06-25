@@ -33,7 +33,7 @@
   - ✅ **ChatOrchestrator agentic loop** — sequential tool execution (`concatMap`), iteration + tool-call limits
   - ✅ **Turn-based LLM context** — last N user prompts (`app.chat.history-turn-limit`); prior turns conversational, current turn full agentic; TOOL JSON truncated after summary
   - ✅ **User tool schemas loaded into LLM** — from active MCP connections per user
-  - ✅ **Progressive tool context** — lightweight LLM router selects relevant tools, a deterministic expander adds prerequisites from an LLM-generated per-server dependency graph (stored on `mcp_connections`), agent LLM receives only the capped scoped set; cross-turn continuation via `pending_workflows` (`app.mcp.tool-selection.*`)
+  - ✅ **Progressive tool context** — lightweight LLM router selects relevant tools (or zero for conversational prompts), deterministic expander adds prerequisites from LLM-generated per-server dependency graphs (list-based edges on `mcp_connections`), agent LLM receives only the capped scoped set; cross-turn continuation only for incomplete workflows via `pending_workflows` (`app.mcp.tool-selection.*`)
   - ✅ **SprinklrLlmRouterAdapter.streamSummary()** — wired via LlmService
   - ✅ **Profile + Marketplace UI** — `/profile` page with OAuth redirect + credential modal connect flows
 * **In Progress / Next Up:**
@@ -86,7 +86,7 @@ Adding a new MCP server must be a **configuration + credentials** operation, not
 | **Conversations** | Metadata, user ownership, session state |
 | **Messages** | AI memory (USER, ASSISTANT, TOOL roles). Raw TOOL JSON truncated to a stub after LLM summarization (`truncateToolResults`). |
 | **McpConnections** | Per-user MCP server registry (`mcp_connections`): catalog server ID, encrypted credentials, MCP session ID, discovered tool schemas, status, and the LLM-generated `toolDependencyGraph` + `dependencyGraphStatus` for that server |
-| **pending_workflows** | Cross-turn tool-workflow continuation state keyed by conversation (satisfied tools + result summaries); TTL-indexed on `expiresAt` |
+| **pending_workflows** | Cross-turn tool-workflow continuation for **incomplete** multi-step flows (`awaitingGoalTools`, satisfied tools, summaries); TTL-indexed on `expiresAt` |
 | **mcp_oauth_states** | Ephemeral OAuth CSRF/PKCE state (`state`, `userId`, `catalogServerId`, `providerKey`, `codeVerifier`); TTL auto-expires; deleted on callback |
 | **mcp_dcr_clients** | Dynamic OAuth client registrations (`providerKey`, `redirectUri`, `clientId`, `clientSecret`) scoped per OAuth issuer |
 
@@ -202,6 +202,7 @@ app.mcp.tool-selection.router-max-primary-tools=8   # soft cap on router picks
 app.mcp.tool-selection.router-history-turns=2       # recent turns given to the router
 app.mcp.tool-selection.generate-graph-on-connect=true
 app.mcp.tool-selection.dependency-preflight-enabled=false  # opt-in strict ordering gate
+app.mcp.tool-selection.dependency-preflight-enabled=true   # runtime ordering safety net (default on)
 app.mcp.tool-selection.continuation-ttl-hours=24
 ```
 

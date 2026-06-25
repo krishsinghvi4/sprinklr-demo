@@ -3,6 +3,8 @@ package com.example.sprinklr.marketplace.infrastructure.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.List;
+
 /**
  * MCP configuration values used for discovery, OAuth, and agentic limits.
  */
@@ -49,8 +51,17 @@ public class McpProperties {
         /** When true, generate the dependency graph via the LLM at connect time. */
         private boolean generateGraphOnConnect = true;
         /** When true, the generic dependency preflight guard can block out-of-order tool calls (opt-in safety net). */
-        private boolean dependencyPreflightEnabled = false;
+        private boolean dependencyPreflightEnabled = true;
         /** TTL (hours) for cross-turn continuation state. */
         private int continuationTtlHours = 24;
+        /**
+         * Tools that must never be treated as "satisfied" across turns — they are re-expanded every turn
+         * (e.g. cloudId discovery and Jira create metadata per jira.txt).
+         */
+        private List<String> continuationNeverSatisfyTools = List.of(
+                "jira.getAccessibleAtlassianResources",
+                "jira.getJiraProjectIssueTypesMetadata",
+                "jira.getJiraIssueTypeMetaWithFields"
+        );
     }
 }

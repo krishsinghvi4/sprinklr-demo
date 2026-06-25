@@ -16,6 +16,7 @@ public record PendingWorkflowDocument(
         @Id String conversationId,
         String userId,
         List<String> serverPrefixes,
+        List<String> awaitingGoalTools,
         List<String> satisfiedToolNames,
         List<String> toolResultSummaries,
         @Indexed(expireAfter = "0s") Instant expiresAt

@@ -24,18 +24,18 @@ There is **no separate summary LLM pass** in the current orchestrator. The final
 
 When `app.mcp.tool-selection.enabled=true`, the orchestrator does not hand every active tool to the agent LLM. Instead `ChatOrchestrator.resolveTurnToolScope()` calls `ToolSelectionService.selectTools(...)` once per turn:
 
-1. **Router pass (stage 1):** `LlmToolRouterAdapter` runs a cheap, text-only LLM call over a compact catalog (tool names + descriptions only — no schemas) and returns the primary tool names for the turn. On any error it returns an empty list.
-2. **Deterministic expansion (stage 2, no LLM):** for each router pick, the per-server `ToolDependencyGraph` (loaded from the user's `mcp_connections`) contributes the tool's prerequisites in topological order (prerequisites first). Only `READY` graphs are used.
-3. **Continuation:** if a `PendingWorkflowState` exists for the conversation (and shares a server prefix with this turn), prerequisites it already satisfied are skipped and its compact tool-result summaries are returned as `continuationContext`.
+1. **Router pass (stage 1):** `LlmToolRouterAdapter` runs a cheap, text-only LLM call over a compact catalog (tool names + descriptions only — no schemas) and returns a `ToolRouterResult` with an explicit outcome: `NO_TOOLS_NEEDED` (conversational turn → zero tools), `TOOLS_SELECTED`, or `FAILED` (fall back to all tools).
+2. **Deterministic expansion (stage 2, no LLM):** for each router pick, the per-server `ToolDependencyGraph` (loaded from the user's `mcp_connections`) contributes the tool's prerequisites in topological order (prerequisites first). Only `READY` graphs are used. Graph edges are stored as a list of `{tool, prerequisites}` documents (not map keys) so dotted tool names like `gitlab.list_pipelines` persist correctly in MongoDB.
+3. **Continuation:** if a `PendingWorkflowState` exists for the conversation **and** the current turn's router primary tools overlap its `awaitingGoalTools`, non-rerunnable context is injected as `continuationContext`. Tools on `continuation-never-satisfy-tools` (e.g. Jira cloudId/metadata) are always re-expanded each turn.
 4. **Cap:** the ordered set is trimmed to `app.mcp.tool-selection.max-tools` (default 15) and resolved to full `McpTool` schemas.
 
 The scoped tools become `LlmRequest.tools`, and `continuationContext` is passed via the new `LlmRequest.additionalContext` field. `SprinklrLlmRouterAdapter.complete()` appends that context to the system prompt under a "Continuation context" heading and `McpSkillPromptAssembler` only adds skill guidance for the prefixes actually in scope.
 
-**Continuation persistence:** at the end of any turn that ran tools, `ChatOrchestrator.persistContinuationIfNeeded()` saves the executed tool names + truncated result summaries to `pending_workflows` (TTL `continuation-ttl-hours`). The next turn loads this so a multi-step flow (e.g. Jira create: gather fields on turn 1, create on turn 2) does not re-run metadata tools.
+**Continuation persistence:** continuation is saved only when a turn ends after tools with **unexecuted goal tools** still pending (e.g. Jira create: metadata gathered, user prompted for fields). Completed turns (e.g. search delivered results) **delete** stale continuation. Stale state is also deleted when the next turn's router picks do not overlap `awaitingGoalTools`.
 
-**Fallback:** if the router selects nothing (error or genuinely no relevant tool) the service returns all tools, preserving legacy behavior. Setting `enabled=false` bypasses the whole pipeline.
+**Fallback:** if the router **fails** (LLM/parse error), the service returns all tools. If the router succeeds with **no tools needed** (e.g. "hi"), zero tools are sent (`tool_choice: none`). Setting `enabled=false` bypasses the whole pipeline.
 
-**Ordering safety net:** `ToolDependencyPreflightGuard` (opt-in via `dependency-preflight-enabled`) blocks a tool call whose graph prerequisites have not run yet this turn, using the tool names the orchestrator tags onto the preflight context (`[tools-called-this-turn: ...]`).
+**Ordering safety net:** `ToolDependencyPreflightGuard` (default on via `dependency-preflight-enabled`) blocks a tool call whose graph prerequisites have not run yet this turn, using the tool names the orchestrator tags onto the preflight context (`[tools-called-this-turn: ...]`).
 
 ---
 
