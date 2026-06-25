@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpInvocationException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthToken;
@@ -122,7 +122,9 @@ public class McpOAuthTokenRefreshService {
                 connection.status(),
                 connection.tools(),
                 connection.connectedAt(),
-                connection.lastError()
+                connection.lastError(),
+                connection.toolDependencyGraph(),
+                connection.dependencyGraphStatus()
         );
         connectionRepository.save(updatedDocument);
     }

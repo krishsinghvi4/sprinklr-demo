@@ -9,6 +9,8 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.At
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.GitLabPrivateTokenAuthStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,6 +58,8 @@ class HttpMcpClientAdapterSessionRecoveryTest {
                 "CONNECTED",
                 List.of(),
                 Instant.now(),
+                null,
+                null,
                 null
         );
 
@@ -126,6 +130,8 @@ class HttpMcpClientAdapterSessionRecoveryTest {
                 "CONNECTED",
                 List.of(),
                 Instant.now(),
+                null,
+                null,
                 null
         );
 
@@ -210,6 +216,8 @@ class HttpMcpClientAdapterSessionRecoveryTest {
                 "CONNECTED",
                 List.of(),
                 Instant.now(),
+                null,
+                null,
                 null
         );
 

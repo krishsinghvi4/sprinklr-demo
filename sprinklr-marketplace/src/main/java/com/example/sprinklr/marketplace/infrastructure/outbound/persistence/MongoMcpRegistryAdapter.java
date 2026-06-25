@@ -1,9 +1,13 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
+import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
 import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
+import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -15,6 +19,8 @@ import java.util.Optional;
  */
 @Component
 public class MongoMcpRegistryAdapter implements McpRegistryPort {
+
+    private static final Logger log = LoggerFactory.getLogger(MongoMcpRegistryAdapter.class);
 
     private final McpConnectionRepository repository;
 
@@ -28,15 +34,23 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
     @Override
     public McpUserConnection saveConnection(McpUserConnection connection, String encryptedCredentials, String serverIdPrefix) {
         String resolvedCredentials = encryptedCredentials;
-        if (resolvedCredentials == null && connection.id() != null) {
-            resolvedCredentials = repository.findById(connection.id())
-                    .map(McpConnectionDocument::encryptedCredentials)
-                    .orElse(null);
+        Optional<McpConnectionDocument> existing =
+                connection.id() != null ? repository.findById(connection.id()) : Optional.empty();
+        if (resolvedCredentials == null) {
+            resolvedCredentials = existing.map(McpConnectionDocument::encryptedCredentials).orElse(null);
         }
 
         String resolvedPrefix = serverIdPrefix != null && !serverIdPrefix.isBlank()
                 ? serverIdPrefix
                 : resolveServerIdPrefix(connection);
+
+        // Preserve any previously generated graph when re-saving the same connection id; a brand-new
+        // connection starts PENDING and gets its graph filled in by updateDependencyGraph() at connect.
+        ToolDependencyGraphDocument graphDocument =
+                existing.map(McpConnectionDocument::toolDependencyGraph).orElse(null);
+        String graphStatus = existing
+                .map(McpConnectionDocument::dependencyGraphStatus)
+                .orElse(DependencyGraphStatus.PENDING.name());
 
         McpConnectionDocument document = new McpConnectionDocument(
                 connection.id(),
@@ -49,7 +63,9 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
                 connection.status().name(),
                 toToolDocuments(connection.tools()),
                 connection.connectedAt(),
-                connection.lastError()
+                connection.lastError(),
+                graphDocument,
+                graphStatus
         );
 
         McpConnectionDocument saved = repository.save(document);
@@ -92,7 +108,9 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
                     existing.status(),
                     existing.tools(),
                     existing.connectedAt(),
-                    existing.lastError()
+                    existing.lastError(),
+                    existing.toolDependencyGraph(),
+                    existing.dependencyGraphStatus()
             );
             repository.save(updated);
         });
@@ -122,6 +140,76 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
 
     public Optional<McpConnectionDocument> findDocumentByIdAndUserId(String connectionId, String userId) {
         return repository.findByIdAndUserId(connectionId, userId);
+    }
+
+    @Override
+    public void updateDependencyGraph(String connectionId, ToolDependencyGraph graph) {
+        repository.findById(connectionId).ifPresentOrElse(existing -> {
+            ToolDependencyGraphDocument graphDocument = new ToolDependencyGraphDocument(
+                    graph.edges(),
+                    graph.toolsFingerprint(),
+                    graph.generatedAt()
+            );
+            McpConnectionDocument updated = new McpConnectionDocument(
+                    existing.id(),
+                    existing.userId(),
+                    existing.catalogServerId(),
+                    existing.serverIdPrefix(),
+                    existing.encryptedCredentials(),
+                    existing.mcpSessionId(),
+                    existing.mcpProtocolVersion(),
+                    existing.status(),
+                    existing.tools(),
+                    existing.connectedAt(),
+                    existing.lastError(),
+                    graphDocument,
+                    graph.status().name()
+            );
+            repository.save(updated);
+            log.info("[McpRegistry] Stored dependency graph connectionId={} prefix={} status={} edges={}",
+                    connectionId, graph.serverIdPrefix(), graph.status(), graph.edges().size());
+        }, () -> log.warn("[McpRegistry] updateDependencyGraph skipped — connectionId={} not found", connectionId));
+    }
+
+    @Override
+    public List<ToolDependencyGraph> findActiveDependencyGraphsForUser(String userId) {
+        return repository.findByUserId(userId).stream()
+                .filter(doc -> McpConnectionStatus.CONNECTED.name().equals(doc.status()))
+                .map(this::toDependencyGraph)
+                .flatMap(Optional::stream)
+                .toList();
+    }
+
+    @Override
+    public Optional<ToolDependencyGraph> findDependencyGraphByConnectionId(String connectionId) {
+        return repository.findById(connectionId).flatMap(this::toDependencyGraph);
+    }
+
+    private Optional<ToolDependencyGraph> toDependencyGraph(McpConnectionDocument document) {
+        ToolDependencyGraphDocument graphDocument = document.toolDependencyGraph();
+        if (graphDocument == null) {
+            return Optional.empty();
+        }
+        DependencyGraphStatus status = parseGraphStatus(document.dependencyGraphStatus());
+        return Optional.of(new ToolDependencyGraph(
+                document.serverIdPrefix(),
+                graphDocument.edges(),
+                graphDocument.toolsFingerprint(),
+                graphDocument.generatedAt(),
+                status
+        ));
+    }
+
+    private DependencyGraphStatus parseGraphStatus(String status) {
+        if (status == null || status.isBlank()) {
+            return DependencyGraphStatus.PENDING;
+        }
+        try {
+            return DependencyGraphStatus.valueOf(status);
+        } catch (IllegalArgumentException ex) {
+            log.warn("[McpRegistry] Unknown dependencyGraphStatus '{}' — treating as FAILED", status);
+            return DependencyGraphStatus.FAILED;
+        }
     }
 
     private String resolveServerIdPrefix(McpUserConnection connection) {

@@ -34,6 +34,10 @@ public class LlmProperties {
     private int connectTimeoutMs = 30000;
     private int readTimeoutMs = 120000;
     private String systemPromptPath = "classpath:llm/system-prompt.txt";
+    /** Prompt for the chat-time tool router (stage 1 tool selection). */
+    private String toolRouterPromptPath = "classpath:llm/tool-router-prompt.txt";
+    /** Prompt for connect-time LLM dependency-graph generation. */
+    private String toolDependencyGraphPromptPath = "classpath:llm/tool-dependency-graph-prompt.txt";
 
     @Getter
     @Setter

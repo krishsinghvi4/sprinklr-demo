@@ -1,4 +1,4 @@
-package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
+package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions;
 
 public class McpDiscoveryException extends RuntimeException {
 

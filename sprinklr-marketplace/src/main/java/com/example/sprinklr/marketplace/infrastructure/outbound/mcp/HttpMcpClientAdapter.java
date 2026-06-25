@@ -10,6 +10,9 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuth
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRefreshService;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -129,6 +132,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
     /**
      * Resolves auth/session, calls the MCP server, and normalizes any tool errors.
      */
+    //refactor for abstraction
     private McpInvocationResult executeToolCall(McpInvocation invocation, McpConnectionDocument connection) {
         var catalogEntry = catalogLoader.findById(connection.catalogServerId())
                 .orElseThrow(() -> new McpInvocationException(
@@ -367,7 +371,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 connection.status(),
                 connection.tools(),
                 connection.connectedAt(),
-                connection.lastError()
+                connection.lastError(),
+                connection.toolDependencyGraph(),
+                connection.dependencyGraphStatus()
         );
         connectionRepository.save(updated);
         return session;
@@ -397,7 +403,9 @@ public class HttpMcpClientAdapter implements McpServerPort {
                     connection.status(),
                     connection.tools(),
                     connection.connectedAt(),
-                    connection.lastError()
+                    connection.lastError(),
+                    connection.toolDependencyGraph(),
+                    connection.dependencyGraphStatus()
             );
             connectionRepository.save(updated);
             return session;

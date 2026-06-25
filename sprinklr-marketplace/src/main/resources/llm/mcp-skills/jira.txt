@@ -30,7 +30,10 @@ Do NOT call `editJiraIssue` without calling `getAccessibleAtlassianResources` in
 
 ### Creating Jira issues
 
-When the user says something like "create a story in ITOPS", follow this 4-phase flow every time.
+When the user says something like "create a story in ITOPS",never ever give a text only response , follow this 4-phase flow every time.
+
+**CRITICAL — metadata before create (no exceptions):**
+`createJiraIssue` is **FORBIDDEN** unless `getJiraProjectIssueTypesMetadata` and `getJiraIssueTypeMetaWithFields` have both been called **in the same turn** immediately before it. This applies to **every** create — first request, follow-up with field values, "create another", retries after errors. **Never** go from `getAccessibleAtlassianResources` directly to `createJiraIssue`. **Never** reuse field IDs, `additionalFieldsKey` values, or `requiredUserInput` from a prior turn or from conversation memory — metadata from an earlier turn is stale and must not be used.
 
 **Phase 1 — Parse intent:** Extract the project key (e.g. ITOPS) and requested issue type (e.g. Story) from the user's message.
 
@@ -48,16 +51,20 @@ When the user says something like "create a story in ITOPS", follow this 4-phase
 4. Do NOT call `createJiraIssue` yet
 
 **Phase 4 — Create (after user provides values):**
-1. Include every `requiredUserInput` field in the `createJiraIssue` arguments (user must have named or chosen each value)
-2. Optional: `lookupJiraAccountId` when the user named an assignee
-3. `createJiraIssue`
+When the user replies with field values (e.g. summary, components, environment), you **MUST** still run the full metadata chain in this turn before creating:
+1. `getAccessibleAtlassianResources`
+2. `getJiraProjectIssueTypesMetadata` for the project
+3. `getJiraIssueTypeMetaWithFields` for the confirmed project + issue type
+4. Map the user's values to field keys using **only** the fresh metadata from step 3 (`additionalFieldsKey`, `placement`, `valueShape`)
+5. Optional: `lookupJiraAccountId` when the user named an assignee
+6. `createJiraIssue`
+
+**Do NOT skip steps 2–3 in Phase 4.** Even if you already fetched metadata in a previous turn, or the user only sent three words like `"test", API, dev`, you **must** call `getJiraProjectIssueTypesMetadata` and `getJiraIssueTypeMetaWithFields` again in this turn before `createJiraIssue`. There is no shortcut.
 
 **First response for create intents (e.g. "create a story in ITOPS"):**
 Run Phases 1–3 immediately (tools only, no generic questions). Do NOT ask about summary or description before fetching metadata — only ask for fields that appear in `requiredUserInput`.
 
 **Issue type change = fresh workflow:** If the user switches issue type (Story → Bug, etc.), re-run Phases 2–3 for the new type. Never reuse `requiredUserInput`, field IDs, or allowed options from a different issue type.
-
-**Always fetch metadata before every create** — including follow-ups like "create another with the same details". Field IDs and required fields come only from the latest `getJiraIssueTypeMetaWithFields` result for the specific project + issue type.
 
 **`createJiraIssue` argument shape:**
 - Top-level: `cloudId`, `projectKey`, `issueTypeName`, `summary`, `assignee_account_id` (if assigning), and `description` (when the user provides one)
@@ -67,4 +74,4 @@ Run Phases 1–3 immediately (tools only, no generic questions). Do NOT ask abou
 
 **Field values:** If the user did not explicitly name a required field value, respond with text only — list allowed options from metadata and ask them to choose. Never pick an option on your own.
 
-**Create efficiency:** When the user already names a project key, skip `getVisibleJiraProjects`.
+**Create efficiency:** When the user already names a project key, skip `getVisibleJiraProjects`. Do **not** skip `getJiraProjectIssueTypesMetadata` or `getJiraIssueTypeMetaWithFields` — they are mandatory before every `createJiraIssue`.

@@ -4,11 +4,14 @@ import com.example.sprinklr.marketplace.application.service.McpMarketplaceServic
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
+import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpDiscoveryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpConnectionException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpDiscoveryException;
+import com.example.sprinklr.marketplace.domain.port.outbound.ToolDependencyGraphPort;
+import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect.CompositeMcpConnectValidationAdapter;
 import org.slf4j.Logger;
@@ -35,6 +38,8 @@ public class McpConnectionOrchestrator {
     private final CredentialVaultPort credentialVault;
     private final McpProviderResolver providerResolver;
     private final CompositeMcpConnectValidationAdapter connectValidationAdapter;
+    private final ToolDependencyGraphPort toolDependencyGraphPort;
+    private final McpProperties mcpProperties;
 
     public McpConnectionOrchestrator(
             McpCatalogLoader catalogLoader,
@@ -42,7 +47,9 @@ public class McpConnectionOrchestrator {
             McpDiscoveryPort discoveryPort,
             CredentialVaultPort credentialVault,
             McpProviderResolver providerResolver,
-            CompositeMcpConnectValidationAdapter connectValidationAdapter
+            CompositeMcpConnectValidationAdapter connectValidationAdapter,
+            ToolDependencyGraphPort toolDependencyGraphPort,
+            McpProperties mcpProperties
     ) {
         this.catalogLoader = catalogLoader;
         this.registryPort = registryPort;
@@ -50,6 +57,8 @@ public class McpConnectionOrchestrator {
         this.credentialVault = credentialVault;
         this.providerResolver = providerResolver;
         this.connectValidationAdapter = connectValidationAdapter;
+        this.toolDependencyGraphPort = toolDependencyGraphPort;
+        this.mcpProperties = mcpProperties;
     }
 
     public McpMarketplaceService.ConnectionView connectWithCredentials(
@@ -122,7 +131,30 @@ public class McpConnectionOrchestrator {
         log.info("[MCP] Connected userId={} connectionId={} toolCount={}",
                 userId, connectionId, saved.tools().size());
 
+        generateAndStoreDependencyGraph(saved, catalogEntry);
+
         return toConnectionView(saved, catalogEntry);
+    }
+
+    /**
+     * Generates the per-server tool dependency graph once at connect time and persists it on the
+     * connection. Failures never break connect: the graph generator returns a FAILED graph and chat
+     * degrades to router-only tool selection for this server.
+     */
+    private void generateAndStoreDependencyGraph(McpUserConnection saved, McpCatalogEntry catalogEntry) {
+        if (!mcpProperties.getToolSelection().isGenerateGraphOnConnect()) {
+            log.info("[MCP] Dependency-graph generation disabled — skipping for connectionId={}", saved.id());
+            return;
+        }
+        try {
+            ToolDependencyGraph graph = toolDependencyGraphPort.generate(
+                    catalogEntry.serverIdPrefix(), saved.tools());
+            registryPort.updateDependencyGraph(saved.id(), graph);
+        } catch (Exception exception) {
+            // Defensive: generate() should not throw, but a storage hiccup must not fail connect.
+            log.warn("[MCP] Dependency-graph generation/storage failed connectionId={}: {}",
+                    saved.id(), exception.getMessage());
+        }
     }
 
     private McpMarketplaceService.ConnectionView toConnectionView(

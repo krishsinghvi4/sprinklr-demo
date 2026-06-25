@@ -48,6 +48,10 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
     public LlmResponse complete(LlmRequest request) {
         boolean fullToolHistoryForCurrentTurn = !request.tools().isEmpty();
         String systemPrompt = skillPromptAssembler.assemble(request.tools());
+        if (request.additionalContext() != null && !request.additionalContext().isBlank()) {
+            // Continuation context: prior-turn tool results reused so the agent need not re-fetch them.
+            systemPrompt = systemPrompt + "\n\n## Continuation context\n" + request.additionalContext();
+        }
 
         LlmCompletionResult result = llmService.complete(new LlmCompletionCommand(
                 request.history(),

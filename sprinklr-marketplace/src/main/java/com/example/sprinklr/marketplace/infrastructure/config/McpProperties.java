@@ -28,4 +28,29 @@ public class McpProperties {
     private String gitlabMcpEndpointUrl = "http://127.0.0.1:3333/mcp";
     /** GitLab MCP auth header mode: private-token (default) or bearer. */
     private String gitlabAuthHeaderMode = "private-token";
+
+    /** Progressive tool-context (router + dependency-graph expansion) settings. */
+    private ToolSelection toolSelection = new ToolSelection();
+
+    /**
+     * Tunables for the two-stage tool selection pipeline. All values are configurable via
+     * {@code app.mcp.tool-selection.*} in application.properties.
+     */
+    @Data
+    public static class ToolSelection {
+        /** Master switch. When false, the orchestrator sends every active tool to the LLM (legacy behavior). */
+        private boolean enabled = true;
+        /** Hard cap on the number of full-schema tools handed to the agent LLM per turn. */
+        private int maxTools = 15;
+        /** Soft cap on how many primary tools the lightweight router is asked to pick. */
+        private int routerMaxPrimaryTools = 8;
+        /** Recent conversation turns passed to the router for context. */
+        private int routerHistoryTurns = 2;
+        /** When true, generate the dependency graph via the LLM at connect time. */
+        private boolean generateGraphOnConnect = true;
+        /** When true, the generic dependency preflight guard can block out-of-order tool calls (opt-in safety net). */
+        private boolean dependencyPreflightEnabled = false;
+        /** TTL (hours) for cross-turn continuation state. */
+        private int continuationTtlHours = 24;
+    }
 }

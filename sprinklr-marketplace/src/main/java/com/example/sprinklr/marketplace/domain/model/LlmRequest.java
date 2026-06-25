@@ -9,15 +9,28 @@ public record LlmRequest(
         List<McpTool> tools,
         String currentTurnUserMessageId,
         String userId,
-        String conversationId
+        String conversationId,
+        // Optional extra system context for this turn (e.g. continuation summaries reused across turns).
+        String additionalContext
 ) {
 
     public LlmRequest(String prompt, List<Message> history, List<McpTool> tools) {
-        this(prompt, history, tools, null, null, null);
+        this(prompt, history, tools, null, null, null, null);
     }
 
     public LlmRequest(String prompt, List<Message> history, List<McpTool> tools, String currentTurnUserMessageId) {
-        this(prompt, history, tools, currentTurnUserMessageId, null, null);
+        this(prompt, history, tools, currentTurnUserMessageId, null, null, null);
+    }
+
+    public LlmRequest(
+            String prompt,
+            List<Message> history,
+            List<McpTool> tools,
+            String currentTurnUserMessageId,
+            String userId,
+            String conversationId
+    ) {
+        this(prompt, history, tools, currentTurnUserMessageId, userId, conversationId, null);
     }
 
     public LlmRequest {

@@ -60,6 +60,8 @@ class HttpMcpClientAdapterTest {
                 "CONNECTED",
                 List.of(),
                 Instant.now(),
+                null,
+                null,
                 null
         );
 

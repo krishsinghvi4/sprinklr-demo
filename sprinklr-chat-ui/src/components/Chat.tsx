@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Send, Bot, User, Loader } from 'lucide-react'
+import { Send, Bot, User, Loader, Square } from 'lucide-react'
 import AssistantMessageContent from './AssistantMessageContent'
 import { Message, ChatRequest } from '../types/chat'
 import { streamChat, fetchChatHistory } from '../services/chatService'
@@ -18,6 +18,7 @@ export default function Chat({ userId, conversationId }: ChatProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   // Load chat history when conversation ID changes
   useEffect(() => {
@@ -78,6 +79,10 @@ export default function Chat({ userId, conversationId }: ChatProps) {
       prompt: promptText,
     }
 
+    abortControllerRef.current?.abort()
+    const abortController = new AbortController()
+    abortControllerRef.current = abortController
+
     let chunkCount = 0
     try {
       await streamChat(
@@ -97,20 +102,32 @@ export default function Chat({ userId, conversationId }: ChatProps) {
           scrollToBottom()
         },
         (error) => {
+          if (abortController.signal.aborted) return
           console.error('Chat error:', error)
           setError('Failed to get response. Please try again.')
           setIsLoading(false)
         },
         () => {
+          if (abortControllerRef.current === abortController) {
+            abortControllerRef.current = null
+          }
           console.log(`[Chat] Stream complete. Total chunks received: ${chunkCount}`)
           setIsLoading(false)
         },
+        abortController.signal,
       )
     } catch (err) {
+      if (abortController.signal.aborted) return
       console.error('Unexpected error:', err)
       setError('An unexpected error occurred')
       setIsLoading(false)
     }
+  }
+
+  const handleStopResponse = () => {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
+    setIsLoading(false)
   }
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -256,16 +273,23 @@ export default function Chat({ userId, conversationId }: ChatProps) {
               rows={1}
               className="flex-1 resize-none rounded-lg border border-gray-300 px-4 py-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100 disabled:cursor-not-allowed"
             />
+            {isLoading && (
+              <button
+                type="button"
+                onClick={handleStopResponse}
+                title="Stop response"
+                aria-label="Stop response"
+                className="bg-gray-200 text-gray-700 rounded-lg px-3 py-3 hover:bg-gray-300 transition-colors flex items-center justify-center h-fit"
+              >
+                <Square className="w-4 h-4 fill-current" />
+              </button>
+            )}
             <button
               type="submit"
               disabled={isLoading || !input.trim()}
               className="bg-blue-600 text-white rounded-lg px-4 py-3 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2 h-fit"
             >
-              {isLoading ? (
-                <Loader className="w-5 h-5 animate-spin" />
-              ) : (
-                <Send className="w-5 h-5" />
-              )}
+              <Send className="w-5 h-5" />
               <span className="hidden sm:inline">Send</span>
             </button>
           </form>
