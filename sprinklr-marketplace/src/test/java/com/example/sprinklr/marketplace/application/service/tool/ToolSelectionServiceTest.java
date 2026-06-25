@@ -4,7 +4,9 @@ import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.PendingWorkflowState;
+import com.example.sprinklr.marketplace.domain.model.RouterOutcome;
 import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
@@ -30,18 +32,18 @@ class ToolSelectionServiceTest {
     private final McpProperties properties = new McpProperties();
     private final ToolSelectionService service = new ToolSelectionService(router, properties);
 
-    private final McpTool getResources = tool("jira.getAccessibleResources");
-    private final McpTool getMeta = tool("jira.getMeta");
+    private final McpTool getResources = tool("jira.getAccessibleAtlassianResources");
+    private final McpTool getMeta = tool("jira.getJiraProjectIssueTypesMetadata");
     private final McpTool createIssue = tool("jira.createJiraIssue");
-    private final McpTool searchIssues = tool("jira.searchIssues");
+    private final McpTool searchIssues = tool("jira.searchJiraIssuesUsingJql");
     private final List<McpTool> allTools = List.of(getResources, getMeta, createIssue, searchIssues);
 
-    // createIssue -> getMeta -> getResources  (transitive chain)
     private final ToolDependencyGraph jiraGraph = new ToolDependencyGraph(
             "jira",
             Map.of(
-                    "jira.createJiraIssue", List.of("jira.getMeta"),
-                    "jira.getMeta", List.of("jira.getAccessibleResources")
+                    "jira.createJiraIssue", List.of("jira.getJiraProjectIssueTypesMetadata"),
+                    "jira.getJiraProjectIssueTypesMetadata", List.of("jira.getAccessibleAtlassianResources"),
+                    "jira.searchJiraIssuesUsingJql", List.of("jira.getAccessibleAtlassianResources")
             ),
             "fp",
             Instant.now(),
@@ -50,21 +52,37 @@ class ToolSelectionServiceTest {
 
     @Test
     void expandsPrerequisitesBeforeTheSelectedTool() {
-        when(router.selectToolNames(any(), anyList(), anyList(), anyInt()))
-                .thenReturn(List.of("jira.createJiraIssue"));
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
 
         ToolSelectionResult result = service.selectTools(
                 "create a story in ITOPS", List.of(), allTools, List.of(jiraGraph), Optional.empty());
 
         assertEquals(
-                List.of("jira.getAccessibleResources", "jira.getMeta", "jira.createJiraIssue"),
+                List.of(
+                        "jira.getAccessibleAtlassianResources",
+                        "jira.getJiraProjectIssueTypesMetadata",
+                        "jira.createJiraIssue"),
                 names(result));
         assertEquals(List.of("jira"), result.activeServerPrefixes());
     }
 
     @Test
-    void fallsBackToAllToolsWhenRouterSelectsNothing() {
-        when(router.selectToolNames(any(), anyList(), anyList(), anyInt())).thenReturn(List.of());
+    void sendsZeroToolsForConversationalPromptWhenRouterFindsNothing() {
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.noToolsNeeded());
+
+        ToolSelectionResult result = service.selectTools(
+                "hello there", List.of(), allTools, List.of(jiraGraph), Optional.empty());
+
+        assertEquals(0, result.scopedTools().size());
+        assertFalse(result.hasContinuationContext());
+    }
+
+    @Test
+    void fallsBackToAllToolsWhenRouterFails() {
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.failed());
 
         ToolSelectionResult result = service.selectTools(
                 "hello there", List.of(), allTools, List.of(jiraGraph), Optional.empty());
@@ -75,43 +93,73 @@ class ToolSelectionServiceTest {
     @Test
     void capsScopedToolsToConfiguredMax() {
         properties.getToolSelection().setMaxTools(2);
-        when(router.selectToolNames(any(), anyList(), anyList(), anyInt()))
-                .thenReturn(List.of("jira.createJiraIssue"));
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
 
         ToolSelectionResult result = service.selectTools(
                 "create", List.of(), allTools, List.of(jiraGraph), Optional.empty());
 
-        // Prerequisites are kept first when trimming to the cap.
-        assertEquals(List.of("jira.getAccessibleResources", "jira.getMeta"), names(result));
+        assertEquals(
+                List.of("jira.getAccessibleAtlassianResources", "jira.getJiraProjectIssueTypesMetadata"),
+                names(result));
     }
 
     @Test
-    void continuationSkipsSatisfiedPrerequisitesAndInjectsContext() {
-        when(router.selectToolNames(any(), anyList(), anyList(), anyInt()))
-                .thenReturn(List.of("jira.createJiraIssue"));
+    void continuationSkipsNonRerunnablePrerequisitesAndInjectsContext() {
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
         PendingWorkflowState continuation = new PendingWorkflowState(
                 "conv-1",
                 "user-1",
                 List.of("jira"),
-                List.of("jira.getAccessibleResources", "jira.getMeta"),
-                List.of("jira.getMeta -> {issueTypes:[Story]}"),
+                List.of("jira.createJiraIssue"),
+                List.of("jira.getJiraProjectIssueTypesMetadata"),
+                List.of("jira.getJiraProjectIssueTypesMetadata -> {issueTypes:[Story]}"),
                 Instant.now().plusSeconds(3600)
         );
 
         ToolSelectionResult result = service.selectTools(
                 "summary: fix login", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation));
 
-        assertEquals(List.of("jira.createJiraIssue"), names(result));
+        assertEquals(
+                List.of(
+                        "jira.getAccessibleAtlassianResources",
+                        "jira.getJiraProjectIssueTypesMetadata",
+                        "jira.createJiraIssue"),
+                names(result));
         assertTrue(result.hasContinuationContext());
-        assertTrue(result.continuationContext().contains("jira.getMeta"));
+    }
+
+    @Test
+    void ignoresContinuationWhenAwaitingGoalsDoNotMatchCurrentPrimary() {
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.selected(List.of("jira.searchJiraIssuesUsingJql")));
+        PendingWorkflowState createContinuation = new PendingWorkflowState(
+                "conv-1",
+                "user-1",
+                List.of("jira"),
+                List.of("jira.createJiraIssue"),
+                List.of("jira.getAccessibleAtlassianResources"),
+                List.of("jira.getAccessibleAtlassianResources -> ok"),
+                Instant.now().plusSeconds(3600));
+
+        ToolSelectionResult result = service.selectTools(
+                "fetch pratham kundan tickets", List.of(), allTools, List.of(jiraGraph),
+                Optional.of(createContinuation));
+
+        assertFalse(result.hasContinuationContext());
+        assertEquals(
+                List.of("jira.getAccessibleAtlassianResources", "jira.searchJiraIssuesUsingJql"),
+                names(result));
     }
 
     @Test
     void ignoresContinuationFromUnrelatedServer() {
-        when(router.selectToolNames(any(), anyList(), anyList(), anyInt()))
-                .thenReturn(List.of("jira.createJiraIssue"));
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
         PendingWorkflowState gitlabContinuation = new PendingWorkflowState(
                 "conv-1", "user-1", List.of("gitlab"),
+                List.of("gitlab.create_merge_request"),
                 List.of("gitlab.get_pipeline"), List.of("gitlab.get_pipeline -> ok"),
                 Instant.now().plusSeconds(3600));
 
@@ -120,7 +168,10 @@ class ToolSelectionServiceTest {
 
         assertFalse(result.hasContinuationContext());
         assertEquals(
-                List.of("jira.getAccessibleResources", "jira.getMeta", "jira.createJiraIssue"),
+                List.of(
+                        "jira.getAccessibleAtlassianResources",
+                        "jira.getJiraProjectIssueTypesMetadata",
+                        "jira.createJiraIssue"),
                 names(result));
     }
 

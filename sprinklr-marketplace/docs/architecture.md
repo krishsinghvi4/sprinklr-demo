@@ -63,13 +63,13 @@ To stay accurate and cheap as the catalog grows toward hundreds of tools, the ba
 
 | When | Role | Input | Output |
 |------|------|-------|--------|
-| MCP connect (once per connection) | Dependency graph builder | That server's discovered tools (name + description + required params) | Per-server dependency map (DAG) |
+| MCP connect (once per connection) | Dependency graph builder | That server's discovered tools + optional MCP skill guidance (`mcp-skills/*.txt`) | Per-server dependency map (DAG), stored as list edges |
 | Chat turn start | Tool router | Compact catalog of the user's connected tools (names + descriptions only) | A few primary tool names |
 | Chat agentic loop | Agent (existing) | The scoped tools (router picks + expanded prerequisites) with full schemas | tool_calls or text |
 
 Between the router and the agent, a deterministic expander (no LLM) walks the stored graph to add prerequisite tools in topological order, then caps the set (default 15). Tool execution stays sequential.
 
-**Where dependency graphs live (multi-tenant):** Each graph is stored on the user's own `mcp_connections` document (`toolDependencyGraph` + `dependencyGraphStatus`). It is therefore per-user and per-server: a user without Jira never loads a Jira graph, and a Jira graph can never pull in GitLab tools. Graphs are deleted with the connection. A `toolsFingerprint` (hash of the tool-name set) lets a future re-sync detect a stale graph.
+**Where dependency graphs live (multi-tenant):** Each graph is stored on the user's own `mcp_connections` document (`toolDependencyGraph` as a list of `{tool, prerequisites}` edges + `dependencyGraphStatus`). Dotted tool names (e.g. `gitlab.list_pipelines`) cannot be MongoDB map keys, so edges use a list structure. Graphs are per-user and per-server and deleted with the connection.
 
 | Component | Responsibility |
 |-----------|---------------|
@@ -77,11 +77,11 @@ Between the router and the agent, a deterministic expander (no LLM) walks the st
 | `ToolRouterPort` / `LlmToolRouterAdapter` | Cheap text-only LLM call selecting primary tools |
 | `ToolSelectionService` (application) | Orchestrates router + deterministic expander + continuation; caps the set |
 | `PendingWorkflowPort` / `MongoPendingWorkflowAdapter` | Cross-turn continuation state (`pending_workflows`, TTL-indexed) |
-| `ToolDependencyPreflightGuard` | Opt-in generic safety net blocking out-of-order calls using the stored graph |
+| `ToolDependencyPreflightGuard` | Generic safety net blocking out-of-order calls using the stored graph (default on) |
 
 **Prompts (separate files):** `classpath:llm/tool-dependency-graph-prompt.txt` (connect-time) and `classpath:llm/tool-router-prompt.txt` (chat-time), distinct from `system-prompt.txt`.
 
-**Graceful degradation:** the feature is behind `app.mcp.tool-selection.enabled` (default true). If the router fails or a graph is `FAILED`, selection falls back to sending all tools — chat is never broken.
+**Graceful degradation:** the feature is behind `app.mcp.tool-selection.enabled` (default true). If the router **fails**, selection falls back to all tools. If the router returns **no tools needed**, the agent gets zero tools. If a graph is `FAILED`, expansion is skipped but router-scoped selection still applies. Reconnect MCP servers after deploy to regenerate graphs with the fixed storage format.
 
 ## 3. Tool Execution — Sequential Only
 

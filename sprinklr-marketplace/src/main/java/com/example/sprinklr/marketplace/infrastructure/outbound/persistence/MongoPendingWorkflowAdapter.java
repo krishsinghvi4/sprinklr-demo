@@ -30,12 +30,13 @@ public class MongoPendingWorkflowAdapter implements PendingWorkflowPort {
                 state.conversationId(),
                 state.userId(),
                 state.serverPrefixes(),
+                state.awaitingGoalTools(),
                 state.satisfiedToolNames(),
                 state.toolResultSummaries(),
                 state.expiresAt()
         ));
-        log.info("[PendingWorkflow] Saved continuation conversation={} prefixes={} satisfiedTools={}",
-                state.conversationId(), state.serverPrefixes(), state.satisfiedToolNames().size());
+        log.info("[PendingWorkflow] Saved continuation conversation={} awaitingGoals={} satisfiedTools={}",
+                state.conversationId(), state.awaitingGoalTools(), state.satisfiedToolNames().size());
     }
 
     @Override
@@ -49,7 +50,7 @@ public class MongoPendingWorkflowAdapter implements PendingWorkflowPort {
     @Override
     public void delete(String conversationId) {
         repository.deleteById(conversationId);
-        log.debug("[PendingWorkflow] Deleted continuation conversation={}", conversationId);
+        log.info("[PendingWorkflow] Deleted continuation conversation={}", conversationId);
     }
 
     private PendingWorkflowState toDomain(PendingWorkflowDocument document) {
@@ -57,6 +58,7 @@ public class MongoPendingWorkflowAdapter implements PendingWorkflowPort {
                 document.conversationId(),
                 document.userId(),
                 document.serverPrefixes(),
+                document.awaitingGoalTools() == null ? java.util.List.of() : document.awaitingGoalTools(),
                 document.satisfiedToolNames(),
                 document.toolResultSummaries(),
                 document.expiresAt()

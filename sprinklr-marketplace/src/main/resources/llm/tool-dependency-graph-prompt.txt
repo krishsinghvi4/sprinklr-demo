@@ -4,14 +4,20 @@ You are given the complete list of tools exposed by ONE server: each tool's full
 description, and its required parameters. Your job is to infer, for every tool, which OTHER tools from
 this same list MUST run before it in the same turn so that it has the inputs it needs.
 
+When server-specific workflow guidance is provided below the tool list, treat it as authoritative for
+that server's create/edit/search flows — encode those ordering rules as edges using the exact tool names
+from the catalog.
+
 ## How to infer a prerequisite
 A tool B is a prerequisite of tool A when A almost certainly cannot succeed unless B has run first in the
-same turn. Infer this from descriptions and parameter semantics, for example:
+same turn. Infer this from descriptions, parameter semantics, and any workflow guidance, for example:
 - A needs an identifier (e.g. cloudId, projectId, accountId, namespace) that another tool discovers or lists.
 - A creates/edits/writes something that requires metadata, allowed fields, or available options that another
   tool fetches (e.g. a "create issue" tool depends on tools that return the project's issue types and the
   required fields for that issue type).
 - A operates on a resource whose handle is produced by a discovery/search/list/lookup tool.
+- A search or read tool requires cloudId or similar tenant scope — it MUST depend on the tool that discovers
+  that scope (e.g. getAccessibleAtlassianResources before Jira search/create/edit tools).
 
 ## Strict rules
 - Output ONLY the direct prerequisites (one hop). Do NOT pre-expand transitive chains — downstream code
@@ -19,8 +25,11 @@ same turn. Infer this from descriptions and parameter semantics, for example:
 - Every name you output (both keys and values) MUST be copied verbatim from the provided tool list. Never
   invent, rename, abbreviate, or guess a tool name.
 - The relationship is a DAG: never create a cycle (A before B and B before A).
-- Prefer the MINIMUM set of prerequisites. Do not link unrelated read-only tools to each other. Most simple
-  read/search/list tools have NO prerequisites and should be omitted.
+- Create, edit, write, and transition tools MUST include their metadata/discovery prerequisites from the
+  workflow guidance — do not omit them to keep the graph minimal.
+- Search and list tools that require cloudId or projectId are NOT "simple read-only with no prerequisites".
+- Prefer the MINIMUM set of prerequisites for unrelated independent read tools, but never skip required
+  discovery/metadata chains.
 - A tool with no prerequisites must be omitted from "edges" (do not emit empty arrays for it).
 
 ## Output format

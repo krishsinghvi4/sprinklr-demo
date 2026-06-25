@@ -5,7 +5,9 @@ import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.MessageRole;
 import com.example.sprinklr.marketplace.domain.model.PendingWorkflowState;
+import com.example.sprinklr.marketplace.domain.model.RouterOutcome;
 import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
@@ -27,17 +29,6 @@ import java.util.Set;
  * Chat-time tool selection: combines the lightweight LLM router (stage 1) with a deterministic
  * dependency expander (stage 2, no LLM) to produce the small set of full-schema tools the agent LLM
  * actually sees.
- * <p>
- * Pipeline per turn:
- * <ol>
- *   <li>Router picks the primary tools relevant to the prompt (names + descriptions only).</li>
- *   <li>Expander walks each tool's stored dependency graph and adds prerequisites in topological order.</li>
- *   <li>Continuation: prerequisites already satisfied in an earlier turn of the same workflow are skipped,
- *       and their result summaries are returned for injection into the agent context.</li>
- *   <li>The set is capped (default 15) and resolved to {@link McpTool} records with schemas.</li>
- * </ol>
- * Fails soft: if the router returns nothing (error, or genuinely no relevant tool), it falls back to the
- * legacy all-tools behavior so chat is never broken.
  */
 @Service
 public class ToolSelectionService {
@@ -62,7 +53,7 @@ public class ToolSelectionService {
         McpProperties.ToolSelection config = mcpProperties.getToolSelection();
 
         if (allUserTools == null || allUserTools.isEmpty()) {
-            return new ToolSelectionResult(List.of(), List.of(), null);
+            return new ToolSelectionResult(List.of(), List.of(), List.of(), null);
         }
 
         Map<String, McpTool> toolsByName = new LinkedHashMap<>();
@@ -78,28 +69,34 @@ public class ToolSelectionService {
         }
 
         List<Message> routerHistory = trimToRecentTurns(recentHistory, config.getRouterHistoryTurns());
-        List<String> primary = toolRouterPort.selectToolNames(
+        ToolRouterResult routerResult = toolRouterPort.selectTools(
                 userPrompt, routerHistory, allUserTools, config.getRouterMaxPrimaryTools());
 
-        // Decide whether stored continuation belongs to this turn, based on the servers in play.
-        Set<String> candidatePrefixes = prefixesOf(primary.isEmpty()
-                ? new ArrayList<>(toolsByName.keySet())
-                : primary);
+        if (routerResult.outcome() == RouterOutcome.FAILED) {
+            log.info("[ToolSelection] Router failed — falling back to all {} tools", allUserTools.size());
+            return new ToolSelectionResult(
+                    List.copyOf(allUserTools),
+                    List.copyOf(prefixesOf(toolsByName.keySet())),
+                    List.copyOf(toolsByName.keySet()),
+                    null);
+        }
+
+        List<String> primary = routerResult.toolNames();
+
+        if (routerResult.outcome() == RouterOutcome.NO_TOOLS_NEEDED) {
+            log.info("[ToolSelection] Router found no relevant tools — sending zero tools for conversational turn");
+            return new ToolSelectionResult(List.of(), List.of(), List.of(), null);
+        }
+
+        Set<String> neverSatisfy = new HashSet<>(config.getContinuationNeverSatisfyTools());
         Optional<PendingWorkflowState> applicableContinuation =
-                resolveContinuation(continuation, candidatePrefixes);
+                resolveContinuation(continuation, primary);
         Set<String> satisfied = applicableContinuation
-                .map(state -> new HashSet<>(state.satisfiedToolNames()))
+                .map(state -> filterSatisfied(state.satisfiedToolNames(), neverSatisfy))
                 .orElseGet(HashSet::new);
         String continuationContext = applicableContinuation
                 .map(this::buildContinuationContext)
                 .orElse(null);
-
-        if (primary.isEmpty()) {
-            // Router found nothing relevant (or failed) — preserve existing behavior: expose all tools.
-            log.info("[ToolSelection] Router returned no tools — falling back to all {} tools", allUserTools.size());
-            return new ToolSelectionResult(
-                    List.copyOf(allUserTools), List.copyOf(prefixesOf(toolsByName.keySet())), continuationContext);
-        }
 
         List<String> orderedNames = expand(primary, toolsByName, readyGraphByPrefix, satisfied);
         List<String> capped = cap(orderedNames, config.getMaxTools());
@@ -117,14 +114,19 @@ public class ToolSelectionService {
                 primary.size(), orderedNames.size(), scopedTools.size(), activePrefixes,
                 applicableContinuation.isPresent());
 
-        return new ToolSelectionResult(scopedTools, activePrefixes, continuationContext);
+        return new ToolSelectionResult(scopedTools, activePrefixes, List.copyOf(primary), continuationContext);
     }
 
-    /**
-     * Expands router picks with their prerequisites in topological order (prerequisites first), skipping
-     * any prerequisite already satisfied by continuation state. Each tool's prerequisites come only from
-     * its own server's READY graph.
-     */
+    private Set<String> filterSatisfied(List<String> satisfiedToolNames, Set<String> neverSatisfy) {
+        Set<String> filtered = new HashSet<>();
+        for (String name : satisfiedToolNames) {
+            if (!neverSatisfy.contains(name)) {
+                filtered.add(name);
+            }
+        }
+        return filtered;
+    }
+
     private List<String> expand(
             List<String> primary,
             Map<String, McpTool> toolsByName,
@@ -138,7 +140,7 @@ public class ToolSelectionService {
             if (graph != null) {
                 for (String prerequisite : graph.transitivePrerequisites(toolName)) {
                     if (satisfied.contains(prerequisite)) {
-                        continue; // already gathered in an earlier turn of this workflow
+                        continue;
                     }
                     if (toolsByName.containsKey(prerequisite) && seen.add(prerequisite)) {
                         ordered.add(prerequisite);
@@ -152,7 +154,6 @@ public class ToolSelectionService {
         return ordered;
     }
 
-    /** Keeps prerequisites (front of the list) first when trimming to the cap. */
     private List<String> cap(List<String> ordered, int maxTools) {
         if (maxTools <= 0 || ordered.size() <= maxTools) {
             return ordered;
@@ -162,7 +163,7 @@ public class ToolSelectionService {
     }
 
     private Optional<PendingWorkflowState> resolveContinuation(
-            Optional<PendingWorkflowState> continuation, Set<String> candidatePrefixes) {
+            Optional<PendingWorkflowState> continuation, List<String> currentPrimary) {
         if (continuation.isEmpty()) {
             return Optional.empty();
         }
@@ -172,11 +173,16 @@ public class ToolSelectionService {
                     state.conversationId());
             return Optional.empty();
         }
-        boolean relevant = state.serverPrefixes().isEmpty()
-                || state.serverPrefixes().stream().anyMatch(candidatePrefixes::contains);
+        if (state.awaitingGoalTools().isEmpty()) {
+            log.debug("[ToolSelection] Ignoring continuation without awaitingGoalTools conversation={}",
+                    state.conversationId());
+            return Optional.empty();
+        }
+        Set<String> primarySet = new HashSet<>(currentPrimary);
+        boolean relevant = state.awaitingGoalTools().stream().anyMatch(primarySet::contains);
         if (!relevant) {
-            log.debug("[ToolSelection] Continuation prefixes {} not relevant to {}",
-                    state.serverPrefixes(), candidatePrefixes);
+            log.info("[ToolSelection] Continuation awaiting {} not relevant to current primary {}",
+                    state.awaitingGoalTools(), currentPrimary);
             return Optional.empty();
         }
         return Optional.of(state);
@@ -187,15 +193,14 @@ public class ToolSelectionService {
             return null;
         }
         StringBuilder builder = new StringBuilder(
-                "Information already gathered earlier in this workflow — reuse it and do NOT re-run these "
-                        + "tools to fetch it again:\n");
+                "Workflow context from the previous turn — reuse this intent and do NOT re-ask the user "
+                        + "for information they already provided:\n");
         for (String summary : state.toolResultSummaries()) {
             builder.append("- ").append(summary).append('\n');
         }
         return builder.toString();
     }
 
-    /** Keeps only the messages belonging to the last {@code turns} user-initiated turns, for router context. */
     private List<Message> trimToRecentTurns(List<Message> history, int turns) {
         if (history == null || history.isEmpty() || turns <= 0) {
             return List.of();

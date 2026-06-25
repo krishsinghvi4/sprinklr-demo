@@ -3,6 +3,8 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.RouterOutcome;
+import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,9 +24,8 @@ import java.util.UUID;
  * Chat-time "stage 1" tool router. Runs a single cheap, text-only LLM call over a compact catalog
  * (tool names + descriptions only — never schemas) and returns the primary tools relevant to the turn.
  * <p>
- * Designed to fail soft: any error or unparseable response yields an empty selection so the caller
- * ({@link com.example.sprinklr.marketplace.application.service.tool.ToolSelectionService}) can fall back
- * to the legacy all-tools behavior rather than breaking the chat.
+ * Designed to fail soft: LLM or parse failures yield {@link RouterOutcome#FAILED} so the caller can fall
+ * back to all tools. A valid empty selection yields {@link RouterOutcome#NO_TOOLS_NEEDED}.
  */
 @Component
 public class LlmToolRouterAdapter implements ToolRouterPort {
@@ -41,14 +42,14 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
     }
 
     @Override
-    public List<String> selectToolNames(
+    public ToolRouterResult selectTools(
             String userPrompt,
             List<Message> recentHistory,
             List<McpTool> availableTools,
             int maxPrimaryTools
     ) {
         if (availableTools == null || availableTools.isEmpty()) {
-            return List.of();
+            return ToolRouterResult.noToolsNeeded();
         }
 
         Set<String> validNames = new LinkedHashSet<>();
@@ -59,24 +60,24 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
                 + "\n\nSelect at most " + maxPrimaryTools + " primary tools.";
         List<Message> request = List.of(syntheticUserMessage(buildUserBlock(userPrompt, recentHistory)));
 
-        //fall back to sending all tool if try block fails
         try {
             long startMs = System.currentTimeMillis();
             LlmCompletionResult result = llmService.complete(
                     new LlmCompletionCommand(request, List.of(), null, false, systemPrompt));
-            List<String> selected = parseSelection(result.content(), validNames);
-            log.info("[ToolRouter] Selected {} of {} tools in {}ms: {}",
-                    selected.size(), availableTools.size(), System.currentTimeMillis() - startMs, selected);
-            return selected;
+            ToolRouterResult parsed = parseSelection(result.content(), validNames);
+            log.info("[ToolRouter] outcome={} selected={} of {} tools in {}ms",
+                    parsed.outcome(), parsed.toolNames().size(), availableTools.size(),
+                    System.currentTimeMillis() - startMs);
+            return parsed;
         } catch (Exception e) {
             log.warn("[ToolRouter] Routing failed — caller will fall back to all tools: {}", e.getMessage());
-            return List.of();
+            return ToolRouterResult.failed();
         }
     }
 
-    private List<String> parseSelection(String content, Set<String> validNames) {
+    private ToolRouterResult parseSelection(String content, Set<String> validNames) {
         if (content == null || content.isBlank()) {
-            return List.of();
+            return ToolRouterResult.failed();
         }
         String json = stripFences(content.trim());
         List<String> selected = new ArrayList<>();
@@ -85,7 +86,7 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
             JsonNode array = root.path("selectedTools");
             if (!array.isArray()) {
                 log.warn("[ToolRouter] Response missing 'selectedTools' array");
-                return List.of();
+                return ToolRouterResult.failed();
             }
             for (JsonNode node : array) {
                 String name = node.asText();
@@ -97,9 +98,12 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
             }
         } catch (Exception e) {
             log.warn("[ToolRouter] Failed to parse selection JSON: {}", e.getMessage());
-            return List.of();
+            return ToolRouterResult.failed();
         }
-        return selected;
+        if (selected.isEmpty()) {
+            return ToolRouterResult.noToolsNeeded();
+        }
+        return ToolRouterResult.selected(selected);
     }
 
     private String buildCompactCatalog(List<McpTool> tools) {
