@@ -57,6 +57,8 @@ public class LlmToolDependencyGraphGenerator implements ToolDependencyGraphPort 
 
     @Override
     public ToolDependencyGraph generate(String serverIdPrefix, List<McpTool> tools) {
+        //Computes a SHA-256 hash of all tool names (sorted). This fingerprint is stored with the graph so that later,
+        // the system can detect if the tool list has changed and the graph is stale.
         String fingerprint = fingerprint(tools);
 
         // Nothing to relate when a server has 0 or 1 tool — return an empty READY graph (still valid).
@@ -103,6 +105,7 @@ public class LlmToolDependencyGraphGenerator implements ToolDependencyGraphPort 
     }
 
     /** One compact line per tool: name, description, and required parameter names. */
+    //The LLM uses this to reason about which tools need the output of other tools.
     private String buildToolCatalog(List<McpTool> tools) {
         StringBuilder builder = new StringBuilder();
         for (McpTool tool : tools) {
