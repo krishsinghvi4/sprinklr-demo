@@ -444,7 +444,7 @@ public class ChatOrchestrator implements ChatUseCase {
                 List.of(),
                 Instant.now()
         );
-        chatHistoryPort.saveMessage(assistantToolCallMessage);
+        // chatHistoryPort.saveMessage(assistantToolCallMessage); // debug: skip DB persist for tool calls
         history.add(assistantToolCallMessage);
 
         List<ToolCall> toolCalls = llmResponse.toolCalls();
@@ -486,7 +486,7 @@ public class ChatOrchestrator implements ChatUseCase {
                 toolResults,
                 Instant.now()
         );
-        chatHistoryPort.saveMessage(toolMessage);
+        // chatHistoryPort.saveMessage(toolMessage); // debug: skip DB persist for tool results
         history.add(toolMessage);
         return toolMessage.id();
     }
@@ -526,9 +526,9 @@ public class ChatOrchestrator implements ChatUseCase {
             chatHistoryPort.saveMessage(assistantMessage);
         }
 
-        for (String toolMessageId : currentTurnToolMessageIds) {
-            chatHistoryPort.truncateToolResults(toolMessageId);
-        }
+        // for (String toolMessageId : currentTurnToolMessageIds) {
+        //     chatHistoryPort.truncateToolResults(toolMessageId);
+        // }
     }
 
     private void deliverLimitMessage(String conversationId, Flow.Subscriber<String> responseSubscriber) {
