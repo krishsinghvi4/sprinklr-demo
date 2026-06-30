@@ -12,6 +12,7 @@ import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.RedQueryToolSelectionSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -39,15 +40,18 @@ public class ToolSelectionService {
     private final ToolRouterPort toolRouterPort;
     private final McpProperties mcpProperties;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
+    private final RedQueryToolSelectionSupport redQueryToolSelectionSupport;
 
     public ToolSelectionService(
             ToolRouterPort toolRouterPort,
             McpProperties mcpProperties,
-            McpCatalogToolSelectionSupport catalogToolSelectionSupport
+            McpCatalogToolSelectionSupport catalogToolSelectionSupport,
+            RedQueryToolSelectionSupport redQueryToolSelectionSupport
     ) {
         this.toolRouterPort = toolRouterPort;
         this.mcpProperties = mcpProperties;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
+        this.redQueryToolSelectionSupport = redQueryToolSelectionSupport;
     }
 
     public ToolSelectionResult selectTools(
@@ -118,8 +122,8 @@ public class ToolSelectionService {
         }
 
         List<String> activePrefixes = List.copyOf(prefixesOf(capped));
-        log.info("[ToolSelection] primary={} expandedTo={} capped={} prefixes={} continuation={}",
-                primary.size(), orderedNames.size(), scopedTools.size(), activePrefixes,
+        log.info("[ToolSelection] primary={} expandedTo={} capped={} scopedTools={} prefixes={} continuation={}",
+                primary, orderedNames.size(), scopedTools.size(), capped, activePrefixes,
                 applicableContinuation.isPresent());
 
         return new ToolSelectionResult(scopedTools, activePrefixes, List.copyOf(primary), continuationContext);
@@ -144,6 +148,15 @@ public class ToolSelectionService {
         List<String> ordered = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         for (String toolName : primary) {
+            if (redQueryToolSelectionSupport.isQueryPairTool(toolName)) {
+                for (String pairedTool : redQueryToolSelectionSupport.expandQueryPair(toolName, toolsByName.keySet())) {
+                    // Sample/execute pairs are per-turn schema discovery — never omit a half because a prior turn ran it.
+                    if (toolsByName.containsKey(pairedTool) && seen.add(pairedTool)) {
+                        ordered.add(pairedTool);
+                    }
+                }
+                continue;
+            }
             ToolDependencyGraph graph = readyGraphByPrefix.get(prefixOf(toolName));
             if (graph != null) {
                 for (String prerequisite : graph.transitivePrerequisites(toolName)) {

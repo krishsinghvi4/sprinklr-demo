@@ -91,7 +91,13 @@
         "failureMessage": "Invalid RED access token — verify the token is valid and not expired."
       },
       "toolSelection": {
-        "skipDependencyGraph": true
+        "skipDependencyGraph": true,
+        "continuationNeverSatisfyTools": [
+          "red.red_sample_elasticsearch_query",
+          "red.red_sample_mongo_query",
+          "red.red_execute_elastic_search_query",
+          "red.red_execute_mongo_query"
+        ]
       }
     }
   ]

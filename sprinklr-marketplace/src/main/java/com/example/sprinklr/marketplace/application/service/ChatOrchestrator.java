@@ -27,12 +27,19 @@ import com.example.sprinklr.marketplace.infrastructure.config.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsSampleFieldContext;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsSampleFieldExtractor;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryWorkflowSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -53,6 +60,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChatOrchestrator implements ChatUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(ChatOrchestrator.class);
+    private static final Path DEBUG_LOG_PATH = Path.of(
+            "/Users/krish.singhvi/Desktop/sprinklr-demo/.cursor/debug-82e02b.log");
     private static final String TOOL_LIMIT_MESSAGE =
             "Tool call limit reached for this request. Please try a simpler question.";
 
@@ -66,6 +75,8 @@ public class ChatOrchestrator implements ChatUseCase {
     private final ToolSelectionService toolSelectionService;
     private final PendingWorkflowPort pendingWorkflowPort;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
+    private final RedQueryWorkflowSupport redQueryWorkflowSupport;
+    private final RedEsSampleFieldContext redEsSampleFieldContext;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -77,7 +88,9 @@ public class ChatOrchestrator implements ChatUseCase {
             McpInvocationPreflightPort mcpInvocationPreflightPort,
             ToolSelectionService toolSelectionService,
             PendingWorkflowPort pendingWorkflowPort,
-            McpCatalogToolSelectionSupport catalogToolSelectionSupport
+            McpCatalogToolSelectionSupport catalogToolSelectionSupport,
+            RedQueryWorkflowSupport redQueryWorkflowSupport,
+            RedEsSampleFieldContext redEsSampleFieldContext
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -89,6 +102,8 @@ public class ChatOrchestrator implements ChatUseCase {
         this.toolSelectionService = toolSelectionService;
         this.pendingWorkflowPort = pendingWorkflowPort;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
+        this.redQueryWorkflowSupport = redQueryWorkflowSupport;
+        this.redEsSampleFieldContext = redEsSampleFieldContext;
     }
 
     /**
@@ -112,6 +127,7 @@ public class ChatOrchestrator implements ChatUseCase {
         Set<String> usedConnections = new HashSet<>();
         StreamingSession streamingSession = new StreamingSession(responseSubscriber);
         try {
+            redEsSampleFieldContext.clear();
             long setupStartMs = System.currentTimeMillis();
             String conversationId = resolveConversationId(request);
             int priorTurnLimit = Math.max(0, chatProperties.getHistoryTurnLimit() - 1);
@@ -140,7 +156,7 @@ public class ChatOrchestrator implements ChatUseCase {
             // Stage 1+2: scope the tool set for this turn (router pick + deterministic dependency expansion).
             // When the feature is off, fall back to sending every active tool (legacy behavior).
             TurnToolScope scope = resolveTurnToolScope(request, conversationId, history, userTools);
-            List<McpTool> toolsForTurn = scope.tools();
+            List<McpTool> toolsForTurn = new ArrayList<>(scope.tools());
             String continuationContext = scope.continuationContext();
             List<String> primaryToolNames = scope.primaryToolNames();
 
@@ -152,6 +168,7 @@ public class ChatOrchestrator implements ChatUseCase {
             // Accumulate tools executed this turn so continuation state can be persisted for the next turn.
             List<String> executedToolNames = new ArrayList<>();
             List<String> executedToolSummaries = new ArrayList<>();
+            String agentAdditionalContext = continuationContext;
 
             int iteration = 0;
             int totalToolCalls = 0;
@@ -166,7 +183,7 @@ public class ChatOrchestrator implements ChatUseCase {
                                 currentTurnUserMessageId,
                                 request.userId(),
                                 conversationId,
-                                continuationContext
+                                agentAdditionalContext
                         )
                 );
                 long llmMs = System.currentTimeMillis() - llmStartMs;
@@ -175,6 +192,23 @@ public class ChatOrchestrator implements ChatUseCase {
                         iteration, llmMs, conversationId, responseType, llmResponse.toolCalls().size());
 
                 if (llmResponse.toolCalls().isEmpty()) {
+                    Optional<String> pendingExecute = redQueryWorkflowSupport.pendingExecuteAfterSample(
+                            toolsForTurn, executedToolNames);
+                    // #region agent log
+                    debugLog("ChatOrchestrator:textResponse", "pendingExecute after text LLM response",
+                            "{\"iteration\":" + iteration + ",\"executed\":" + jsonList(executedToolNames)
+                                    + ",\"pendingPresent\":" + pendingExecute.isPresent()
+                                    + ",\"pendingTool\":\"" + pendingExecute.orElse("") + "\"}",
+                            "B");
+                    // #endregion
+                    if (pendingExecute.isPresent() && iteration > 0) {
+                        log.info("[Orchestrator] RED sample complete but {} pending — continuing agentic loop",
+                                pendingExecute.get());
+                        agentAdditionalContext = redQueryWorkflowSupport.buildExecuteNudge(
+                                agentAdditionalContext, pendingExecute.get());
+                        iteration++;
+                        continue;
+                    }
                     if (iteration == 0) {
                         handleTextOnlyResponse(conversationId, llmResponse, responseSubscriber);
                     } else {
@@ -207,6 +241,7 @@ public class ChatOrchestrator implements ChatUseCase {
                         request,
                         conversationId,
                         history,
+                        currentTurnUserMessageId,
                         llmResponse,
                         usedConnections,
                         streamingSession,
@@ -215,6 +250,25 @@ public class ChatOrchestrator implements ChatUseCase {
                 );
                 currentTurnToolMessageIds.add(toolMessageId);
                 totalToolCalls += llmResponse.toolCalls().size();
+                Optional<String> pendingExecuteAfterBatch = redQueryWorkflowSupport.pendingExecuteAfterSample(
+                        toolsForTurn, executedToolNames);
+                redQueryWorkflowSupport.ensureExecuteToolInScope(
+                        toolsForTurn, userTools, executedToolNames);
+                pendingExecuteAfterBatch = redQueryWorkflowSupport.pendingExecuteAfterSample(
+                        toolsForTurn, executedToolNames);
+                // #region agent log
+                debugLog("ChatOrchestrator:afterToolBatch", "pendingExecute after tool batch",
+                        "{\"iteration\":" + iteration + ",\"executed\":" + jsonList(executedToolNames)
+                                + ",\"pendingPresent\":" + pendingExecuteAfterBatch.isPresent()
+                                + ",\"pendingTool\":\"" + pendingExecuteAfterBatch.orElse("") + "\"}",
+                        "A");
+                // #endregion
+                if (pendingExecuteAfterBatch.isPresent()) {
+                    log.info("[Orchestrator] RED sample ran — nudging {} before next LLM call",
+                            pendingExecuteAfterBatch.get());
+                    agentAdditionalContext = redQueryWorkflowSupport.buildExecuteNudge(
+                            agentAdditionalContext, pendingExecuteAfterBatch.get());
+                }
                 iteration++;
             }
 
@@ -228,6 +282,8 @@ public class ChatOrchestrator implements ChatUseCase {
             signalError(responseSubscriber, exception);
             log.warn("[Orchestrator] Turn failed after {}ms: {}",
                     System.currentTimeMillis() - turnStartMs, exception.getMessage());
+        } finally {
+            redEsSampleFieldContext.clear();
         }
     }
 
@@ -392,6 +448,7 @@ public class ChatOrchestrator implements ChatUseCase {
             ChatRequest request,
             String conversationId,
             List<Message> history,
+            String currentTurnUserMessageId,
             LlmResponse llmResponse,
             Set<String> usedConnections,
             StreamingSession streamingSession,
@@ -423,12 +480,15 @@ public class ChatOrchestrator implements ChatUseCase {
             long toolStartMs = System.currentTimeMillis();
             McpInvocationResult result = invokeWithPreflight(
                     invocation,
-                    buildConversationContextForPreflight(history)
+                    buildConversationContextForPreflight(history, currentTurnUserMessageId)
             );
             long toolMs = System.currentTimeMillis() - toolStartMs;
             log.info("[Orchestrator] MCP tool {} completed in {}ms conversationId={} success={}",
                     invocation.toolName(), toolMs, conversationId, result.success());
             invocationResults.add(result);
+            if (result.success() && isRedElasticsearchSampleTool(invocation.toolName())) {
+                redEsSampleFieldContext.set(RedEsSampleFieldExtractor.parseCatalog(result.content()));
+            }
             // Record the fully-qualified name + a compact summary for cross-turn continuation reuse.
             recordExecutedTool(toolCalls.get(i).name(), result, executedToolNames, executedToolSummaries);
         }
@@ -583,14 +643,19 @@ public class ChatOrchestrator implements ChatUseCase {
      * Guards use this (not just the latest user message) so values from earlier turns or
      * assistant confirmations (e.g. user replying "yes") still validate.
      */
-    private String buildConversationContextForPreflight(List<Message> history) {
+    private String buildConversationContextForPreflight(List<Message> history, String currentTurnUserMessageId) {
         StringBuilder context = new StringBuilder();
         Set<String> calledToolNames = new LinkedHashSet<>();
+        boolean inCurrentTurn = currentTurnUserMessageId == null || currentTurnUserMessageId.isBlank();
         for (Message message : history) {
-            // Collect tool names already requested this turn so the dependency guard can tell which
-            // prerequisites have run. Names are appended below as a marker line, not free-form text.
-            for (ToolCall toolCall : message.toolCalls()) {
-                calledToolNames.add(toolCall.name());
+            if (!inCurrentTurn && currentTurnUserMessageId.equals(message.id())) {
+                inCurrentTurn = true;
+            }
+            // Collect tool names requested this turn only — prior-turn tool calls must not satisfy guards.
+            if (inCurrentTurn) {
+                for (ToolCall toolCall : message.toolCalls()) {
+                    calledToolNames.add(toolCall.name());
+                }
             }
             if (message.role() != MessageRole.USER && message.role() != MessageRole.ASSISTANT) {
                 continue;
@@ -669,9 +734,37 @@ public class ChatOrchestrator implements ChatUseCase {
         });
     }
 
+    private static boolean isRedElasticsearchSampleTool(String toolName) {
+        return "red_sample_elasticsearch_query".equals(toolName);
+    }
+
     private String newId() {
         return UUID.randomUUID().toString();
     }
+
+    // #region agent log
+    private static void debugLog(String location, String message, String dataJson, String hypothesisId) {
+        try {
+            String line = "{\"sessionId\":\"82e02b\",\"timestamp\":" + System.currentTimeMillis()
+                    + ",\"location\":\"" + location + "\",\"message\":\"" + message + "\",\"data\":"
+                    + dataJson + ",\"hypothesisId\":\"" + hypothesisId + "\"}\n";
+            Files.writeString(DEBUG_LOG_PATH, line, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static String jsonList(List<String> values) {
+        StringBuilder builder = new StringBuilder("[");
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) {
+                builder.append(',');
+            }
+            builder.append('"').append(values.get(i).replace("\"", "\\\"")).append('"');
+        }
+        return builder.append(']').toString();
+    }
+    // #endregion
 
     /**
      * Manages multi-chunk SSE delivery for tool-turn progress and final response.
