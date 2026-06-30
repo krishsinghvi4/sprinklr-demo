@@ -75,11 +75,11 @@ class OAuthAuthFlowHandlerTest {
         McpProperties properties = new McpProperties();
 
         var entry = McpCatalogTestFixtures.jiraEntry();
-        AtlassianMcpProvider atlassianProvider = mock(AtlassianMcpProvider.class);
+        DefaultCatalogMcpProvider catalogProvider = mock(DefaultCatalogMcpProvider.class);
 
         when(catalogLoader.findById("atlassian-jira")).thenReturn(Optional.of(entry));
-        when(providerResolver.resolve(entry)).thenReturn(atlassianProvider);
-        when(atlassianProvider.providerKey(entry)).thenReturn("atlassian");
+        when(providerResolver.resolve(entry)).thenReturn(catalogProvider);
+        when(catalogProvider.providerKey(entry)).thenReturn("atlassian");
         when(oauthConfigResolver.redirectUri()).thenReturn("http://localhost:5173/oauth/callback");
         when(oauthClient.buildAuthorizationUrl(eq(entry), any(), any()))
                 .thenReturn("https://auth.example/authorize");

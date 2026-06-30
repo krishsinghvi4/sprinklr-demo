@@ -1,5 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian;
 
+import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpToolArgumentNormalizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -16,7 +18,7 @@ import java.util.Set;
  * Repairs common LLM mistakes when calling Atlassian hosted MCP Jira write tools.
  */
 @Component
-public class AtlassianJiraToolArgumentNormalizer {
+public class AtlassianJiraToolArgumentNormalizer implements McpToolArgumentNormalizer {
 
     private static final Logger log = LoggerFactory.getLogger(AtlassianJiraToolArgumentNormalizer.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -29,8 +31,18 @@ public class AtlassianJiraToolArgumentNormalizer {
             "labels"
     );
 
+    @Override
+    public boolean supports(McpCatalogEntry entry, String toolName) {
+        return "jira".equals(entry.serverIdPrefix()) && supports(toolName);
+    }
+
     public boolean supports(String toolName) {
         return bareToolName(toolName) != null && JIRA_WRITE_TOOLS.contains(bareToolName(toolName));
+    }
+
+    @Override
+    public String normalize(McpCatalogEntry entry, String toolName, String argumentsJson, String connectionId) {
+        return normalize(toolName, argumentsJson, connectionId);
     }
 
     public String normalize(String toolName, String argumentsJson) {

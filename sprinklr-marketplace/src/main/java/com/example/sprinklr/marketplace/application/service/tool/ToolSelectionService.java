@@ -11,6 +11,7 @@ import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,10 +38,16 @@ public class ToolSelectionService {
 
     private final ToolRouterPort toolRouterPort;
     private final McpProperties mcpProperties;
+    private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
 
-    public ToolSelectionService(ToolRouterPort toolRouterPort, McpProperties mcpProperties) {
+    public ToolSelectionService(
+            ToolRouterPort toolRouterPort,
+            McpProperties mcpProperties,
+            McpCatalogToolSelectionSupport catalogToolSelectionSupport
+    ) {
         this.toolRouterPort = toolRouterPort;
         this.mcpProperties = mcpProperties;
+        this.catalogToolSelectionSupport = catalogToolSelectionSupport;
     }
 
     public ToolSelectionResult selectTools(
@@ -88,7 +95,8 @@ public class ToolSelectionService {
             return new ToolSelectionResult(List.of(), List.of(), List.of(), null);
         }
 
-        Set<String> neverSatisfy = new HashSet<>(config.getContinuationNeverSatisfyTools());
+        Set<String> neverSatisfy = catalogToolSelectionSupport.continuationNeverSatisfyToolsForToolNames(
+                toolsByName.keySet());
         Optional<PendingWorkflowState> applicableContinuation =
                 resolveContinuation(continuation, primary);
         Set<String> satisfied = applicableContinuation

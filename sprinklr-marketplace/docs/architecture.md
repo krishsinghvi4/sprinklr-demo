@@ -34,22 +34,44 @@ The marketplace must allow users to connect arbitrary MCP servers without backen
 ### Key Constraint
 **No hardcoded server whitelist.** JIRA, GitLab, MS Teams, and Red are reference integrations, not compile-time enums. The system prompt may list examples, but the runtime tool set is always driven by the user's registered servers.
 
-### Provider & Auth Abstraction (June 2026)
+### Provider & Auth Abstraction (June 2026, refactored)
 
-Adding MCP servers is **catalog-first**: extend `mcp-catalog.json` with endpoint, `authType`, `connectMethod`, and optional `auth` block. No new Java adapter is required for standard HTTP MCP servers.
+Adding MCP servers is **catalog-first**: extend [`mcp-catalog.json`](../src/main/resources/mcp/mcp-catalog.json) with endpoint, `authType`, `connectMethod`, and an `auth` block. Standard HTTP MCP servers (GitLab, RED, future token/OAuth servers) require **no new Java classes**.
 
 | Component | Responsibility |
 |-----------|---------------|
-| `McpProvider` / `AbstractMcpProvider` | Central connect contract — validate credentials, build auth headers |
-| `McpProviderResolver` | Picks specialized provider (e.g. `AtlassianMcpProvider`) or `DefaultCatalogMcpProvider` |
+| `DefaultCatalogMcpProvider` | Single provider for all catalog entries — validate credentials, build auth headers |
 | `AuthFlowRouter` | Routes to `OAuthAuthFlowHandler` or `CredentialAuthFlowHandler` based on `connectMethod` |
 | `McpConnectionOrchestrator` | Shared discovery handshake + encrypted persistence (used by OAuth callback and credential connect) |
-| `McpAuthStrategy` + registry | Wire-format auth headers keyed by `authType` (`OAUTH_ATLASSIAN`, `BASIC_EMAIL_TOKEN`, …) |
-| `McpOAuthTokenRefreshService` | Runtime OAuth refresh for any catalog OAuth entry |
+| `CatalogAuthHeaderBuilder` | Builds outbound HTTP auth headers from `auth.oauth` or `auth.credentials` in the catalog |
+| `CatalogConnectProbeStrategy` | Optional connect-time credential validation via catalog `connectProbe` (tool + args + failure message) |
+| `McpOAuthTokenRefreshService` | Runtime OAuth refresh for catalog entries with `auth.kind=OAUTH` only |
+| `McpInvocationPreparer` | Decrypt credentials, OAuth refresh (if applicable), session resolve, argument normalization |
+| `CompositeMcpToolArgumentNormalizer` | Optional per-server argument fixes (e.g. Jira write tools) via `supports(entry, toolName)` |
+| `CompositeMcpToolResultPostProcessor` | Optional per-server result post-processing (e.g. Jira metadata pagination) |
+
+**Catalog schema (per server):**
+
+| Field | Purpose |
+|-------|---------|
+| `auth.kind` | `OAUTH` or `CREDENTIALS` |
+| `auth.oauth.*` | OAuth issuer settings (metadataUrl, resource, scopes, PKCE, DCR, …) |
+| `auth.credentials.tokenField` | Credential map key (default `apiToken`) |
+| `auth.credentials.headerMode` | `BEARER`, `PRIVATE_TOKEN`, `BASIC_EMAIL`, or `CUSTOM` (+ `customHeaderName`) |
+| `connectProbe` | Optional `{ tool, arguments, failureMessage }` for live token validation at connect |
+| `toolSelection.continuationNeverSatisfyTools` | Tools never treated as satisfied across chat turns (per-server) |
+| `llmSkillPath` | Optional skill file for dependency-graph generation |
 
 **Connect methods:**
 - `OAUTH_REDIRECT` — PKCE OAuth start/callback; UI redirects to authorization URL
 - `CREDENTIAL_FORM` — UI shows dynamic `credentialFields`; POST `/api/v1/mcp/connections`
+
+**Adding a new MCP server (onboarding):**
+1. Add a JSON object to `mcp-catalog.json` (endpoint, prefix, auth block, optional probe/skill).
+2. Tier 1 (token/OAuth only): done — Profile UI auto-renders connect form or OAuth button.
+3. Tier 2 (complex tool behavior): add a `@Component` implementing `McpToolArgumentNormalizer` or `McpToolResultPostProcessor` with an `supports()` guard keyed on `entry.serverIdPrefix()` — never modify `HttpMcpClientAdapter` directly.
+
+**Reference catalog entries:** `atlassian-jira` (OAuth), `gitlab-mcp` (Private-Token PAT), `red-mcp` (Bearer access token @ `http://127.0.0.1:3344/mcp`).
 
 **Tool naming (unchanged):** Discovered tools are exposed to the LLM as `{serverIdPrefix}.{toolName}` (e.g. `jira.search_issues`). `ChatOrchestrator` resolves connections by prefix — this contract is preserved across the refactor.
 

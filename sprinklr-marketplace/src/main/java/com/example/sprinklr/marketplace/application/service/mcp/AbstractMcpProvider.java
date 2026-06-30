@@ -2,20 +2,20 @@ package com.example.sprinklr.marketplace.application.service.mcp;
 
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
 
 import java.util.Map;
 
 /**
  * Base implementation shared by all MCP providers.
- * Delegates header construction to the auth strategy registry keyed by catalog authType.
+ * Delegates header construction to catalog-driven auth configuration.
  */
 public abstract class AbstractMcpProvider implements McpProvider {
 
-    protected final McpAuthStrategyRegistry authStrategyRegistry;
+    protected final CatalogAuthHeaderBuilder authHeaderBuilder;
 
-    protected AbstractMcpProvider(McpAuthStrategyRegistry authStrategyRegistry) {
-        this.authStrategyRegistry = authStrategyRegistry;
+    protected AbstractMcpProvider(CatalogAuthHeaderBuilder authHeaderBuilder) {
+        this.authHeaderBuilder = authHeaderBuilder;
     }
 
     @Override
@@ -45,6 +45,6 @@ public abstract class AbstractMcpProvider implements McpProvider {
 
     @Override
     public Map<String, String> buildAuthHeaders(McpCatalogEntry entry, Map<String, String> credentials) {
-        return authStrategyRegistry.require(entry.authType()).buildAuthHeaders(credentials);
+        return authHeaderBuilder.buildHeaders(entry, credentials);
     }
 }

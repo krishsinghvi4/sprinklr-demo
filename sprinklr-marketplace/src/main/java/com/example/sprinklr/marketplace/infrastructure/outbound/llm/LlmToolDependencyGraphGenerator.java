@@ -56,19 +56,21 @@ public class LlmToolDependencyGraphGenerator implements ToolDependencyGraphPort 
     }
 
     @Override
-    public ToolDependencyGraph generate(String serverIdPrefix, List<McpTool> tools) {
-        //Computes a SHA-256 hash of all tool names (sorted). This fingerprint is stored with the graph so that later,
-        // the system can detect if the tool list has changed and the graph is stale.
-        String fingerprint = fingerprint(tools);
+    public ToolDependencyGraph emptyReadyGraph(String serverIdPrefix, List<McpTool> tools) {
+        return new ToolDependencyGraph(serverIdPrefix, Map.of(), fingerprint(tools), Instant.now(),
+                DependencyGraphStatus.READY);
+    }
 
+    @Override
+    public ToolDependencyGraph generate(String serverIdPrefix, List<McpTool> tools) {
         // Nothing to relate when a server has 0 or 1 tool — return an empty READY graph (still valid).
         if (tools == null || tools.size() <= 1) {
             log.info("[DepGraph] prefix={} toolCount={} — trivial graph, skipping LLM", serverIdPrefix,
                     tools == null ? 0 : tools.size());
-            return new ToolDependencyGraph(serverIdPrefix, Map.of(), fingerprint, Instant.now(),
-                    DependencyGraphStatus.READY);
+            return emptyReadyGraph(serverIdPrefix, tools);
         }
 
+        String fingerprint = fingerprint(tools);
         Set<String> validNames = tools.stream().map(McpTool::name).collect(Collectors.toSet());
         StringBuilder systemPromptBuilder = new StringBuilder(promptLoader.getToolDependencyGraphPrompt())
                 .append("\n\n## Tools for this server\n")

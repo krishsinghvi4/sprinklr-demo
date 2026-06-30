@@ -5,7 +5,8 @@ package com.example.sprinklr.marketplace.domain.model;
  */
 public record McpAuthConfig(
         McpAuthKind kind,
-        McpOAuthCatalogConfig oauth
+        McpOAuthCatalogConfig oauth,
+        McpCredentialAuthConfig credentials
 ) {
 
     public McpAuthConfig {
@@ -15,6 +16,14 @@ public record McpAuthConfig(
         if (kind == McpAuthKind.OAUTH && oauth == null) {
             throw new IllegalArgumentException("OAuth catalog entries require oauth configuration");
         }
+        if (kind == McpAuthKind.CREDENTIALS && credentials == null) {
+            throw new IllegalArgumentException("Credential catalog entries require credentials configuration");
+        }
+    }
+
+    /** OAuth-only constructor for backward compatibility in tests. */
+    public McpAuthConfig(McpAuthKind kind, McpOAuthCatalogConfig oauth) {
+        this(kind, oauth, null);
     }
 
     public boolean isOAuth() {

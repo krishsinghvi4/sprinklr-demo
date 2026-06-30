@@ -2,15 +2,16 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
 
 import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFixtures;
 import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRefreshService;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpInvocation;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.GitLabPrivateTokenAuthStrategy;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolArgumentNormalizer;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolResultPostProcessor;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationPreparer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,143 +39,48 @@ class HttpMcpClientAdapterSessionRecoveryTest {
 
     @Test
     void retriesGitLabToolCallAfterEconnresetByReinitializingSession() throws Exception {
-        McpConnectionRepository repository = mock(McpConnectionRepository.class);
-        CredentialVaultPort credentialVault = mock(CredentialVaultPort.class);
-        McpCatalogLoader catalogLoader = mock(McpCatalogLoader.class);
-        McpAuthStrategyRegistry authStrategyRegistry = mock(McpAuthStrategyRegistry.class);
-        StreamableHttpMcpClient mcpClient = mock(StreamableHttpMcpClient.class);
-        McpOAuthTokenRefreshService oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
-        McpCircuitBreakerFactory circuitBreakerFactory = mock(McpCircuitBreakerFactory.class);
-        AtlassianJiraToolArgumentNormalizer argumentNormalizer =
-                new AtlassianJiraToolArgumentNormalizer();
-
-        McpConnectionDocument connection = new McpConnectionDocument(
-                "conn-gitlab",
-                "user-1",
-                "gitlab-mcp",
-                "gitlab",
-                "encrypted",
-                "stale-session",
-                "2025-03-26",
-                "CONNECTED",
-                List.of(),
-                Instant.now(),
-                null,
-                null,
-                null
-        );
-
-        McpCatalogEntry catalogEntry = McpCatalogTestFixtures.gitlabEntry();
-        Map<String, String> credentials = Map.of("apiToken", "pat-token");
-
-        when(repository.findById("conn-gitlab")).thenReturn(Optional.of(connection));
-        when(circuitBreakerFactory.forConnection("conn-gitlab")).thenReturn(CircuitBreaker.ofDefaults("mcp"));
-        when(credentialVault.decrypt("encrypted")).thenReturn(credentials);
-        when(oauthTokenRefreshService.refreshIfNeeded(eq(connection), eq(catalogEntry), eq(credentials)))
-                .thenReturn(credentials);
-        when(catalogLoader.findById("gitlab-mcp")).thenReturn(Optional.of(catalogEntry));
-        when(authStrategyRegistry.require(GitLabPrivateTokenAuthStrategy.AUTH_TYPE))
-                .thenReturn(new GitLabPrivateTokenAuthStrategy(new com.example.sprinklr.marketplace.infrastructure.config.McpProperties()));
-        when(mcpClient.initialize(anyString(), anyMap()))
-                .thenReturn(new StreamableHttpMcpClient.McpSession("fresh-session", "2025-03-26"));
-        when(mcpClient.callTool(anyString(), anyMap(), anyString(), anyString(), anyString(), anyString()))
+        var deps = gitLabAdapterDependencies();
+        when(deps.mcpClient.callTool(anyString(), anyMap(), anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new McpDiscoveryException(
                         "Could not reach MCP server — try again later",
                         "MCP JSON-RPC error for tools/call: request failed, reason: read ECONNRESET"))
                 .thenReturn(OBJECT_MAPPER.readTree("{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}"));
 
-        HttpMcpClientAdapter adapter = new HttpMcpClientAdapter(
-                repository,
-                credentialVault,
-                catalogLoader,
-                authStrategyRegistry,
-                mcpClient,
-                oauthTokenRefreshService,
-                circuitBreakerFactory,
-                argumentNormalizer
-        );
-
-        var result = adapter.invoke(new McpInvocation(
+        var result = deps.adapter.invoke(new McpInvocation(
                 "conn-gitlab", "list_merge_requests", "{\"per_page\":1}", "call-1"));
 
         assertTrue(result.success());
-        verify(mcpClient).initialize(catalogEntry.endpointUrl(), Map.of("Private-Token", "pat-token"));
-        verify(mcpClient, times(2)).callTool(
-                eq(catalogEntry.endpointUrl()),
+        verify(deps.mcpClient).initialize(deps.catalogEntry.endpointUrl(), Map.of("Private-Token", "pat-token"));
+        verify(deps.mcpClient, times(2)).callTool(
+                eq(deps.catalogEntry.endpointUrl()),
                 anyMap(),
                 anyString(),
                 anyString(),
                 eq("list_merge_requests"),
                 anyString()
         );
+        verify(deps.oauthTokenRefreshService, never())
+                .refreshIfNeeded(eq(deps.connection), eq(deps.catalogEntry), anyMap());
     }
 
     @Test
     void retriesGitLabToolCallAfterSocketHangUpOnThirdAttempt() throws Exception {
-        McpConnectionRepository repository = mock(McpConnectionRepository.class);
-        CredentialVaultPort credentialVault = mock(CredentialVaultPort.class);
-        McpCatalogLoader catalogLoader = mock(McpCatalogLoader.class);
-        McpAuthStrategyRegistry authStrategyRegistry = mock(McpAuthStrategyRegistry.class);
-        StreamableHttpMcpClient mcpClient = mock(StreamableHttpMcpClient.class);
-        McpOAuthTokenRefreshService oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
-        McpCircuitBreakerFactory circuitBreakerFactory = mock(McpCircuitBreakerFactory.class);
-        AtlassianJiraToolArgumentNormalizer argumentNormalizer = new AtlassianJiraToolArgumentNormalizer();
-
-        McpConnectionDocument connection = new McpConnectionDocument(
-                "conn-gitlab",
-                "user-1",
-                "gitlab-mcp",
-                "gitlab",
-                "encrypted",
-                "stale-session",
-                "2025-03-26",
-                "CONNECTED",
-                List.of(),
-                Instant.now(),
-                null,
-                null,
-                null
-        );
-
-        McpCatalogEntry catalogEntry = McpCatalogTestFixtures.gitlabEntry();
-        Map<String, String> credentials = Map.of("apiToken", "pat-token");
-
-        when(repository.findById("conn-gitlab")).thenReturn(Optional.of(connection));
-        when(circuitBreakerFactory.forConnection("conn-gitlab")).thenReturn(CircuitBreaker.ofDefaults("mcp"));
-        when(credentialVault.decrypt("encrypted")).thenReturn(credentials);
-        when(oauthTokenRefreshService.refreshIfNeeded(eq(connection), eq(catalogEntry), eq(credentials)))
-                .thenReturn(credentials);
-        when(catalogLoader.findById("gitlab-mcp")).thenReturn(Optional.of(catalogEntry));
-        when(authStrategyRegistry.require(GitLabPrivateTokenAuthStrategy.AUTH_TYPE))
-                .thenReturn(new GitLabPrivateTokenAuthStrategy(new com.example.sprinklr.marketplace.infrastructure.config.McpProperties()));
-        when(mcpClient.initialize(anyString(), anyMap()))
-                .thenReturn(new StreamableHttpMcpClient.McpSession("fresh-session", "2025-03-26"));
-        when(mcpClient.callTool(anyString(), anyMap(), anyString(), anyString(), anyString(), anyString()))
+        var deps = gitLabAdapterDependencies();
+        when(deps.mcpClient.callTool(anyString(), anyMap(), anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new McpDiscoveryException(
                         "Could not reach MCP server — try again later",
-                        "MCP JSON-RPC error for tools/call: request to https://prod-gitlab.sprinklr.com/api/v4/merge_requests failed, reason: socket hang up"))
+                        "MCP JSON-RPC error for tools/call: request failed, reason: socket hang up"))
                 .thenThrow(new McpDiscoveryException(
                         "Could not reach MCP server — try again later",
-                        "MCP JSON-RPC error for tools/call: request to https://prod-gitlab.sprinklr.com/api/v4/merge_requests failed, reason: socket hang up"))
+                        "MCP JSON-RPC error for tools/call: request failed, reason: socket hang up"))
                 .thenReturn(OBJECT_MAPPER.readTree("{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}"));
 
-        HttpMcpClientAdapter adapter = new HttpMcpClientAdapter(
-                repository,
-                credentialVault,
-                catalogLoader,
-                authStrategyRegistry,
-                mcpClient,
-                oauthTokenRefreshService,
-                circuitBreakerFactory,
-                argumentNormalizer
-        );
-
-        var result = adapter.invoke(new McpInvocation(
+        var result = deps.adapter.invoke(new McpInvocation(
                 "conn-gitlab", "list_merge_requests", "{\"per_page\":1}", "call-1"));
 
         assertTrue(result.success());
-        verify(mcpClient, times(3)).callTool(
-                eq(catalogEntry.endpointUrl()),
+        verify(deps.mcpClient, times(3)).callTool(
+                eq(deps.catalogEntry.endpointUrl()),
                 anyMap(),
                 anyString(),
                 anyString(),
@@ -187,7 +94,7 @@ class HttpMcpClientAdapterSessionRecoveryTest {
         assertTrue(HttpMcpClientAdapter.isRecoverableTransportError(
                 "MCP JSON-RPC error for tools/call: request failed, reason: read ECONNRESET"));
         assertTrue(HttpMcpClientAdapter.isRecoverableTransportError(
-                "MCP JSON-RPC error for tools/call: request to https://prod-gitlab.sprinklr.com/api/v4/merge_requests failed, reason: socket hang up"));
+                "MCP JSON-RPC error for tools/call: request failed, reason: socket hang up"));
         assertTrue(HttpMcpClientAdapter.isRecoverableTransportError("MCP HTTP error status=404"));
         assertTrue(HttpMcpClientAdapter.isRecoverableTransportError(
                 "MCP request failed method=tools/call status=400 body={\"message\":\"Bad Request: Server not initialized\"}"));
@@ -195,15 +102,35 @@ class HttpMcpClientAdapterSessionRecoveryTest {
 
     @Test
     void retriesGitLabToolCallAfterServerNotInitializedByReinitializingSession() throws Exception {
+        var deps = gitLabAdapterDependencies();
+        when(deps.mcpClient.callTool(anyString(), anyMap(), anyString(), anyString(), anyString(), anyString()))
+                .thenThrow(new McpConnectionException(
+                        "Could not reach MCP server — try again later",
+                        "MCP request failed method=tools/call status=400 body={\"error\":{\"message\":\"Bad Request: Server not initialized\"}}"))
+                .thenReturn(OBJECT_MAPPER.readTree("{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}"));
+
+        var result = deps.adapter.invoke(new McpInvocation(
+                "conn-gitlab", "list_merge_requests", "{\"per_page\":1}", "call-1"));
+
+        assertTrue(result.success());
+        verify(deps.mcpClient).initialize(deps.catalogEntry.endpointUrl(), Map.of("Private-Token", "pat-token"));
+        verify(deps.mcpClient, times(2)).callTool(
+                eq(deps.catalogEntry.endpointUrl()),
+                anyMap(),
+                anyString(),
+                anyString(),
+                eq("list_merge_requests"),
+                anyString()
+        );
+    }
+
+    private GitLabAdapterDeps gitLabAdapterDependencies() {
         McpConnectionRepository repository = mock(McpConnectionRepository.class);
         CredentialVaultPort credentialVault = mock(CredentialVaultPort.class);
         McpCatalogLoader catalogLoader = mock(McpCatalogLoader.class);
-        McpAuthStrategyRegistry authStrategyRegistry = mock(McpAuthStrategyRegistry.class);
         StreamableHttpMcpClient mcpClient = mock(StreamableHttpMcpClient.class);
         McpOAuthTokenRefreshService oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
         McpCircuitBreakerFactory circuitBreakerFactory = mock(McpCircuitBreakerFactory.class);
-        AtlassianJiraToolArgumentNormalizer argumentNormalizer =
-                new AtlassianJiraToolArgumentNormalizer();
 
         McpConnectionDocument connection = new McpConnectionDocument(
                 "conn-gitlab",
@@ -221,48 +148,43 @@ class HttpMcpClientAdapterSessionRecoveryTest {
                 null
         );
 
-        McpCatalogEntry catalogEntry = McpCatalogTestFixtures.gitlabEntry();
+        var catalogEntry = McpCatalogTestFixtures.gitlabEntry();
         Map<String, String> credentials = Map.of("apiToken", "pat-token");
 
         when(repository.findById("conn-gitlab")).thenReturn(Optional.of(connection));
         when(circuitBreakerFactory.forConnection("conn-gitlab")).thenReturn(CircuitBreaker.ofDefaults("mcp"));
         when(credentialVault.decrypt("encrypted")).thenReturn(credentials);
-        when(oauthTokenRefreshService.refreshIfNeeded(eq(connection), eq(catalogEntry), eq(credentials)))
-                .thenReturn(credentials);
         when(catalogLoader.findById("gitlab-mcp")).thenReturn(Optional.of(catalogEntry));
-        when(authStrategyRegistry.require(GitLabPrivateTokenAuthStrategy.AUTH_TYPE))
-                .thenReturn(new GitLabPrivateTokenAuthStrategy(new com.example.sprinklr.marketplace.infrastructure.config.McpProperties()));
         when(mcpClient.initialize(anyString(), anyMap()))
                 .thenReturn(new StreamableHttpMcpClient.McpSession("fresh-session", "2025-03-26"));
-        when(mcpClient.callTool(anyString(), anyMap(), anyString(), anyString(), anyString(), anyString()))
-                .thenThrow(new McpConnectionException(
-                        "Could not reach MCP server — try again later",
-                        "MCP request failed method=tools/call status=400 body={\"error\":{\"message\":\"Bad Request: Server not initialized\"}}"))
-                .thenReturn(OBJECT_MAPPER.readTree("{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}"));
 
-        HttpMcpClientAdapter adapter = new HttpMcpClientAdapter(
+        McpInvocationPreparer invocationPreparer = new McpInvocationPreparer(
                 repository,
                 credentialVault,
                 catalogLoader,
-                authStrategyRegistry,
+                new CatalogAuthHeaderBuilder(),
                 mcpClient,
                 oauthTokenRefreshService,
+                new CompositeMcpToolArgumentNormalizer(List.of(new AtlassianJiraToolArgumentNormalizer()))
+        );
+
+        HttpMcpClientAdapter adapter = new HttpMcpClientAdapter(
+                repository,
+                mcpClient,
                 circuitBreakerFactory,
-                argumentNormalizer
+                invocationPreparer,
+                new CompositeMcpToolResultPostProcessor(List.of())
         );
 
-        var result = adapter.invoke(new McpInvocation(
-                "conn-gitlab", "list_merge_requests", "{\"per_page\":1}", "call-1"));
+        return new GitLabAdapterDeps(adapter, mcpClient, oauthTokenRefreshService, connection, catalogEntry);
+    }
 
-        assertTrue(result.success());
-        verify(mcpClient).initialize(catalogEntry.endpointUrl(), Map.of("Private-Token", "pat-token"));
-        verify(mcpClient, times(2)).callTool(
-                eq(catalogEntry.endpointUrl()),
-                anyMap(),
-                anyString(),
-                anyString(),
-                eq("list_merge_requests"),
-                anyString()
-        );
+    private record GitLabAdapterDeps(
+            HttpMcpClientAdapter adapter,
+            StreamableHttpMcpClient mcpClient,
+            McpOAuthTokenRefreshService oauthTokenRefreshService,
+            McpConnectionDocument connection,
+            com.example.sprinklr.marketplace.domain.model.McpCatalogEntry catalogEntry
+    ) {
     }
 }

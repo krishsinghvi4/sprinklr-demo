@@ -26,6 +26,7 @@ import com.example.sprinklr.marketplace.domain.port.outbound.PendingWorkflowPort
 import com.example.sprinklr.marketplace.infrastructure.config.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -64,6 +65,7 @@ public class ChatOrchestrator implements ChatUseCase {
     private final McpInvocationPreflightPort mcpInvocationPreflightPort;
     private final ToolSelectionService toolSelectionService;
     private final PendingWorkflowPort pendingWorkflowPort;
+    private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -74,7 +76,8 @@ public class ChatOrchestrator implements ChatUseCase {
             ChatProperties chatProperties,
             McpInvocationPreflightPort mcpInvocationPreflightPort,
             ToolSelectionService toolSelectionService,
-            PendingWorkflowPort pendingWorkflowPort
+            PendingWorkflowPort pendingWorkflowPort,
+            McpCatalogToolSelectionSupport catalogToolSelectionSupport
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -85,6 +88,7 @@ public class ChatOrchestrator implements ChatUseCase {
         this.mcpInvocationPreflightPort = mcpInvocationPreflightPort;
         this.toolSelectionService = toolSelectionService;
         this.pendingWorkflowPort = pendingWorkflowPort;
+        this.catalogToolSelectionSupport = catalogToolSelectionSupport;
     }
 
     /**
@@ -302,8 +306,8 @@ public class ChatOrchestrator implements ChatUseCase {
             int dot = name.indexOf('.');
             prefixes.add(dot > 0 ? name.substring(0, dot) : name);
         }
-        Set<String> neverSatisfy = new HashSet<>(
-                mcpProperties.getToolSelection().getContinuationNeverSatisfyTools());
+        Set<String> neverSatisfy = catalogToolSelectionSupport.continuationNeverSatisfyToolsForToolNames(
+                executedToolNames);
         List<String> satisfiedForContinuation = executedToolNames.stream()
                 .filter(name -> !neverSatisfy.contains(name))
                 .toList();

@@ -4,11 +4,13 @@ import com.example.sprinklr.marketplace.domain.model.McpAuthConfig;
 import com.example.sprinklr.marketplace.domain.model.McpAuthKind;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
+import com.example.sprinklr.marketplace.domain.model.McpConnectProbeConfig;
+import com.example.sprinklr.marketplace.domain.model.McpCredentialAuthConfig;
 import com.example.sprinklr.marketplace.domain.model.McpCredentialField;
+import com.example.sprinklr.marketplace.domain.model.McpCredentialHeaderMode;
 import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
+import com.example.sprinklr.marketplace.domain.model.McpToolSelectionConfig;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.BasicEmailTokenAuthStrategy;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.GitLabPrivateTokenAuthStrategy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.core.io.Resource;
@@ -63,7 +65,7 @@ public class McpCatalogLoader {
         McpAuthConfig authConfig = parseAuthConfig(node, authType, catalogId);
         McpConnectMethod connectMethod = parseConnectMethod(node, authConfig);
 
-        String endpointUrl = resolveEndpointUrl(catalogId, node.path("endpointUrl").asText());
+        String endpointUrl = node.path("endpointUrl").asText();
 
         String llmSkillPath = node.path("llmSkillPath").asText(null);
         if (llmSkillPath != null && llmSkillPath.isBlank()) {
@@ -80,7 +82,9 @@ public class McpCatalogLoader {
                 authConfig,
                 connectMethod,
                 fields,
-                llmSkillPath
+                llmSkillPath,
+                parseConnectProbe(node.path("connectProbe"), catalogId),
+                parseToolSelection(node.path("toolSelection"))
         );
     }
 
@@ -102,17 +106,46 @@ public class McpCatalogLoader {
         if (!authNode.isMissingNode() && !authNode.isNull()) {
             McpAuthKind kind = McpAuthKind.valueOf(authNode.path("kind").asText("CREDENTIALS"));
             if (kind == McpAuthKind.OAUTH) {
-                return new McpAuthConfig(kind, parseRequiredOAuthConfig(authNode.path("oauth"), catalogId));
+                return new McpAuthConfig(
+                        kind,
+                        parseRequiredOAuthConfig(authNode.path("oauth"), catalogId),
+                        null
+                );
             }
-            return new McpAuthConfig(McpAuthKind.CREDENTIALS, null);
+            return new McpAuthConfig(
+                    McpAuthKind.CREDENTIALS,
+                    null,
+                    parseCredentialAuthConfig(authNode.path("credentials"), catalogId)
+            );
         }
 
-        if (authType.startsWith("OAUTH_")) {
+        if (authType.startsWith("OAUTH") || "OAUTH".equals(authType)) {
             throw new IllegalStateException(
                     "OAuth catalog entry '" + catalogId + "' must declare an auth.oauth block "
                             + "with metadataUrl, resource, and scopes.");
         }
-        return new McpAuthConfig(McpAuthKind.CREDENTIALS, null);
+        throw new IllegalStateException(
+                "Catalog entry '" + catalogId + "' must declare an auth block with kind and configuration.");
+    }
+
+    private McpCredentialAuthConfig parseCredentialAuthConfig(JsonNode credentialsNode, String catalogId) {
+        if (credentialsNode.isMissingNode() || credentialsNode.isNull()) {
+            throw new IllegalStateException(
+                    "Credential catalog entry '" + catalogId + "' must declare auth.credentials.");
+        }
+        String tokenField = credentialsNode.path("tokenField").asText("apiToken");
+        McpCredentialHeaderMode headerMode = McpCredentialHeaderMode.valueOf(
+                credentialsNode.path("headerMode").asText("BEARER")
+        );
+        String emailField = credentialsNode.path("emailField").asText(null);
+        if (emailField != null && emailField.isBlank()) {
+            emailField = null;
+        }
+        String customHeaderName = credentialsNode.path("customHeaderName").asText(null);
+        if (customHeaderName != null && customHeaderName.isBlank()) {
+            customHeaderName = null;
+        }
+        return new McpCredentialAuthConfig(tokenField, headerMode, emailField, customHeaderName);
     }
 
     private McpOAuthCatalogConfig parseRequiredOAuthConfig(JsonNode oauthNode, String catalogId) {
@@ -148,22 +181,40 @@ public class McpCatalogLoader {
         if (authConfig.isOAuth()) {
             return McpConnectMethod.OAUTH_REDIRECT;
         }
-        String authType = node.path("authType").asText();
-        if (BasicEmailTokenAuthStrategy.AUTH_TYPE.equals(authType)
-                || GitLabPrivateTokenAuthStrategy.AUTH_TYPE.equals(authType)
-                || !node.path("credentialFields").isEmpty()) {
+        if (!node.path("credentialFields").isEmpty() || authConfig.isCredentials()) {
             return McpConnectMethod.CREDENTIAL_FORM;
         }
         return McpConnectMethod.CREDENTIAL_FORM;
     }
 
-    private String resolveEndpointUrl(String catalogId, String catalogEndpointUrl) {
-        if ("gitlab-mcp".equals(catalogId)) {
-            String configured = properties.getGitlabMcpEndpointUrl();
-            if (configured != null && !configured.isBlank()) {
-                return configured.trim();
-            }
+    private McpConnectProbeConfig parseConnectProbe(JsonNode probeNode, String catalogId) {
+        if (probeNode.isMissingNode() || probeNode.isNull()) {
+            return null;
         }
-        return catalogEndpointUrl;
+        String tool = probeNode.path("tool").asText("").trim();
+        if (tool.isBlank()) {
+            throw new IllegalStateException("connectProbe.tool is required for catalog entry '" + catalogId + "'");
+        }
+        String argumentsJson = probeNode.has("arguments")
+                ? probeNode.path("arguments").toString()
+                : "{}";
+        String failureMessage = probeNode.path("failureMessage").asText("").trim();
+        if (failureMessage.isBlank()) {
+            throw new IllegalStateException(
+                    "connectProbe.failureMessage is required for catalog entry '" + catalogId + "'");
+        }
+        return new McpConnectProbeConfig(tool, argumentsJson, failureMessage);
+    }
+
+    private McpToolSelectionConfig parseToolSelection(JsonNode selectionNode) {
+        if (selectionNode.isMissingNode() || selectionNode.isNull()) {
+            return null;
+        }
+        List<String> neverSatisfy = new ArrayList<>();
+        for (JsonNode toolNode : selectionNode.path("continuationNeverSatisfyTools")) {
+            neverSatisfy.add(toolNode.asText());
+        }
+        boolean skipDependencyGraph = selectionNode.path("skipDependencyGraph").asBoolean(false);
+        return new McpToolSelectionConfig(neverSatisfy, skipDependencyGraph);
     }
 }

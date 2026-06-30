@@ -1,0 +1,20 @@
+## RED MCP guidance
+
+### Authentication
+- All RED tools require a valid RED access token forwarded as `Authorization: Bearer <token>`.
+- Use `red_ping` only when troubleshooting connectivity — not as a default first step for every request.
+
+### Workflow
+- Call the tool that best matches the user's request using the IDs and parameters they provide (partner ID, client ID, environment, query text, etc.).
+- Do not proactively call lookup or search tools to resolve IDs the user already gave or is expected to know.
+- If required parameters are missing from the user's message, respond with text only and ask for them before calling a tool.
+- If a tool returns an error, explain it in plain language and ask for corrected input — do not chain into discovery tools unless the user explicitly asks you to look something up.
+
+### Common operations
+- **Health / connectivity:** `red_ping`
+- **Query execution:** tools under `red_execute_*` and `red_get_*` — check tool descriptions for required parameters.
+- **Sprinklr operations:** client lookup, ES stats, and query execution tools when the user asks for those capabilities.
+
+### Parameter rules
+- Never invent IDs, client names, or environment values the user did not provide.
+- Prefer the most specific tool for the request; do not broaden to search/lookup tools when the user already supplied the needed identifiers.

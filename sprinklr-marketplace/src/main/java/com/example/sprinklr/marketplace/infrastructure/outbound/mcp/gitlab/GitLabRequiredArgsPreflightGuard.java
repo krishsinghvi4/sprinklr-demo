@@ -4,6 +4,7 @@ import com.example.sprinklr.marketplace.domain.model.McpInvocation;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.McpInvocationPreflightStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -21,6 +22,9 @@ public class GitLabRequiredArgsPreflightGuard implements McpInvocationPreflightS
 
     private static final Logger log = LoggerFactory.getLogger(GitLabRequiredArgsPreflightGuard.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final String GITLAB_PREFIX = "gitlab";
+
+    private final McpConnectionRepository connectionRepository;
 
     private static final Set<String> COMMON_BRANCH_NAMES = Set.of(
             "master", "main", "develop", "dev", "staging", "production"
@@ -45,13 +49,22 @@ public class GitLabRequiredArgsPreflightGuard implements McpInvocationPreflightS
             "get_pipeline"
     );
 
-    @Override
-    public PreflightResult validate(McpInvocation invocation, String userPrompt) {
-        return validate(invocation.toolName(), invocation.argumentsJson(), userPrompt);
+    public GitLabRequiredArgsPreflightGuard(McpConnectionRepository connectionRepository) {
+        this.connectionRepository = connectionRepository;
     }
 
-    PreflightResult validate(String toolName, String argumentsJson, String userPrompt) {
-        if (!isGitLabTool(toolName)) {
+    @Override
+    public PreflightResult validate(McpInvocation invocation, String userPrompt) {
+        return validate(
+                invocation.toolName(),
+                invocation.argumentsJson(),
+                userPrompt,
+                invocation.serverId()
+        );
+    }
+
+    PreflightResult validate(String toolName, String argumentsJson, String userPrompt, String connectionId) {
+        if (!isGitLabTool(toolName, connectionId)) {
             return PreflightResult.allow();
         }
         if (userPrompt == null || userPrompt.isBlank()) {
@@ -118,11 +131,17 @@ public class GitLabRequiredArgsPreflightGuard implements McpInvocationPreflightS
         }
     }
 
-    private static boolean isGitLabTool(String toolName) {
+    private boolean isGitLabTool(String toolName, String connectionId) {
         if (toolName == null) {
             return false;
         }
-        return toolName.startsWith("gitlab.") || PROJECT_ID_REQUIRED_TOOLS.contains(bareToolName(toolName));
+        if (toolName.startsWith(GITLAB_PREFIX + ".")) {
+            return true;
+        }
+        return connectionRepository.findById(connectionId)
+                .map(connection -> GITLAB_PREFIX.equals(connection.serverIdPrefix()))
+                .orElse(false)
+                && PROJECT_ID_REQUIRED_TOOLS.contains(bareToolName(toolName));
     }
 
     private static String bareToolName(String toolName) {

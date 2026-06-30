@@ -21,4 +21,10 @@ public interface ToolDependencyGraphPort {
      * @return a graph (status {@code READY} on success, {@code FAILED} otherwise)
      */
     ToolDependencyGraph generate(String serverIdPrefix, List<McpTool> tools);
+
+    /**
+     * Returns an empty {@code READY} graph without calling the LLM (e.g. when catalog {@code skipDependencyGraph}
+     * is set).
+     */
+    ToolDependencyGraph emptyReadyGraph(String serverIdPrefix, List<McpTool> tools);
 }

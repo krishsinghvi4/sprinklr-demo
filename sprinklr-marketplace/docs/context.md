@@ -1,7 +1,7 @@
 # Product Context: Sprinklr Developer MarketPlace
 
 ## 📍 Current Implementation Status
-* **Last Updated:** June 18, 2026
+* **Last Updated:** June 28, 2026
 * **Currently Working On:** Additional MCP server catalog entries (MS Teams, etc.)
 * **Completed Features:**
   - ✅ Full-stack chat application (Spring Boot + React)
@@ -26,7 +26,9 @@
   - ✅ **MCP Connections API** — `POST /api/v1/mcp/connections`, `DELETE /api/v1/mcp/connections/{id}`
   - ✅ **Atlassian Jira MCP** — OAuth redirect connect (PKCE + DCR) via catalog entry `atlassian-jira`
   - ✅ **MCP extensibility refactor** — provider/auth abstraction (`McpProvider`, `AuthFlowRouter`, catalog-driven `connectMethod`)
-  - ✅ **GitLab catalog example** — credential-form connect (`BASIC_EMAIL_TOKEN`) demonstrating multi-auth marketplace
+  - ✅ **GitLab catalog example** — credential-form connect (`CREDENTIALS` + `PRIVATE_TOKEN` header mode) demonstrating multi-auth marketplace
+  - ✅ **RED MCP catalog entry** — credential-form connect with Bearer token @ `http://127.0.0.1:3344/mcp`, `red_ping` connect probe, LLM skill file
+  - ✅ **MCP extensibility refactor (June 2026)** — catalog-driven auth headers (`CatalogAuthHeaderBuilder`), connect probes, invocation pipeline (`McpInvocationPreparer` + composite normalizers/post-processors); removed per-provider auth strategy classes
   - ✅ **AES-256-GCM credential vault** — encrypted storage in `mcp_connections` collection
   - ✅ **Streamable HTTP MCP client** — initialize, tools/list, tools/call via WebClient
   - ✅ **Per-connection circuit breakers** — Resilience4j keyed by `mcp-{connectionId}`
@@ -37,12 +39,12 @@
   - ✅ **SprinklrLlmRouterAdapter.streamSummary()** — wired via LlmService
   - ✅ **Profile + Marketplace UI** — `/profile` page with OAuth redirect + credential modal connect flows
 * **In Progress / Next Up:**
-  - 🔲 Add more catalog entries (MS Teams, Red)
+  - 🔲 Add more catalog entries (MS Teams)
   - 🔲 Re-sync tools on `tools/list_changed` notification
   - 🔲 True LLM streaming for streamSummary (currently single-chunk delivery)
 * **Known Issues/Blockers:**
   - `MCP_ENCRYPTION_KEY` should be set in production (defaults to ephemeral key in dev)
-  - GitLab catalog entry uses a placeholder endpoint — replace with real MCP URL before production use
+  - GitLab and RED MCP endpoints default to local URLs (`127.0.0.1:3333` / `3344`) — update catalog or run servers locally for connect testing
 
 ---
 

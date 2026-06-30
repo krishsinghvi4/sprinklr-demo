@@ -1,31 +1,25 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
 
+import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpInvocation;
 import com.example.sprinklr.marketplace.domain.model.McpInvocationResult;
-import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueTypeMetadataProcessor;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.McpAuthStrategyRegistry;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
-import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRefreshService;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolResultPostProcessor;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationContext;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationPreparer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -38,42 +32,29 @@ public class HttpMcpClientAdapter implements McpServerPort {
 
     private static final Logger log = LoggerFactory.getLogger(HttpMcpClientAdapter.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final String DEFAULT_PROTOCOL_VERSION = "2025-03-26";
     private static final int MAX_TRANSIENT_TOOL_ATTEMPTS = 3;
     private static final long TRANSIENT_RETRY_BACKOFF_MS = 500L;
 
     private final McpConnectionRepository connectionRepository;
-    private final CredentialVaultPort credentialVault;
-    private final McpCatalogLoader catalogLoader;
-    private final McpAuthStrategyRegistry authStrategyRegistry;
     private final StreamableHttpMcpClient mcpClient;
-    private final McpOAuthTokenRefreshService oauthTokenRefreshService;
     private final McpCircuitBreakerFactory circuitBreakerFactory;
-    private final AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer;
+    private final McpInvocationPreparer invocationPreparer;
+    private final CompositeMcpToolResultPostProcessor resultPostProcessor;
 
     public HttpMcpClientAdapter(
             McpConnectionRepository connectionRepository,
-            CredentialVaultPort credentialVault,
-            McpCatalogLoader catalogLoader,
-            McpAuthStrategyRegistry authStrategyRegistry,
             StreamableHttpMcpClient mcpClient,
-            McpOAuthTokenRefreshService oauthTokenRefreshService,
             McpCircuitBreakerFactory circuitBreakerFactory,
-            AtlassianJiraToolArgumentNormalizer atlassianJiraToolArgumentNormalizer
+            McpInvocationPreparer invocationPreparer,
+            CompositeMcpToolResultPostProcessor resultPostProcessor
     ) {
         this.connectionRepository = connectionRepository;
-        this.credentialVault = credentialVault;
-        this.catalogLoader = catalogLoader;
-        this.authStrategyRegistry = authStrategyRegistry;
         this.mcpClient = mcpClient;
-        this.oauthTokenRefreshService = oauthTokenRefreshService;
         this.circuitBreakerFactory = circuitBreakerFactory;
-        this.atlassianJiraToolArgumentNormalizer = atlassianJiraToolArgumentNormalizer;
+        this.invocationPreparer = invocationPreparer;
+        this.resultPostProcessor = resultPostProcessor;
     }
 
-    /**
-     * Executes an MCP tool invocation for a specific user connection.
-     */
     @Override
     public McpInvocationResult invoke(McpInvocation invocation) {
         String connectionId = invocation.serverId();
@@ -129,65 +110,50 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return new McpInvocationResult(invocation.toolCallId(), false, null, message);
     }
 
-    /**
-     * Resolves auth/session, calls the MCP server, and normalizes any tool errors.
-     */
-    //refactor for abstraction
     private McpInvocationResult executeToolCall(McpInvocation invocation, McpConnectionDocument connection) {
-        var catalogEntry = catalogLoader.findById(connection.catalogServerId())
-                .orElseThrow(() -> new McpInvocationException(
-                        "MCP server configuration not found",
-                        "Catalog entry missing for " + connection.catalogServerId()
-                ));
-
-        Map<String, String> credentials = credentialVault.decrypt(connection.encryptedCredentials());
-        credentials = oauthTokenRefreshService.refreshIfNeeded(connection, catalogEntry, credentials);
-        Map<String, String> authHeaders = authStrategyRegistry
-                .require(catalogEntry.authType())
-                .buildAuthHeaders(credentials);
-
-        StreamableHttpMcpClient.McpSession session = resolveSession(connection, catalogEntry, authHeaders);
-        String argumentsJson = atlassianJiraToolArgumentNormalizer.normalize(
+        McpInvocationPreparer.PreparedInvocation prepared = invocationPreparer.prepare(
+                connection,
                 invocation.toolName(),
-                invocation.argumentsJson(),
-                connection.id()
+                invocation.argumentsJson()
         );
+
         JsonNode result = callToolWithTransientRetry(
                 connection,
-                catalogEntry,
-                authHeaders,
-                session,
+                prepared.catalogEntry(),
+                prepared.authHeaders(),
+                prepared.session(),
                 invocation.toolName(),
-                argumentsJson
+                prepared.argumentsJson()
         );
 
         result = retryOnRecoverableToolResultError(
                 connection,
-                catalogEntry,
-                authHeaders,
-                session,
+                prepared.catalogEntry(),
+                prepared.authHeaders(),
+                prepared.session(),
                 invocation.toolName(),
-                argumentsJson,
+                prepared.argumentsJson(),
                 result
         );
 
         Optional<String> toolError = extractMcpToolError(result);
-        if (toolError.isPresent() && isLikelyAuthError(toolError.get())) {
+        if (toolError.isPresent() && isLikelyAuthError(toolError.get())
+                && prepared.catalogEntry().authConfig().isOAuth()) {
             log.info("[MCP] Tool returned auth error, forcing OAuth refresh connectionId={} tool={}",
                     connection.id(), invocation.toolName());
-            credentials = oauthTokenRefreshService.forceRefresh(connection, catalogEntry, credentials);
-            authHeaders = authStrategyRegistry
-                    .require(catalogEntry.authType())
-                    .buildAuthHeaders(credentials);
-            StreamableHttpMcpClient.McpSession refreshedSession =
-                    reinitializeSession(connection, catalogEntry, authHeaders);
-            result = mcpClient.callTool(
-                    catalogEntry.endpointUrl(),
-                    authHeaders,
-                    refreshedSession.sessionId(),
-                    refreshedSession.protocolVersion(),
+            prepared = invocationPreparer.refreshOAuthAndReprepare(
+                    connection,
                     invocation.toolName(),
-                    argumentsJson
+                    invocation.argumentsJson(),
+                    prepared.credentials()
+            );
+            result = mcpClient.callTool(
+                    prepared.catalogEntry().endpointUrl(),
+                    prepared.authHeaders(),
+                    prepared.session().sessionId(),
+                    prepared.session().protocolVersion(),
+                    invocation.toolName(),
+                    prepared.argumentsJson()
             );
             toolError = extractMcpToolError(result);
         }
@@ -195,7 +161,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
         if (toolError.isPresent()) {
             String providerMessage = toolError.get();
             String userMessage = isLikelyAuthError(providerMessage)
-                    ? catalogEntry.displayName() + " connection needs to be refreshed. "
+                    ? prepared.catalogEntry().displayName() + " connection needs to be refreshed. "
                     + "Please disconnect and reconnect from your Profile page."
                     : "MCP tool '" + invocation.toolName() + "' failed: " + providerMessage;
             log.warn("[MCP] Tool returned error connectionId={} tool={} args={} error={}",
@@ -203,28 +169,43 @@ public class HttpMcpClientAdapter implements McpServerPort {
             return failureResult(invocation, userMessage, providerMessage);
         }
 
+        McpInvocationPreparer.PreparedInvocation activePrepared = prepared;
         String content = formatToolResult(result);
-        if (isJiraMetadataTool(invocation.toolName())) {
-            content = processJiraIssueTypeMetadata(
-                    content,
-                    connection,
-                    catalogEntry,
-                    authHeaders,
-                    session,
-                    invocation.toolName(),
-                    argumentsJson
-            );
-        }
+        McpInvocationContext context = new McpInvocationContext(
+                activePrepared.catalogEntry(),
+                connection,
+                activePrepared.authHeaders(),
+                activePrepared.session(),
+                activePrepared.argumentsJson(),
+                (toolName, argsJson) -> {
+                    JsonNode followUp = callToolWithTransientRetry(
+                            connection,
+                            activePrepared.catalogEntry(),
+                            activePrepared.authHeaders(),
+                            activePrepared.session(),
+                            toolName,
+                            argsJson
+                    );
+                    Optional<String> followUpError = extractMcpToolError(followUp);
+                    if (followUpError.isPresent()) {
+                        log.warn("[MCP] Follow-up tool call failed tool={} error={}", toolName, followUpError.get());
+                        return null;
+                    }
+                    return formatToolResult(followUp);
+                }
+        );
+        content = resultPostProcessor.process(
+                activePrepared.catalogEntry(),
+                invocation.toolName(),
+                content,
+                context
+        );
+
         log.info("[MCP] Tool success connectionId={} tool={} resultLen={}",
                 connection.id(), invocation.toolName(), content.length());
-
         return new McpInvocationResult(invocation.toolCallId(), true, content, null);
     }
 
-    /**
-     * Invokes a tool with automatic retries for transient transport failures.
-     * Re-initializes the MCP session on the first recoverable failure, then retries with backoff.
-     */
     private JsonNode callToolWithTransientRetry(
             McpConnectionDocument connection,
             McpCatalogEntry catalogEntry,
@@ -239,7 +220,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
 
         for (int attempt = 1; attempt <= MAX_TRANSIENT_TOOL_ATTEMPTS; attempt++) {
             try {
-                JsonNode result = mcpClient.callTool(
+                return mcpClient.callTool(
                         catalogEntry.endpointUrl(),
                         authHeaders,
                         activeSession.sessionId(),
@@ -247,7 +228,6 @@ public class HttpMcpClientAdapter implements McpServerPort {
                         toolName,
                         argumentsJson
                 );
-                return result;
             } catch (McpConnectionException | McpDiscoveryException exception) {
                 lastFailure = exception;
                 lastDetail = exception.getMessage();
@@ -260,7 +240,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
                         attempt, MAX_TRANSIENT_TOOL_ATTEMPTS, connection.id(), toolName, lastDetail);
 
                 if (attempt == 1) {
-                    activeSession = reinitializeSession(connection, catalogEntry, authHeaders);
+                    activeSession = invocationPreparer.reinitializeSession(connection, catalogEntry, authHeaders);
                 }
                 sleepBeforeTransientRetry(attempt);
             }
@@ -294,7 +274,7 @@ public class HttpMcpClientAdapter implements McpServerPort {
                     attempt, MAX_TRANSIENT_TOOL_ATTEMPTS, connection.id(), toolName);
 
             if (attempt == 1) {
-                activeSession = reinitializeSession(connection, catalogEntry, authHeaders);
+                activeSession = invocationPreparer.reinitializeSession(connection, catalogEntry, authHeaders);
             }
             sleepBeforeTransientRetry(attempt);
 
@@ -350,75 +330,6 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 || lower.contains("unknown session");
     }
 
-    /**
-     * Re-initializes MCP session metadata and persists it.
-     */
-    private StreamableHttpMcpClient.McpSession reinitializeSession(
-            McpConnectionDocument connection,
-            McpCatalogEntry catalogEntry,
-            Map<String, String> authHeaders
-    ) {
-        log.info("[MCP] Re-initializing session connectionId={}", connection.id());
-        StreamableHttpMcpClient.McpSession session = mcpClient.initialize(catalogEntry.endpointUrl(), authHeaders);
-        McpConnectionDocument updated = new McpConnectionDocument(
-                connection.id(),
-                connection.userId(),
-                connection.catalogServerId(),
-                connection.serverIdPrefix(),
-                connection.encryptedCredentials(),
-                session.sessionId(),
-                session.protocolVersion(),
-                connection.status(),
-                connection.tools(),
-                connection.connectedAt(),
-                connection.lastError(),
-                connection.toolDependencyGraph(),
-                connection.dependencyGraphStatus()
-        );
-        connectionRepository.save(updated);
-        return session;
-    }
-
-    /**
-     * Returns the current session or initializes a new one if missing.
-     */
-    private StreamableHttpMcpClient.McpSession resolveSession(
-            McpConnectionDocument connection,
-            McpCatalogEntry catalogEntry,
-            Map<String, String> authHeaders
-    ) {
-        String sessionId = connection.mcpSessionId();
-        if (sessionId == null || sessionId.isBlank()) {
-            log.info("[MCP] No stored session, initializing connectionId={} catalog={}",
-                    connection.id(), connection.catalogServerId());
-            StreamableHttpMcpClient.McpSession session = mcpClient.initialize(catalogEntry.endpointUrl(), authHeaders);
-            McpConnectionDocument updated = new McpConnectionDocument(
-                    connection.id(),
-                    connection.userId(),
-                    connection.catalogServerId(),
-                    connection.serverIdPrefix(),
-                    connection.encryptedCredentials(),
-                    session.sessionId(),
-                    session.protocolVersion(),
-                    connection.status(),
-                    connection.tools(),
-                    connection.connectedAt(),
-                    connection.lastError(),
-                    connection.toolDependencyGraph(),
-                    connection.dependencyGraphStatus()
-            );
-            connectionRepository.save(updated);
-            return session;
-        }
-        String protocolVersion = connection.mcpProtocolVersion() != null
-                ? connection.mcpProtocolVersion()
-                : DEFAULT_PROTOCOL_VERSION;
-        return new StreamableHttpMcpClient.McpSession(sessionId, protocolVersion);
-    }
-
-    /**
-     * Attempts to extract a tool error from standard MCP response shapes.
-     */
     private Optional<String> extractMcpToolError(JsonNode result) {
         if (result == null || result.isMissingNode()) {
             return Optional.of("Empty MCP tool result");
@@ -461,91 +372,6 @@ public class HttpMcpClientAdapter implements McpServerPort {
         return "Unknown MCP tool error";
     }
 
-    private String processJiraIssueTypeMetadata(
-            String rawContent,
-            McpConnectionDocument connection,
-            McpCatalogEntry catalogEntry,
-            Map<String, String> authHeaders,
-            StreamableHttpMcpClient.McpSession session,
-            String toolName,
-            String argumentsJson
-    ) {
-        try {
-            JsonNode firstPage = OBJECT_MAPPER.readTree(rawContent);
-            List<JsonNode> additionalPages = new ArrayList<>();
-            int fetchedCount = JiraIssueTypeMetadataProcessor.analyzeSinglePage(firstPage).fetchedFieldCount();
-            int startAt = JiraIssueTypeMetadataProcessor.nextStartAt(firstPage, fetchedCount);
-            JsonNode latestPage = firstPage;
-            int pageGuard = 0;
-
-            while (JiraIssueTypeMetadataProcessor.needsMorePages(latestPage, fetchedCount) && pageGuard < 25) {
-                pageGuard++;
-                String pagedArgs = withMetadataPagination(argumentsJson, startAt);
-                log.info("[JiraMetadata] Fetching paginated field metadata connectionId={} startAt={}",
-                        connection.id(), startAt);
-                JsonNode nextResult = callToolWithTransientRetry(
-                        connection,
-                        catalogEntry,
-                        authHeaders,
-                        session,
-                        toolName,
-                        pagedArgs
-                );
-                Optional<String> pageError = extractMcpToolError(nextResult);
-                if (pageError.isPresent()) {
-                    log.warn("[JiraMetadata] Paginated metadata fetch failed startAt={}: {}",
-                            startAt, pageError.get());
-                    break;
-                }
-                JsonNode nextPage = OBJECT_MAPPER.readTree(formatToolResult(nextResult));
-                additionalPages.add(nextPage);
-                fetchedCount += JiraIssueTypeMetadataProcessor.analyzeSinglePage(nextPage).fetchedFieldCount();
-                latestPage = nextPage;
-                startAt = JiraIssueTypeMetadataProcessor.nextStartAt(nextPage, fetchedCount);
-            }
-
-            JiraIssueTypeMetadataProcessor.ProcessedMetadata processed = additionalPages.isEmpty()
-                    ? JiraIssueTypeMetadataProcessor.analyzeSinglePage(firstPage)
-                    : JiraIssueTypeMetadataProcessor.mergePages(firstPage, additionalPages);
-
-            Optional<JiraIssueTypeMetadataProcessor.CreateScope> scope =
-                    JiraIssueTypeMetadataProcessor.resolveCreateScope(argumentsJson, processed);
-
-            return JiraIssueTypeMetadataProcessor.summarize(processed, scope).orElse(rawContent);
-        } catch (Exception exception) {
-            log.warn("[JiraMetadata] Failed to process metadata for connectionId={}: {}",
-                    connection.id(), exception.getMessage());
-            return rawContent;
-        }
-    }
-
-    private String withMetadataPagination(String argumentsJson, int startAt) throws Exception {
-        JsonNode root = OBJECT_MAPPER.readTree(argumentsJson);
-        if (!root.isObject()) {
-            ObjectNode args = OBJECT_MAPPER.createObjectNode();
-            args.put("startAt", startAt);
-            return OBJECT_MAPPER.writeValueAsString(args);
-        }
-        ObjectNode args = (ObjectNode) root;
-        args.put("startAt", startAt);
-        if (!args.has("maxResults")) {
-            args.put("maxResults", 200);
-        }
-        return OBJECT_MAPPER.writeValueAsString(args);
-    }
-
-    private static boolean isJiraMetadataTool(String toolName) {
-        return bareToolName(toolName) != null
-                && "getJiraIssueTypeMetaWithFields".equals(bareToolName(toolName));
-    }
-
-    private static String bareToolName(String toolName) {
-        if (toolName == null) {
-            return null;
-        }
-        return toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
-    }
-
     private boolean isLikelyAuthError(String message) {
         if (message == null) {
             return false;
@@ -559,9 +385,6 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 || lower.contains("reconnect");
     }
 
-    /**
-     * Flattens MCP tool output into a string for LLM tool result messages.
-     */
     private String formatToolResult(JsonNode result) {
         if (result.has("content") && result.get("content").isArray()) {
             StringBuilder text = new StringBuilder();

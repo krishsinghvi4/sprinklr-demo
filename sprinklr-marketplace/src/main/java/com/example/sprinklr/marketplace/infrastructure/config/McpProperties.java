@@ -3,8 +3,6 @@ package com.example.sprinklr.marketplace.infrastructure.config;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.List;
-
 /**
  * MCP configuration values used for discovery, OAuth, and agentic limits.
  */
@@ -26,10 +24,6 @@ public class McpProperties {
     private long oauthStateTtlSeconds = 600;
     private String oauthSuccessRedirectUrl = "http://localhost:5173/profile?oauth=success";
     private String oauthErrorRedirectUrl = "http://localhost:5173/profile?oauth=error";
-    /** Streamable HTTP endpoint for the zereight GitLab MCP server (docker maps 3333 -> 3002). */
-    private String gitlabMcpEndpointUrl = "http://127.0.0.1:3333/mcp";
-    /** GitLab MCP auth header mode: private-token (default) or bearer. */
-    private String gitlabAuthHeaderMode = "private-token";
 
     /** Progressive tool-context (router + dependency-graph expansion) settings. */
     private ToolSelection toolSelection = new ToolSelection();
@@ -54,14 +48,5 @@ public class McpProperties {
         private boolean dependencyPreflightEnabled = true;
         /** TTL (hours) for cross-turn continuation state. */
         private int continuationTtlHours = 24;
-        /**
-         * Tools that must never be treated as "satisfied" across turns — they are re-expanded every turn
-         * (e.g. cloudId discovery and Jira create metadata per jira.txt).
-         */
-        private List<String> continuationNeverSatisfyTools = List.of(
-                "jira.getAccessibleAtlassianResources",
-                "jira.getJiraProjectIssueTypesMetadata",
-                "jira.getJiraIssueTypeMetaWithFields"
-        );
     }
 }

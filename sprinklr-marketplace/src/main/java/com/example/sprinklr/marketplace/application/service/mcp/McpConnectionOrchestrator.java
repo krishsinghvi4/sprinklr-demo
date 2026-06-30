@@ -3,6 +3,7 @@ package com.example.sprinklr.marketplace.application.service.mcp;
 import com.example.sprinklr.marketplace.application.service.McpMarketplaceService;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
+import com.example.sprinklr.marketplace.domain.model.McpToolSelectionConfig;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
@@ -147,14 +148,27 @@ public class McpConnectionOrchestrator {
             return;
         }
         try {
-            ToolDependencyGraph graph = toolDependencyGraphPort.generate(
-                    catalogEntry.serverIdPrefix(), saved.tools());
+            ToolDependencyGraph graph;
+            if (shouldSkipDependencyGraph(catalogEntry)) {
+                log.info("[MCP] Dependency-graph generation skipped for prefix={} (catalog skipDependencyGraph)",
+                        catalogEntry.serverIdPrefix());
+                graph = toolDependencyGraphPort.emptyReadyGraph(
+                        catalogEntry.serverIdPrefix(), saved.tools());
+            } else {
+                graph = toolDependencyGraphPort.generate(
+                        catalogEntry.serverIdPrefix(), saved.tools());
+            }
             registryPort.updateDependencyGraph(saved.id(), graph);
         } catch (Exception exception) {
             // Defensive: generate() should not throw, but a storage hiccup must not fail connect.
             log.warn("[MCP] Dependency-graph generation/storage failed connectionId={}: {}",
                     saved.id(), exception.getMessage());
         }
+    }
+
+    private static boolean shouldSkipDependencyGraph(McpCatalogEntry catalogEntry) {
+        McpToolSelectionConfig toolSelection = catalogEntry.toolSelection();
+        return toolSelection != null && toolSelection.skipDependencyGraph();
     }
 
     private McpMarketplaceService.ConnectionView toConnectionView(

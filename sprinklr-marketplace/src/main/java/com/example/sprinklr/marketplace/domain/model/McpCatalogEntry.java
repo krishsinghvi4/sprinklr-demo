@@ -15,7 +15,9 @@ public record McpCatalogEntry(
         McpAuthConfig authConfig,
         McpConnectMethod connectMethod,
         List<McpCredentialField> credentialFields,
-        String llmSkillPath
+        String llmSkillPath,
+        McpConnectProbeConfig connectProbe,
+        McpToolSelectionConfig toolSelection
 ) {
 
     public McpCatalogEntry {
@@ -41,6 +43,23 @@ public record McpCatalogEntry(
             throw new IllegalArgumentException("McpConnectMethod connectMethod must not be null");
         }
         credentialFields = credentialFields == null ? List.of() : List.copyOf(credentialFields);
+    }
+
+    /** Backward-compatible constructor without connectProbe and toolSelection. */
+    public McpCatalogEntry(
+            String id,
+            String displayName,
+            String description,
+            String endpointUrl,
+            String serverIdPrefix,
+            String authType,
+            McpAuthConfig authConfig,
+            McpConnectMethod connectMethod,
+            List<McpCredentialField> credentialFields,
+            String llmSkillPath
+    ) {
+        this(id, displayName, description, endpointUrl, serverIdPrefix, authType, authConfig,
+                connectMethod, credentialFields, llmSkillPath, null, null);
     }
 
     /** Returns true when this entry uses OAuth redirect connect flow. */

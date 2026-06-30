@@ -10,18 +10,22 @@ import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyIterable;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -30,13 +34,26 @@ class ToolSelectionServiceTest {
 
     private final ToolRouterPort router = mock(ToolRouterPort.class);
     private final McpProperties properties = new McpProperties();
-    private final ToolSelectionService service = new ToolSelectionService(router, properties);
+    private final McpCatalogToolSelectionSupport catalogToolSelectionSupport =
+            mock(McpCatalogToolSelectionSupport.class);
+    private final ToolSelectionService service =
+            new ToolSelectionService(router, properties, catalogToolSelectionSupport);
 
     private final McpTool getResources = tool("jira.getAccessibleAtlassianResources");
     private final McpTool getMeta = tool("jira.getJiraProjectIssueTypesMetadata");
     private final McpTool createIssue = tool("jira.createJiraIssue");
     private final McpTool searchIssues = tool("jira.searchJiraIssuesUsingJql");
     private final List<McpTool> allTools = List.of(getResources, getMeta, createIssue, searchIssues);
+
+    @BeforeEach
+    void stubCatalogNeverSatisfyTools() {
+        when(catalogToolSelectionSupport.continuationNeverSatisfyToolsForToolNames(anyIterable()))
+                .thenReturn(Set.of(
+                        "jira.getAccessibleAtlassianResources",
+                        "jira.getJiraProjectIssueTypesMetadata",
+                        "jira.getJiraIssueTypeMetaWithFields"
+                ));
+    }
 
     private final ToolDependencyGraph jiraGraph = new ToolDependencyGraph(
             "jira",

@@ -1,18 +1,45 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.gitlab;
 
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class GitLabRequiredArgsPreflightGuardTest {
 
     private GitLabRequiredArgsPreflightGuard guard;
+    private McpConnectionRepository connectionRepository;
 
     @BeforeEach
     void setUp() {
-        guard = new GitLabRequiredArgsPreflightGuard();
+        connectionRepository = mock(McpConnectionRepository.class);
+        guard = new GitLabRequiredArgsPreflightGuard(connectionRepository);
+        when(connectionRepository.findById("conn-gitlab")).thenReturn(Optional.of(
+                new McpConnectionDocument(
+                        "conn-gitlab",
+                        "user-1",
+                        "gitlab-mcp",
+                        "gitlab",
+                        "encrypted",
+                        null,
+                        null,
+                        "CONNECTED",
+                        List.of(),
+                        Instant.now(),
+                        null,
+                        null,
+                        null
+                )
+        ));
     }
 
     @Test
@@ -26,7 +53,7 @@ class GitLabRequiredArgsPreflightGuardTest {
                 """;
         String prompt = "for branch master is there any conflict for commit e454499742155df35e3333bea031925df7a72ba5?";
 
-        var result = guard.validate("gitlab.get_branch_diffs", args, prompt);
+        var result = guard.validate("gitlab.get_branch_diffs", args, prompt, "conn-gitlab");
         assertFalse(result.allowed());
     }
 
@@ -40,7 +67,7 @@ class GitLabRequiredArgsPreflightGuardTest {
                 """;
         String prompt = "in project spr-dev/my-repo show commit e454499742155df35e3333bea031925df7a72ba5";
 
-        var result = guard.validate("gitlab.get_commit", args, prompt);
+        var result = guard.validate("gitlab.get_commit", args, prompt, "conn-gitlab");
         assertTrue(result.allowed());
     }
 
@@ -51,7 +78,7 @@ class GitLabRequiredArgsPreflightGuardTest {
                   "sha": "abc123"
                 }
                 """;
-        var result = guard.validate("get_commit", args, "show commit abc123 on master branch");
+        var result = guard.validate("get_commit", args, "show commit abc123 on master branch", "conn-gitlab");
         assertFalse(result.allowed());
     }
 
@@ -70,7 +97,7 @@ class GitLabRequiredArgsPreflightGuardTest {
                 yes
                 """;
 
-        var result = guard.validate("gitlab.get_commit", args, conversationContext);
+        var result = guard.validate("gitlab.get_commit", args, conversationContext, "conn-gitlab");
         assertTrue(result.allowed());
     }
 
@@ -84,7 +111,7 @@ class GitLabRequiredArgsPreflightGuardTest {
                 """;
         String conversationContext = "check commit abc123 in sprinklr/main/sprinklr.app on master";
 
-        var result = guard.validate("gitlab.get_commit", args, conversationContext);
+        var result = guard.validate("gitlab.get_commit", args, conversationContext, "conn-gitlab");
         assertTrue(result.allowed());
     }
 
@@ -96,13 +123,13 @@ class GitLabRequiredArgsPreflightGuardTest {
                   "sha": "abc123"
                 }
                 """;
-        var result = guard.validate("gitlab.get_commit", args, "show commit abc123");
+        var result = guard.validate("gitlab.get_commit", args, "show commit abc123", "conn-gitlab");
         assertFalse(result.allowed());
     }
 
     @Test
     void ignoresNonProjectScopedTools() {
-        var result = guard.validate("gitlab.whoami", "{}", "who am I");
+        var result = guard.validate("gitlab.whoami", "{}", "who am I", "conn-gitlab");
         assertTrue(result.allowed());
     }
 }
