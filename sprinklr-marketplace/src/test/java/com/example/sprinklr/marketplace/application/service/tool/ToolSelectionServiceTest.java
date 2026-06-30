@@ -10,6 +10,7 @@ import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraLocalToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.RedQueryToolSelectionSupport;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,8 +39,14 @@ class ToolSelectionServiceTest {
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport =
             mock(McpCatalogToolSelectionSupport.class);
     private final RedQueryToolSelectionSupport redQueryToolSelectionSupport = new RedQueryToolSelectionSupport();
+    private final JiraLocalToolSelectionSupport jiraLocalToolSelectionSupport = new JiraLocalToolSelectionSupport();
     private final ToolSelectionService service =
-            new ToolSelectionService(router, properties, catalogToolSelectionSupport, redQueryToolSelectionSupport);
+            new ToolSelectionService(
+                    router,
+                    properties,
+                    catalogToolSelectionSupport,
+                    redQueryToolSelectionSupport,
+                    jiraLocalToolSelectionSupport);
 
     private final McpTool getResources = tool("jira.getAccessibleAtlassianResources");
     private final McpTool getMeta = tool("jira.getJiraProjectIssueTypesMetadata");
@@ -257,6 +264,26 @@ class ToolSelectionServiceTest {
 
         assertEquals(
                 List.of("red.red_sample_elasticsearch_query", "red.red_execute_elastic_search_query"),
+                names(result));
+    }
+
+    @Test
+    void expandsAccessibleResourcesBeforeChangelogTool() {
+        McpTool changelog = tool("jira.getJiraIssueChangelog");
+        List<McpTool> tools = List.of(getResources, changelog);
+
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.selected(List.of("jira.getJiraIssueChangelog")));
+
+        ToolSelectionResult result = service.selectTools(
+                "show status history for ITOPS-1",
+                List.of(),
+                tools,
+                List.of(),
+                Optional.empty());
+
+        assertEquals(
+                List.of("jira.getAccessibleAtlassianResources", "jira.getJiraIssueChangelog"),
                 names(result));
     }
 

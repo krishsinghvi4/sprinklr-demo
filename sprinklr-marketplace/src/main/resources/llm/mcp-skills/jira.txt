@@ -13,6 +13,10 @@ For search, edit, transition, and comment tools: if a required parameter (issue 
 - `getAccessibleAtlassianResources` first, then `getJiraIssue` with the issue key (e.g. ITOPS-123) from the user's message or a prior search in the current turn.
 - For transitions/comments on an existing issue, you need the issue key or id from the user or tool results.
 
+### Issue change history
+- `getAccessibleAtlassianResources` first, then `getJiraIssueChangelog` with `cloudId` + issue key.
+- Use when the user asks about status history, who changed fields, assignee/priority changes, or the ticket timeline.
+
 ### Actions
 - **Update status:** `getAccessibleAtlassianResources` → `getTransitionsForJiraIssue` → `transitionJiraIssue`
 - **Assign / edit fields:** `getAccessibleAtlassianResources` → `lookupJiraAccountId` (when assignee named) → `editJiraIssue`

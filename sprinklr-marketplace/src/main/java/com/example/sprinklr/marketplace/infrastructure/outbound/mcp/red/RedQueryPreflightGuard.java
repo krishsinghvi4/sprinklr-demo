@@ -37,23 +37,6 @@ public class RedQueryPreflightGuard implements McpInvocationPreflightStrategy {
             return PreflightResult.allow();
         }
 
-        // #region agent log
-        try {
-            String line = "{\"sessionId\":\"82e02b\",\"timestamp\":" + System.currentTimeMillis()
-                    + ",\"location\":\"RedQueryPreflightGuard:block\",\"message\":\"blocking execute without sample this turn\","
-                    + "\"data\":{\"executeTool\":\"" + fullyQualified + "\",\"sampleTool\":\"" + sampleTool
-                    + "\",\"toolsCalledMarker\":\"" + extractToolsCalledMarker(context).replace("\"", "\\\"")
-                    + "\"},\"hypothesisId\":\"C\"}\n";
-            java.nio.file.Files.writeString(
-                    java.nio.file.Path.of("/Users/krish.singhvi/Desktop/sprinklr-demo/.cursor/debug-82e02b.log"),
-                    line,
-                    java.nio.charset.StandardCharsets.UTF_8,
-                    java.nio.file.StandardOpenOption.CREATE,
-                    java.nio.file.StandardOpenOption.APPEND);
-        } catch (Exception ignored) {
-        }
-        // #endregion
-
         return PreflightResult.block(
                 "Call " + bareToolName(sampleTool) + " first in this turn to discover field names, "
                         + "then call " + bareToolName(fullyQualified) + " with a filter built from those samples."

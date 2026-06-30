@@ -10,6 +10,8 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.M
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolResultPostProcessor;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationContext;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationPreparer;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.CompositeMcpLocalToolExtension;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolInvocationContext;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -40,19 +42,22 @@ public class HttpMcpClientAdapter implements McpServerPort {
     private final McpCircuitBreakerFactory circuitBreakerFactory;
     private final McpInvocationPreparer invocationPreparer;
     private final CompositeMcpToolResultPostProcessor resultPostProcessor;
+    private final CompositeMcpLocalToolExtension localToolExtension;
 
     public HttpMcpClientAdapter(
             McpConnectionRepository connectionRepository,
             StreamableHttpMcpClient mcpClient,
             McpCircuitBreakerFactory circuitBreakerFactory,
             McpInvocationPreparer invocationPreparer,
-            CompositeMcpToolResultPostProcessor resultPostProcessor
+            CompositeMcpToolResultPostProcessor resultPostProcessor,
+            CompositeMcpLocalToolExtension localToolExtension
     ) {
         this.connectionRepository = connectionRepository;
         this.mcpClient = mcpClient;
         this.circuitBreakerFactory = circuitBreakerFactory;
         this.invocationPreparer = invocationPreparer;
         this.resultPostProcessor = resultPostProcessor;
+        this.localToolExtension = localToolExtension;
     }
 
     @Override
@@ -116,6 +121,25 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 invocation.toolName(),
                 invocation.argumentsJson()
         );
+
+        if (localToolExtension.handles(prepared.catalogEntry(), invocation.toolName())) {
+            McpLocalToolInvocationContext localContext = new McpLocalToolInvocationContext(
+                    prepared.catalogEntry(),
+                    connection,
+                    prepared.credentials(),
+                    prepared.authHeaders(),
+                    prepared.session(),
+                    prepared.argumentsJson()
+            );
+            String localContent = localToolExtension.invoke(
+                    prepared.catalogEntry(),
+                    invocation.toolName(),
+                    localContext
+            );
+            log.info("[MCP] Local tool success connectionId={} tool={} resultLen={}",
+                    connection.id(), invocation.toolName(), localContent.length());
+            return new McpInvocationResult(invocation.toolCallId(), true, localContent, null);
+        }
 
         JsonNode result = callToolWithTransientRetry(
                 connection,

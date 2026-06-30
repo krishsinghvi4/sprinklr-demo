@@ -10,6 +10,7 @@ import com.example.sprinklr.marketplace.domain.port.outbound.ToolDependencyGraph
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect.CompositeMcpConnectValidationAdapter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -49,6 +50,8 @@ class McpConnectionOrchestratorTest {
     private ToolDependencyGraphPort toolDependencyGraphPort;
     @Mock
     private McpProvider provider;
+    @Mock
+    private McpLocalToolCatalogMerger localToolCatalogMerger;
 
     private final McpProperties mcpProperties = new McpProperties();
 
@@ -70,7 +73,8 @@ class McpConnectionOrchestratorTest {
                 providerResolver,
                 connectValidationAdapter,
                 toolDependencyGraphPort,
-                mcpProperties
+                mcpProperties,
+                localToolCatalogMerger
         );
     }
 
@@ -82,6 +86,7 @@ class McpConnectionOrchestratorTest {
         when(provider.buildAuthHeaders(any(), any())).thenReturn(Map.of("Authorization", "Bearer token"));
         when(discoveryPort.discover(any(), any(), any(), any()))
                 .thenReturn(new McpDiscoveryPort.McpDiscoveryResult("session-1", "2024-11-05", discoveredTools));
+        when(localToolCatalogMerger.merge(any(), any(), eq(discoveredTools))).thenReturn(discoveredTools);
         when(credentialVault.encrypt(any())).thenReturn("encrypted");
         when(registryPort.saveConnection(any(), any(), eq("red"))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -107,6 +112,7 @@ class McpConnectionOrchestratorTest {
         when(provider.buildAuthHeaders(any(), any())).thenReturn(Map.of("PRIVATE-TOKEN", "token"));
         when(discoveryPort.discover(any(), any(), any(), any()))
                 .thenReturn(new McpDiscoveryPort.McpDiscoveryResult("session-1", "2024-11-05", discoveredTools));
+        when(localToolCatalogMerger.merge(any(), any(), eq(discoveredTools))).thenReturn(discoveredTools);
         when(credentialVault.encrypt(any())).thenReturn("encrypted");
         when(registryPort.saveConnection(any(), any(), eq("gitlab"))).thenAnswer(invocation -> invocation.getArgument(0));
 

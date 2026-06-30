@@ -36,10 +36,6 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -60,8 +56,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class ChatOrchestrator implements ChatUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(ChatOrchestrator.class);
-    private static final Path DEBUG_LOG_PATH = Path.of(
-            "/Users/krish.singhvi/Desktop/sprinklr-demo/.cursor/debug-82e02b.log");
     private static final String TOOL_LIMIT_MESSAGE =
             "Tool call limit reached for this request. Please try a simpler question.";
 
@@ -194,13 +188,6 @@ public class ChatOrchestrator implements ChatUseCase {
                 if (llmResponse.toolCalls().isEmpty()) {
                     Optional<String> pendingExecute = redQueryWorkflowSupport.pendingExecuteAfterSample(
                             toolsForTurn, executedToolNames);
-                    // #region agent log
-                    debugLog("ChatOrchestrator:textResponse", "pendingExecute after text LLM response",
-                            "{\"iteration\":" + iteration + ",\"executed\":" + jsonList(executedToolNames)
-                                    + ",\"pendingPresent\":" + pendingExecute.isPresent()
-                                    + ",\"pendingTool\":\"" + pendingExecute.orElse("") + "\"}",
-                            "B");
-                    // #endregion
                     if (pendingExecute.isPresent() && iteration > 0) {
                         log.info("[Orchestrator] RED sample complete but {} pending — continuing agentic loop",
                                 pendingExecute.get());
@@ -256,13 +243,6 @@ public class ChatOrchestrator implements ChatUseCase {
                         toolsForTurn, userTools, executedToolNames);
                 pendingExecuteAfterBatch = redQueryWorkflowSupport.pendingExecuteAfterSample(
                         toolsForTurn, executedToolNames);
-                // #region agent log
-                debugLog("ChatOrchestrator:afterToolBatch", "pendingExecute after tool batch",
-                        "{\"iteration\":" + iteration + ",\"executed\":" + jsonList(executedToolNames)
-                                + ",\"pendingPresent\":" + pendingExecuteAfterBatch.isPresent()
-                                + ",\"pendingTool\":\"" + pendingExecuteAfterBatch.orElse("") + "\"}",
-                        "A");
-                // #endregion
                 if (pendingExecuteAfterBatch.isPresent()) {
                     log.info("[Orchestrator] RED sample ran — nudging {} before next LLM call",
                             pendingExecuteAfterBatch.get());
@@ -741,30 +721,6 @@ public class ChatOrchestrator implements ChatUseCase {
     private String newId() {
         return UUID.randomUUID().toString();
     }
-
-    // #region agent log
-    private static void debugLog(String location, String message, String dataJson, String hypothesisId) {
-        try {
-            String line = "{\"sessionId\":\"82e02b\",\"timestamp\":" + System.currentTimeMillis()
-                    + ",\"location\":\"" + location + "\",\"message\":\"" + message + "\",\"data\":"
-                    + dataJson + ",\"hypothesisId\":\"" + hypothesisId + "\"}\n";
-            Files.writeString(DEBUG_LOG_PATH, line, StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception ignored) {
-        }
-    }
-
-    private static String jsonList(List<String> values) {
-        StringBuilder builder = new StringBuilder("[");
-        for (int i = 0; i < values.size(); i++) {
-            if (i > 0) {
-                builder.append(',');
-            }
-            builder.append('"').append(values.get(i).replace("\"", "\\\"")).append('"');
-        }
-        return builder.append(']').toString();
-    }
-    // #endregion
 
     /**
      * Manages multi-chunk SSE delivery for tool-turn progress and final response.

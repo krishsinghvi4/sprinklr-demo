@@ -2,6 +2,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
 import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
 import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
@@ -9,6 +10,8 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,7 +19,8 @@ class MongoMcpRegistryAdapterEdgeMappingTest {
 
     @Test
     void roundTripsDottedToolNamesThroughEdgeDocuments() throws Exception {
-        MongoMcpRegistryAdapter adapter = new MongoMcpRegistryAdapter(null);
+        McpLocalToolCatalogMerger merger = mock(McpLocalToolCatalogMerger.class);
+        MongoMcpRegistryAdapter adapter = new MongoMcpRegistryAdapter(null, merger);
         Map<String, List<String>> edges = Map.of(
                 "gitlab.list_pipelines", List.of("gitlab.get_project"),
                 "jira.createJiraIssue", List.of("jira.getAccessibleAtlassianResources")
@@ -39,7 +43,7 @@ class MongoMcpRegistryAdapterEdgeMappingTest {
                 Instant.now(),
                 DependencyGraphStatus.READY
         );
-        MongoMcpRegistryAdapter adapter = new MongoMcpRegistryAdapter(null);
+        MongoMcpRegistryAdapter adapter = new MongoMcpRegistryAdapter(null, mock(McpLocalToolCatalogMerger.class));
 
         List<EdgeDocument> documents = (List<EdgeDocument>) invoke(adapter, "toEdgeDocuments", Map.class, graph.edges());
         ToolDependencyGraphDocument document = new ToolDependencyGraphDocument(documents, graph.toolsFingerprint(),

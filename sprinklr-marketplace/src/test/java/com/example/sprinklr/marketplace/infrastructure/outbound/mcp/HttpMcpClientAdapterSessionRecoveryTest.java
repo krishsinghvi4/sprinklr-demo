@@ -11,6 +11,7 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.M
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolArgumentNormalizer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolResultPostProcessor;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.CompositeMcpLocalToolExtension;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationPreparer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
@@ -173,7 +174,8 @@ class HttpMcpClientAdapterSessionRecoveryTest {
                 mcpClient,
                 circuitBreakerFactory,
                 invocationPreparer,
-                new CompositeMcpToolResultPostProcessor(List.of())
+                new CompositeMcpToolResultPostProcessor(List.of()),
+                new CompositeMcpLocalToolExtension(List.of())
         );
 
         return new GitLabAdapterDeps(adapter, mcpClient, oauthTokenRefreshService, connection, catalogEntry);

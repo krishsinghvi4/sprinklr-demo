@@ -9,10 +9,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.util.Set;
 
 /**
@@ -23,8 +19,6 @@ public class RedQueryArgumentNormalizer implements McpToolArgumentNormalizer {
 
     private static final Logger log = LoggerFactory.getLogger(RedQueryArgumentNormalizer.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    private static final Path DEBUG_LOG_PATH = Path.of(
-            "/Users/krish.singhvi/Desktop/sprinklr-demo/.cursor/debug-82e02b.log");
     private static final String RED_PREFIX = "red";
     private static final Set<String> ELASTICSEARCH_EXECUTE_TOOLS = Set.of("red_execute_elastic_search_query");
 
@@ -73,12 +67,6 @@ public class RedQueryArgumentNormalizer implements McpToolArgumentNormalizer {
                         args.put("query", fixed);
                         log.info("[MCP] Normalized RED ES tool={} corrected filter fields using sample schema",
                                 toolName);
-                        // #region agent log
-                        debugLog("RedQueryArgumentNormalizer:correctFields",
-                                "sample-driven field correction",
-                                "{\"samplePathCount\":" + catalog.paths().size() + "}",
-                                "D");
-                        // #endregion
                     }
                 });
             }
@@ -95,17 +83,4 @@ public class RedQueryArgumentNormalizer implements McpToolArgumentNormalizer {
         }
         return toolName.contains(".") ? toolName.substring(toolName.indexOf('.') + 1) : toolName;
     }
-
-    // #region agent log
-    private static void debugLog(String location, String message, String dataJson, String hypothesisId) {
-        try {
-            String line = "{\"sessionId\":\"82e02b\",\"timestamp\":" + System.currentTimeMillis()
-                    + ",\"location\":\"" + location + "\",\"message\":\"" + message + "\",\"data\":"
-                    + dataJson + ",\"hypothesisId\":\"" + hypothesisId + "\"}\n";
-            Files.writeString(DEBUG_LOG_PATH, line, StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception ignored) {
-        }
-    }
-    // #endregion
 }

@@ -11,6 +11,7 @@ import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraLocalToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.RedQueryToolSelectionSupport;
 import org.slf4j.Logger;
@@ -41,17 +42,20 @@ public class ToolSelectionService {
     private final McpProperties mcpProperties;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
     private final RedQueryToolSelectionSupport redQueryToolSelectionSupport;
+    private final JiraLocalToolSelectionSupport jiraLocalToolSelectionSupport;
 
     public ToolSelectionService(
             ToolRouterPort toolRouterPort,
             McpProperties mcpProperties,
             McpCatalogToolSelectionSupport catalogToolSelectionSupport,
-            RedQueryToolSelectionSupport redQueryToolSelectionSupport
+            RedQueryToolSelectionSupport redQueryToolSelectionSupport,
+            JiraLocalToolSelectionSupport jiraLocalToolSelectionSupport
     ) {
         this.toolRouterPort = toolRouterPort;
         this.mcpProperties = mcpProperties;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
         this.redQueryToolSelectionSupport = redQueryToolSelectionSupport;
+        this.jiraLocalToolSelectionSupport = jiraLocalToolSelectionSupport;
     }
 
     public ToolSelectionResult selectTools(
@@ -153,6 +157,17 @@ public class ToolSelectionService {
                     // Sample/execute pairs are per-turn schema discovery — never omit a half because a prior turn ran it.
                     if (toolsByName.containsKey(pairedTool) && seen.add(pairedTool)) {
                         ordered.add(pairedTool);
+                    }
+                }
+                continue;
+            }
+            if (jiraLocalToolSelectionSupport.hasLocalPrerequisites(toolName)) {
+                for (String expandedTool : jiraLocalToolSelectionSupport.prerequisitesFor(toolName, toolsByName.keySet())) {
+                    if (satisfied.contains(expandedTool)) {
+                        continue;
+                    }
+                    if (toolsByName.containsKey(expandedTool) && seen.add(expandedTool)) {
+                        ordered.add(expandedTool);
                     }
                 }
                 continue;

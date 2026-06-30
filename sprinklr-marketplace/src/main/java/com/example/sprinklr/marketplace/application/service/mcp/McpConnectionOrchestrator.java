@@ -15,11 +15,14 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.M
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect.CompositeMcpConnectValidationAdapter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
+import com.example.sprinklr.marketplace.domain.model.McpTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -41,6 +44,7 @@ public class McpConnectionOrchestrator {
     private final CompositeMcpConnectValidationAdapter connectValidationAdapter;
     private final ToolDependencyGraphPort toolDependencyGraphPort;
     private final McpProperties mcpProperties;
+    private final McpLocalToolCatalogMerger localToolCatalogMerger;
 
     public McpConnectionOrchestrator(
             McpCatalogLoader catalogLoader,
@@ -50,7 +54,8 @@ public class McpConnectionOrchestrator {
             McpProviderResolver providerResolver,
             CompositeMcpConnectValidationAdapter connectValidationAdapter,
             ToolDependencyGraphPort toolDependencyGraphPort,
-            McpProperties mcpProperties
+            McpProperties mcpProperties,
+            McpLocalToolCatalogMerger localToolCatalogMerger
     ) {
         this.catalogLoader = catalogLoader;
         this.registryPort = registryPort;
@@ -60,6 +65,7 @@ public class McpConnectionOrchestrator {
         this.connectValidationAdapter = connectValidationAdapter;
         this.toolDependencyGraphPort = toolDependencyGraphPort;
         this.mcpProperties = mcpProperties;
+        this.localToolCatalogMerger = localToolCatalogMerger;
     }
 
     public McpMarketplaceService.ConnectionView connectWithCredentials(
@@ -112,6 +118,11 @@ public class McpConnectionOrchestrator {
         }
 
         String encrypted = credentialVault.encrypt(credentials);
+        List<McpTool> mergedTools = localToolCatalogMerger.merge(
+                catalogEntry,
+                connectionId,
+                discoveryResult.tools()
+        );
         McpUserConnection connection = new McpUserConnection(
                 connectionId,
                 userId,
@@ -119,7 +130,7 @@ public class McpConnectionOrchestrator {
                 McpConnectionStatus.CONNECTED,
                 discoveryResult.sessionId(),
                 discoveryResult.protocolVersion(),
-                discoveryResult.tools(),
+                mergedTools,
                 Instant.now(),
                 null
         );

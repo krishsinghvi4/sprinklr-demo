@@ -6,6 +6,7 @@ import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -26,9 +27,14 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
     private static final Logger log = LoggerFactory.getLogger(MongoMcpRegistryAdapter.class);
 
     private final McpConnectionRepository repository;
+    private final McpLocalToolCatalogMerger localToolCatalogMerger;
 
-    public MongoMcpRegistryAdapter(McpConnectionRepository repository) {
+    public MongoMcpRegistryAdapter(
+            McpConnectionRepository repository,
+            McpLocalToolCatalogMerger localToolCatalogMerger
+    ) {
         this.repository = repository;
+        this.localToolCatalogMerger = localToolCatalogMerger;
     }
 
     /**
@@ -136,8 +142,12 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
     public List<McpTool> findActiveToolsForUser(String userId) {
         return repository.findByUserId(userId).stream()
                 .filter(doc -> McpConnectionStatus.CONNECTED.name().equals(doc.status()))
-                .flatMap(doc -> doc.tools().stream())
-                .map(this::toTool)
+                .flatMap(doc -> {
+                    List<McpTool> remoteTools = doc.tools() == null
+                            ? List.of()
+                            : doc.tools().stream().map(this::toTool).toList();
+                    return localToolCatalogMerger.merge(doc, remoteTools).stream();
+                })
                 .toList();
     }
 
