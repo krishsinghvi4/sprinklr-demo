@@ -13,6 +13,13 @@ public interface DashboardTurnRepository extends ReactiveMongoRepository<Dashboa
 
     Mono<DashboardTurnDocument> findByIdAndUserId(String id, String userId);
 
+    Mono<DashboardTurnDocument> findByUserIdAndSourceChatMessageId(String userId, String sourceChatMessageId);
+
+    Flux<DashboardTurnDocument> findByUserIdAndDashboardConversationIdOrderByCreatedAtAsc(
+            String userId,
+            String dashboardConversationId
+    );
+
     Mono<Void> deleteByIdAndUserId(String id, String userId);
 
     Mono<Void> deleteByDashboardConversationIdAndUserId(String dashboardConversationId, String userId);

@@ -156,6 +156,8 @@ interface AssistantMessageContentProps {
   onSaveToDashboard?: () => void
   onExpandWidget?: (widget: WidgetSpec) => Promise<string | null>
   saveDisabled?: boolean
+  isAlreadySaved?: boolean
+  dashboardLink?: string
 }
 
 export default function AssistantMessageContent({
@@ -164,6 +166,8 @@ export default function AssistantMessageContent({
   onSaveToDashboard,
   onExpandWidget,
   saveDisabled = false,
+  isAlreadySaved = false,
+  dashboardLink,
 }: AssistantMessageContentProps) {
   const segments = parseAssistantContent(content)
 
@@ -188,6 +192,8 @@ export default function AssistantMessageContent({
               onSaveToDashboard={onSaveToDashboard}
               onExpandWidget={onExpandWidget}
               saveDisabled={saveDisabled}
+              isAlreadySaved={isAlreadySaved}
+              dashboardLink={dashboardLink}
             />
           )
         }

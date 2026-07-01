@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import Markdown from 'react-markdown'
 import { Loader, RefreshCw, Trash2 } from 'lucide-react'
 import AppHeader from '../components/AppHeader'
-import WidgetBlock from '../components/widgets/WidgetBlock'
+import InsightsWidgetGallery, { type GalleryWidget } from '../components/widgets/InsightsWidgetGallery'
 import {
   deleteDashboardTurn,
   expandDashboardWidget,
@@ -14,7 +13,6 @@ import {
   type DashboardConversationDetail,
   type DashboardTurnDetail,
 } from '../services/insightsService'
-import type { WidgetSpec } from '../types/widgets'
 
 export default function InsightsConversationPage() {
   const { dashboardConversationId } = useParams<{ dashboardConversationId: string }>()
@@ -42,6 +40,26 @@ export default function InsightsConversationPage() {
     void load()
   }, [load])
 
+  const galleryItems = useMemo<GalleryWidget[]>(() => {
+    return turns.flatMap((turn) =>
+      turn.widgets.map((widget) => ({
+        widget,
+        turnId: turn.id,
+        turnPrompt: turn.prompt,
+      })),
+    )
+  }, [turns])
+
+  const mergedExtendedInsights = useMemo(() => {
+    const merged: Record<string, string> = {}
+    for (const turn of turns) {
+      for (const [widgetId, markdown] of Object.entries(turn.extendedInsights)) {
+        merged[`${turn.id}:${widgetId}`] = markdown
+      }
+    }
+    return merged
+  }, [turns])
+
   const handlePromptBlur = async (turnId: string, prompt: string) => {
     if (!dashboardConversationId) return
     const updated = await updateTurnPrompt(dashboardConversationId, turnId, prompt)
@@ -58,13 +76,10 @@ export default function InsightsConversationPage() {
     abortRef.current = abortController
     setRegeneratingTurnId(turn.id)
 
-    let content = ''
     await streamRegenerateTurn(
       dashboardConversationId,
       turn.id,
-      (chunk) => {
-        content += chunk
-      },
+      () => {},
       async () => {
         setRegeneratingTurnId(null)
         abortRef.current = null
@@ -91,15 +106,19 @@ export default function InsightsConversationPage() {
     }
   }
 
-  const handleExpandWidget = (turn: DashboardTurnDetail) => async (widget: WidgetSpec) => {
-    if (!dashboardConversationId) return null
-    return expandDashboardWidget(
-      dashboardConversationId,
-      turn.id,
-      widget.id,
-      turn.toolResultSnapshot ?? undefined,
-    )
-  }
+  const handleExpandWidget = useCallback(
+    (item: GalleryWidget) => {
+      if (!dashboardConversationId) return Promise.resolve(null)
+      const turn = turns.find((t) => t.id === item.turnId)
+      return expandDashboardWidget(
+        dashboardConversationId,
+        item.turnId,
+        item.widget.id,
+        turn?.toolResultSnapshot ?? undefined,
+      )
+    },
+    [dashboardConversationId, turns],
+  )
 
   if (!dashboardConversationId) {
     return null
@@ -112,39 +131,54 @@ export default function InsightsConversationPage() {
         backLink={{ to: '/insights', label: 'All insights' }}
       />
 
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 py-6 space-y-6">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6 space-y-6">
         {isLoading ? (
           <p className="text-gray-500 text-center py-12">Loading…</p>
         ) : !conversation ? (
           <p className="text-gray-500 text-center py-12">Conversation not found</p>
         ) : (
           <>
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">{conversation.title}</h2>
-                <p className="text-sm text-gray-500">
-                  From chat{' '}
-                  <Link to={`/chat/${conversation.sourceConversationId}`} className="text-blue-600 hover:underline">
-                    {conversation.sourceConversationId}
-                  </Link>
-                </p>
-              </div>
-            </div>
+            <header className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+              <h2 className="text-xl font-semibold text-gray-900">{conversation.title}</h2>
+              {conversation.preview && (
+                <p className="text-sm text-gray-600 mt-2">{conversation.preview}</p>
+              )}
+              <p className="text-xs text-gray-400 mt-3">
+                From chat{' '}
+                <Link to={`/chat/${conversation.sourceConversationId}`} className="text-blue-600 hover:underline">
+                  {conversation.sourceConversationId}
+                </Link>
+                {' · '}
+                {conversation.turnCount} saved turn{conversation.turnCount !== 1 ? 's' : ''}
+              </p>
+            </header>
 
-            {turns.length === 0 ? (
-              <p className="text-gray-500 text-center py-8">No saved turns</p>
-            ) : (
-              turns.map((turn) => (
-                <TurnCard
-                  key={turn.id}
-                  turn={turn}
-                  isRegenerating={regeneratingTurnId === turn.id}
-                  onPromptBlur={(prompt) => void handlePromptBlur(turn.id, prompt)}
-                  onRegenerate={() => void handleRegenerate(turn)}
-                  onDelete={() => void handleDeleteTurn(turn.id)}
-                  onExpandWidget={handleExpandWidget(turn)}
-                />
-              ))
+            <section>
+              <InsightsWidgetGallery
+                items={galleryItems}
+                extendedInsights={mergedExtendedInsights}
+                onExpandWidget={handleExpandWidget}
+              />
+            </section>
+
+            {turns.length > 0 && (
+              <details className="bg-white rounded-xl border border-gray-200 shadow-sm">
+                <summary className="px-5 py-4 cursor-pointer text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-xl">
+                  Manage saved analytics ({turns.length})
+                </summary>
+                <div className="border-t border-gray-100 divide-y divide-gray-100">
+                  {turns.map((turn) => (
+                    <TurnManageRow
+                      key={turn.id}
+                      turn={turn}
+                      isRegenerating={regeneratingTurnId === turn.id}
+                      onPromptBlur={(prompt) => void handlePromptBlur(turn.id, prompt)}
+                      onRegenerate={() => void handleRegenerate(turn)}
+                      onDelete={() => void handleDeleteTurn(turn.id)}
+                    />
+                  ))}
+                </div>
+              </details>
             )}
           </>
         )}
@@ -153,23 +187,21 @@ export default function InsightsConversationPage() {
   )
 }
 
-interface TurnCardProps {
+interface TurnManageRowProps {
   turn: DashboardTurnDetail
   isRegenerating: boolean
   onPromptBlur: (prompt: string) => void
   onRegenerate: () => void
   onDelete: () => void
-  onExpandWidget: (widget: WidgetSpec) => Promise<string | null>
 }
 
-function TurnCard({
+function TurnManageRow({
   turn,
   isRegenerating,
   onPromptBlur,
   onRegenerate,
   onDelete,
-  onExpandWidget,
-}: TurnCardProps) {
+}: TurnManageRowProps) {
   const [prompt, setPrompt] = useState(turn.prompt)
 
   useEffect(() => {
@@ -177,79 +209,57 @@ function TurnCard({
   }, [turn.prompt])
 
   return (
-    <article className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-      <div className="p-4 border-b border-gray-100 bg-gray-50">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1">
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Prompt</label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              onBlur={() => {
-                if (prompt.trim() !== turn.prompt) {
-                  onPromptBlur(prompt.trim())
-                }
-              }}
-              rows={2}
-              className="mt-1 w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-            />
-          </div>
-          <div className="flex items-center gap-2 pt-5">
-            {turn.version > 1 && (
-              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
-                v{turn.version}
-              </span>
+    <div className="px-5 py-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Prompt</label>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onBlur={() => {
+              if (prompt.trim() !== turn.prompt) {
+                onPromptBlur(prompt.trim())
+              }
+            }}
+            rows={2}
+            className="mt-1 w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+          />
+          {isRegenerating && (
+            <div className="flex items-center gap-2 text-xs text-gray-500 mt-2">
+              <Loader className="w-3 h-3 animate-spin" />
+              Regenerating analytics…
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 pt-5 shrink-0">
+          {turn.version > 1 && (
+            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+              v{turn.version}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={isRegenerating}
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
+          >
+            {isRegenerating ? (
+              <Loader className="w-3 h-3 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3 h-3" />
             )}
-            <button
-              type="button"
-              onClick={onRegenerate}
-              disabled={isRegenerating}
-              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-            >
-              {isRegenerating ? (
-                <Loader className="w-3 h-3 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3 h-3" />
-              )}
-              Regenerate
-            </button>
-            <button
-              type="button"
-              onClick={onDelete}
-              className="p-1.5 text-gray-400 hover:text-red-600 rounded"
-              title="Delete turn"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
-          </div>
+            Regenerate
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="p-1.5 text-gray-400 hover:text-red-600 rounded"
+            title="Delete turn"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
-
-      <div className="p-4 space-y-4">
-        {isRegenerating && (
-          <div className="flex items-center gap-2 text-sm text-gray-500">
-            <Loader className="w-4 h-4 animate-spin" />
-            Regenerating analytics…
-          </div>
-        )}
-
-        {turn.narrative && (
-          <div className="prose prose-sm max-w-none">
-            <Markdown>{turn.narrative}</Markdown>
-          </div>
-        )}
-
-        {turn.widgets.length > 0 && (
-          <WidgetBlock
-            widgetJson=""
-            widgets={turn.widgets}
-            mode="dashboard"
-            extendedInsights={turn.extendedInsights}
-            onDeleteTurn={onDelete}
-            onExpandWidget={onExpandWidget}
-          />
-        )}
-      </div>
-    </article>
+    </div>
   )
 }

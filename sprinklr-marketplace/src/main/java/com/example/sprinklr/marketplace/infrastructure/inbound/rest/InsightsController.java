@@ -16,6 +16,7 @@ import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ExpandWi
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ExpandWidgetResponse;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.SaveDashboardTurnRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.SaveDashboardTurnResponse;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.SavedMessagesResponse;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.UpdateDashboardTurnPromptRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.WidgetSpecDto;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
@@ -29,6 +30,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -68,6 +70,14 @@ public class InsightsController {
                 .map(this::toSummaryDto)
                 .toList();
         return new DashboardConversationListResponse(conversations);
+    }
+
+    @GetMapping(value = "/saved-messages", produces = MediaType.APPLICATION_JSON_VALUE)
+    public SavedMessagesResponse getSavedMessages(@RequestParam String sourceConversationId) {
+        String userId = authenticatedUserResolver.requireUserId();
+        return insightsDashboardService.getSavedMessages(userId, sourceConversationId)
+                .map(info -> new SavedMessagesResponse(info.dashboardConversationId(), info.savedMessageIds()))
+                .orElse(new SavedMessagesResponse(null, List.of()));
     }
 
     @GetMapping(value = "/conversations/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -121,7 +131,11 @@ public class InsightsController {
                         request.toolResultSnapshot()
                 )
         );
-        return new SaveDashboardTurnResponse(result.conversation().id(), result.turn().id());
+        return new SaveDashboardTurnResponse(
+                result.conversation().id(),
+                result.turn().id(),
+                result.alreadySaved()
+        );
     }
 
     @PostMapping(value = "/turns", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -138,7 +152,11 @@ public class InsightsController {
                         request.toolResultSnapshot()
                 )
         );
-        return new SaveDashboardTurnResponse(result.conversation().id(), result.turn().id());
+        return new SaveDashboardTurnResponse(
+                result.conversation().id(),
+                result.turn().id(),
+                result.alreadySaved()
+        );
     }
 
     @PutMapping(value = "/conversations/{id}/turns/{turnId}", produces = MediaType.APPLICATION_JSON_VALUE)

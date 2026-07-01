@@ -82,6 +82,28 @@ public class MongoInsightsDashboardAdapter implements InsightsDashboardPort {
     }
 
     @Override
+    public Optional<DashboardTurn> findTurnBySourceChatMessageId(String userId, String sourceChatMessageId) {
+        if (sourceChatMessageId == null || sourceChatMessageId.isBlank()) {
+            return Optional.empty();
+        }
+        return turnRepository.findByUserIdAndSourceChatMessageId(userId, sourceChatMessageId)
+                .map(this::toDomainTurn)
+                .blockOptional();
+    }
+
+    @Override
+    public List<String> findSavedSourceMessageIds(String userId, String sourceConversationId) {
+        return conversationRepository.findByUserIdAndSourceConversationId(userId, sourceConversationId)
+                .flatMapMany(conv -> turnRepository.findByUserIdAndDashboardConversationIdOrderByCreatedAtAsc(
+                        userId, conv.id()))
+                .mapNotNull(doc -> doc.sourceChatMessageId())
+                .filter(id -> id != null && !id.isBlank())
+                .collectList()
+                .blockOptional()
+                .orElse(List.of());
+    }
+
+    @Override
     public DashboardTurn saveTurn(DashboardTurn turn) {
         DashboardTurnDocument saved = turnRepository.save(toDocument(turn)).block();
         return toDomainTurn(saved);

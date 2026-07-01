@@ -22,6 +22,10 @@ public interface InsightsDashboardPort {
 
     Optional<DashboardTurn> findTurnById(String turnId, String userId);
 
+    Optional<DashboardTurn> findTurnBySourceChatMessageId(String userId, String sourceChatMessageId);
+
+    List<String> findSavedSourceMessageIds(String userId, String sourceConversationId);
+
     DashboardTurn saveTurn(DashboardTurn turn);
 
     void deleteTurn(String turnId, String userId);

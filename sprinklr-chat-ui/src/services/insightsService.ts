@@ -59,6 +59,26 @@ export interface SaveTurnRequest {
   toolResultSnapshot?: string
 }
 
+export interface SavedMessagesInfo {
+  dashboardConversationId: string | null
+  savedMessageIds: string[]
+}
+
+export async function fetchSavedMessageIds(sourceConversationId: string): Promise<SavedMessagesInfo> {
+  const response = await fetch(
+    `${INSIGHTS_BASE}/saved-messages?sourceConversationId=${encodeURIComponent(sourceConversationId)}`,
+    { headers: getAuthHeaders() },
+  )
+  if (!response.ok) {
+    return { dashboardConversationId: null, savedMessageIds: [] }
+  }
+  const data = await response.json()
+  return {
+    dashboardConversationId: data.dashboardConversationId ?? null,
+    savedMessageIds: data.savedMessageIds ?? [],
+  }
+}
+
 export async function fetchDashboardConversations(): Promise<DashboardConversationSummary[]> {
   const response = await fetch(`${INSIGHTS_BASE}/conversations`, {
     headers: getAuthHeaders(),
@@ -94,7 +114,9 @@ export async function fetchDashboardTurn(
   return response.json()
 }
 
-export async function saveTurnToDashboard(request: SaveTurnRequest): Promise<{ dashboardConversationId: string; turnId: string } | null> {
+export async function saveTurnToDashboard(
+  request: SaveTurnRequest,
+): Promise<{ dashboardConversationId: string; turnId: string; alreadySaved: boolean } | null> {
   const response = await fetch(`${INSIGHTS_BASE}/turns`, {
     method: 'POST',
     headers: getAuthHeaders(),
@@ -103,7 +125,12 @@ export async function saveTurnToDashboard(request: SaveTurnRequest): Promise<{ d
   if (!response.ok) {
     return null
   }
-  return response.json()
+  const data = await response.json()
+  return {
+    dashboardConversationId: data.dashboardConversationId,
+    turnId: data.turnId,
+    alreadySaved: data.alreadySaved ?? false,
+  }
 }
 
 export async function updateTurnPrompt(

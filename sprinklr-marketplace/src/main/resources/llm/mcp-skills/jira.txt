@@ -24,10 +24,13 @@ When the user asks for **analytics**, **history**, **timeline**, **metrics**, **
 2. `getJiraIssueChangelog` with `cloudId` + issue key
 3. Read the changelog JSON (`issueKey`, `histories[]` with `created`, `author`, `changes[]`)
 4. Compute metrics **only** from that data:
-   - Status durations: time between consecutive status transitions using `created` timestamps
-   - Change counts: group by field name or author from `changes[]`
-   - Timeline events: one entry per history item with date, author, and change summary
-5. Respond with markdown narrative + a single ` ```widget ` fence (see system prompt). **Never** use HTML tables for analytics.
+   - Status durations: time between consecutive status transitions using `created` timestamps → `bar`
+   - Change counts by author or field → `pie` or `donut`
+   - Activity over time (group histories by week/month) → `line` or `area`
+   - Timeline events: one entry per history item with date, author, and change summary → `timeline`
+5. Respond with a **1–3 sentence** markdown summary + a single ` ```widget ` fence (see system prompt). **Never** use HTML tables for analytics.
+
+**Required widget mix (when data allows):** status duration bar, change timeline, author/field distribution pie, activity-over-time line. Add an optional `kpi` row for headline numbers. Do **not** default to `table` for history — use `timeline` instead. If changelog is sparse, use fewer widgets but still prefer visual types over text/table.
 
 **Anti-hallucination:** Every value in widget JSON must be traceable to the changelog tool result. If the changelog is empty or missing a field, say so in prose and omit or simplify widgets — do not invent data.
 

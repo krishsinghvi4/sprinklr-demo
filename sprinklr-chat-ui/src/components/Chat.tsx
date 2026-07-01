@@ -5,7 +5,7 @@ import AssistantMessageContent from './AssistantMessageContent'
 import { Message, ChatRequest } from '../types/chat'
 import { streamChat, fetchChatHistory } from '../services/chatService'
 import { extractWidgetBlock, hasWidgetFence } from '../utils/parseWidgetPayload'
-import { expandWidgetInChat, saveTurnToDashboard } from '../services/insightsService'
+import { expandWidgetInChat, fetchSavedMessageIds, saveTurnToDashboard } from '../services/insightsService'
 import type { WidgetSpec } from '../types/widgets'
 
 interface ChatProps {
@@ -22,6 +22,8 @@ export default function Chat({ userId, conversationId }: ChatProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
   const [saveToast, setSaveToast] = useState<{ message: string; link?: string } | null>(null)
   const [savingMessageId, setSavingMessageId] = useState<string | null>(null)
+  const [savedMessageIds, setSavedMessageIds] = useState<Set<string>>(new Set())
+  const [dashboardConversationId, setDashboardConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -29,12 +31,17 @@ export default function Chat({ userId, conversationId }: ChatProps) {
   useEffect(() => {
     const loadHistory = async () => {
       setIsLoadingHistory(true)
-      const history = await fetchChatHistory(conversationId)
+      const [history, savedInfo] = await Promise.all([
+        fetchChatHistory(conversationId),
+        fetchSavedMessageIds(conversationId),
+      ])
       setMessages(history)
+      setSavedMessageIds(new Set(savedInfo.savedMessageIds))
+      setDashboardConversationId(savedInfo.dashboardConversationId)
       setIsLoadingHistory(false)
       scrollToBottom()
     }
-    loadHistory()
+    void loadHistory()
   }, [conversationId])
 
   const scrollToBottom = () => {
@@ -70,8 +77,10 @@ export default function Chat({ userId, conversationId }: ChatProps) {
     })
     setSavingMessageId(null)
     if (result) {
+      setSavedMessageIds((prev) => new Set(prev).add(message.id))
+      setDashboardConversationId(result.dashboardConversationId)
       setSaveToast({
-        message: 'Saved to Insights',
+        message: result.alreadySaved ? 'Already saved to Insights' : 'Saved to Insights',
         link: `/insights/${result.dashboardConversationId}`,
       })
       setTimeout(() => setSaveToast(null), 5000)
@@ -264,6 +273,12 @@ export default function Chat({ userId, conversationId }: ChatProps) {
                     }
                     onExpandWidget={handleExpandWidget}
                     saveDisabled={savingMessageId === message.id}
+                    isAlreadySaved={savedMessageIds.has(message.id)}
+                    dashboardLink={
+                      savedMessageIds.has(message.id) && dashboardConversationId
+                        ? `/insights/${dashboardConversationId}`
+                        : undefined
+                    }
                   />
                 ) : (
                   <p className="whitespace-pre-wrap">{message.content}</p>

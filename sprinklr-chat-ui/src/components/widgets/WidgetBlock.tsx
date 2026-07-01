@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import Markdown from 'react-markdown'
 import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import WidgetRenderer from './WidgetRenderer'
@@ -14,6 +15,8 @@ export interface WidgetBlockProps {
   onDeleteTurn?: () => void
   onExpandWidget?: (widget: WidgetSpec) => Promise<string | null>
   saveDisabled?: boolean
+  isAlreadySaved?: boolean
+  dashboardLink?: string
 }
 
 export default function WidgetBlock({
@@ -25,6 +28,8 @@ export default function WidgetBlock({
   onDeleteTurn,
   onExpandWidget,
   saveDisabled = false,
+  isAlreadySaved = false,
+  dashboardLink,
 }: WidgetBlockProps) {
   const block = widgetsProp
     ? { version: 1 as const, widgets: widgetsProp }
@@ -54,7 +59,15 @@ export default function WidgetBlock({
         ))}
       </div>
       <div className="flex gap-2 pt-1">
-        {mode === 'chat' && onSaveToDashboard && (
+        {mode === 'chat' && isAlreadySaved && dashboardLink && (
+          <Link
+            to={dashboardLink}
+            className="text-xs px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-md hover:bg-green-100"
+          >
+            Saved to Insights
+          </Link>
+        )}
+        {mode === 'chat' && onSaveToDashboard && !isAlreadySaved && (
           <button
             type="button"
             onClick={onSaveToDashboard}

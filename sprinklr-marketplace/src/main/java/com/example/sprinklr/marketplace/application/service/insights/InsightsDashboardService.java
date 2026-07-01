@@ -42,6 +42,17 @@ public class InsightsDashboardService {
     }
 
     public SaveTurnResult saveTurnFromChat(String userId, SaveTurnRequest request) {
+        Optional<DashboardTurn> existing = insightsDashboardPort.findTurnBySourceChatMessageId(
+                userId, request.sourceChatMessageId());
+        if (existing.isPresent()) {
+            DashboardTurn turn = existing.get();
+            DashboardConversation conversation = insightsDashboardPort
+                    .findConversationByIdAndUserId(turn.dashboardConversationId(), userId)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Dashboard conversation missing for saved turn " + turn.id()));
+            return new SaveTurnResult(conversation, turn, true);
+        }
+
         Instant now = Instant.now();
         DashboardConversation conversation = insightsDashboardPort
                 .findConversationBySourceConversationId(userId, request.sourceConversationId())
@@ -80,7 +91,15 @@ public class InsightsDashboardService {
         );
         insightsDashboardPort.saveConversation(updated);
 
-        return new SaveTurnResult(updated, turn);
+        return new SaveTurnResult(updated, turn, false);
+    }
+
+    public Optional<SavedMessagesInfo> getSavedMessages(String userId, String sourceConversationId) {
+        return insightsDashboardPort.findConversationBySourceConversationId(userId, sourceConversationId)
+                .map(conv -> new SavedMessagesInfo(
+                        conv.id(),
+                        insightsDashboardPort.findSavedSourceMessageIds(userId, sourceConversationId)
+                ));
     }
 
     public Optional<DashboardTurn> updatePrompt(String userId, String turnId, String prompt) {
@@ -230,5 +249,7 @@ public class InsightsDashboardService {
             String toolResultSnapshot
     ) {}
 
-    public record SaveTurnResult(DashboardConversation conversation, DashboardTurn turn) {}
+    public record SaveTurnResult(DashboardConversation conversation, DashboardTurn turn, boolean alreadySaved) {}
+
+    public record SavedMessagesInfo(String dashboardConversationId, List<String> savedMessageIds) {}
 }
