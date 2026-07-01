@@ -1,8 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { Send, Bot, User, Loader, Square } from 'lucide-react'
 import AssistantMessageContent from './AssistantMessageContent'
 import { Message, ChatRequest } from '../types/chat'
 import { streamChat, fetchChatHistory } from '../services/chatService'
+import { extractWidgetBlock, hasWidgetFence } from '../utils/parseWidgetPayload'
+import { expandWidgetInChat, saveTurnToDashboard } from '../services/insightsService'
+import type { WidgetSpec } from '../types/widgets'
 
 interface ChatProps {
   userId: string
@@ -16,11 +20,12 @@ export default function Chat({ userId, conversationId }: ChatProps) {
   const [error, setError] = useState<string | null>(null)
   const [lastPrompt, setLastPrompt] = useState<string | null>(null)
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [saveToast, setSaveToast] = useState<{ message: string; link?: string } | null>(null)
+  const [savingMessageId, setSavingMessageId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  // Load chat history when conversation ID changes
   useEffect(() => {
     const loadHistory = async () => {
       setIsLoadingHistory(true)
@@ -39,6 +44,45 @@ export default function Chat({ userId, conversationId }: ChatProps) {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  const findUserPromptForMessage = (assistantIndex: number): string => {
+    for (let i = assistantIndex - 1; i >= 0; i--) {
+      if (messages[i]?.role === 'user') {
+        return messages[i].content
+      }
+    }
+    return lastPrompt ?? ''
+  }
+
+  const handleSaveToDashboard = async (message: Message, messageIndex: number) => {
+    const widgetBlock = extractWidgetBlock(message.content)
+    if (!widgetBlock) {
+      return
+    }
+    const prompt = findUserPromptForMessage(messageIndex)
+    setSavingMessageId(message.id)
+    const result = await saveTurnToDashboard({
+      sourceConversationId: conversationId,
+      sourceChatMessageId: message.id,
+      prompt,
+      assistantContent: message.content,
+      widgets: widgetBlock.widgets,
+    })
+    setSavingMessageId(null)
+    if (result) {
+      setSaveToast({
+        message: 'Saved to Insights',
+        link: `/insights/${result.dashboardConversationId}`,
+      })
+      setTimeout(() => setSaveToast(null), 5000)
+    } else {
+      setError('Failed to save to dashboard')
+    }
+  }
+
+  const handleExpandWidget = async (widget: WidgetSpec) => {
+    return expandWidgetInChat(widget)
+  }
 
   const sendPrompt = async (promptText: string, isRetry = false) => {
     if (!promptText) return
@@ -59,7 +103,6 @@ export default function Chat({ userId, conversationId }: ChatProps) {
     setError(null)
     setIsLoading(true)
 
-    // Reset textarea height
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
     }
@@ -83,19 +126,15 @@ export default function Chat({ userId, conversationId }: ChatProps) {
     const abortController = new AbortController()
     abortControllerRef.current = abortController
 
-    let chunkCount = 0
     try {
       await streamChat(
         chatRequest,
         (chunk) => {
-          chunkCount++
-          console.log(`[Chat] Chunk #${chunkCount}: "${chunk.substring(0, 30)}..." (length: ${chunk.length})`)
           setMessages((prev) => {
             const updated = [...prev]
             const lastMsg = updated[updated.length - 1]
             if (lastMsg && lastMsg.role === 'assistant') {
               lastMsg.content += chunk
-              console.log(`[Chat] Updated message content length: ${lastMsg.content.length}`)
             }
             return updated
           })
@@ -111,7 +150,6 @@ export default function Chat({ userId, conversationId }: ChatProps) {
           if (abortControllerRef.current === abortController) {
             abortControllerRef.current = null
           }
-          console.log(`[Chat] Stream complete. Total chunks received: ${chunkCount}`)
           setIsLoading(false)
         },
         abortController.signal,
@@ -144,7 +182,6 @@ export default function Chat({ userId, conversationId }: ChatProps) {
 
   const handleTextAreaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
-    // Auto-resize textarea
     if (inputRef.current) {
       inputRef.current.style.height = 'auto'
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 150)}px`
@@ -153,7 +190,17 @@ export default function Chat({ userId, conversationId }: ChatProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages Area */}
+      {saveToast && (
+        <div className="bg-green-50 border-b border-green-200 px-4 py-2 text-sm text-green-800 flex items-center justify-between max-w-4xl mx-auto w-full">
+          <span>{saveToast.message}</span>
+          {saveToast.link && (
+            <Link to={saveToast.link} className="font-medium underline hover:text-green-900">
+              View dashboard
+            </Link>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 max-w-4xl mx-auto w-full">
         {isLoadingHistory ? (
           <div className="h-full flex items-center justify-center">
@@ -173,7 +220,7 @@ export default function Chat({ userId, conversationId }: ChatProps) {
           </div>
         ) : null}
 
-        {messages.map((message) => (
+        {messages.map((message, index) => (
           <div
             key={message.id}
             className={`flex ${
@@ -185,7 +232,6 @@ export default function Chat({ userId, conversationId }: ChatProps) {
                 message.role === 'user' ? 'flex-row-reverse' : ''
               }`}
             >
-              {/* Avatar */}
               <div
                 className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
                   message.role === 'user'
@@ -200,7 +246,6 @@ export default function Chat({ userId, conversationId }: ChatProps) {
                 )}
               </div>
 
-              {/* Message Content */}
               <div
                 className={`rounded-lg px-4 py-3 ${
                   message.role === 'user'
@@ -209,7 +254,17 @@ export default function Chat({ userId, conversationId }: ChatProps) {
                 }`}
               >
                 {message.role === 'assistant' ? (
-                  <AssistantMessageContent content={message.content} />
+                  <AssistantMessageContent
+                    content={message.content}
+                    mode="chat"
+                    onSaveToDashboard={
+                      hasWidgetFence(message.content)
+                        ? () => void handleSaveToDashboard(message, index)
+                        : undefined
+                    }
+                    onExpandWidget={handleExpandWidget}
+                    saveDisabled={savingMessageId === message.id}
+                  />
                 ) : (
                   <p className="whitespace-pre-wrap">{message.content}</p>
                 )}
@@ -259,7 +314,6 @@ export default function Chat({ userId, conversationId }: ChatProps) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       <div className="border-t border-gray-200 bg-white px-4 py-4">
         <div className="max-w-4xl mx-auto">
           <form onSubmit={handleSendMessage} className="flex gap-3">

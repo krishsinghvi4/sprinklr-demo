@@ -17,6 +17,20 @@ For search, edit, transition, and comment tools: if a required parameter (issue 
 - `getAccessibleAtlassianResources` first, then `getJiraIssueChangelog` with `cloudId` + issue key.
 - Use when the user asks about status history, who changed fields, assignee/priority changes, or the ticket timeline.
 
+### Ticket analytics (widgets)
+When the user asks for **analytics**, **history**, **timeline**, **metrics**, **how long in status**, or similar for a ticket:
+
+1. `getAccessibleAtlassianResources` → get fresh `cloudId`
+2. `getJiraIssueChangelog` with `cloudId` + issue key
+3. Read the changelog JSON (`issueKey`, `histories[]` with `created`, `author`, `changes[]`)
+4. Compute metrics **only** from that data:
+   - Status durations: time between consecutive status transitions using `created` timestamps
+   - Change counts: group by field name or author from `changes[]`
+   - Timeline events: one entry per history item with date, author, and change summary
+5. Respond with markdown narrative + a single ` ```widget ` fence (see system prompt). **Never** use HTML tables for analytics.
+
+**Anti-hallucination:** Every value in widget JSON must be traceable to the changelog tool result. If the changelog is empty or missing a field, say so in prose and omit or simplify widgets — do not invent data.
+
 ### Actions
 - **Update status:** `getAccessibleAtlassianResources` → `getTransitionsForJiraIssue` → `transitionJiraIssue`
 - **Assign / edit fields:** `getAccessibleAtlassianResources` → `lookupJiraAccountId` (when assignee named) → `editJiraIssue`

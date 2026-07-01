@@ -63,6 +63,12 @@ export default function ChatDashboardPage() {
           </div>
           <div className="flex items-center gap-3">
             <Link
+              to="/insights"
+              className="text-sm text-gray-600 hover:text-gray-900"
+            >
+              Insights
+            </Link>
+            <Link
               to="/profile"
               className="text-sm text-gray-600 hover:text-gray-900"
             >

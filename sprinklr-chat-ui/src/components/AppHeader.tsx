@@ -28,6 +28,12 @@ export default function AppHeader({ title = 'Sprinklr Chat', backLink, actions }
         </div>
         <div className="flex items-center gap-3">
           <Link
+            to="/insights"
+            className="text-sm text-gray-600 hover:text-gray-900"
+          >
+            Insights
+          </Link>
+          <Link
             to="/"
             className="text-sm text-gray-600 hover:text-gray-900"
           >

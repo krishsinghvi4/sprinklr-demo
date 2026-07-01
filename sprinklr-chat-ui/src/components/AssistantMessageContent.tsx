@@ -1,6 +1,9 @@
 import Markdown from 'react-markdown'
 import DOMPurify from 'dompurify'
 import type { Components } from 'react-markdown'
+import WidgetBlock from './widgets/WidgetBlock'
+import { splitWidgetContent } from '../utils/parseWidgetPayload'
+import type { WidgetSpec } from '../types/widgets'
 
 const HTML_FENCE_PATTERN = /```html\s*([\s\S]*?)```/gi
 
@@ -27,8 +30,8 @@ const ALLOWED_TAGS = [
 const INLINE_HTML_BLOCK_PATTERN =
   /<(?:pre|table|ul|ol|div|h3|h4)\b[^>]*>[\s\S]*?<\/(?:pre|table|ul|ol|div|h3|h4)>/gi
 
-interface ContentSegment {
-  type: 'markdown' | 'html'
+export interface ContentSegment {
+  type: 'markdown' | 'html' | 'widget'
   value: string
 }
 
@@ -109,7 +112,21 @@ export function expandMarkdownSegments(segments: ContentSegment[]): ContentSegme
 }
 
 export function parseAssistantContent(content: string): ContentSegment[] {
-  return expandMarkdownSegments(splitAssistantContent(content))
+  const htmlSegments = expandMarkdownSegments(splitAssistantContent(content))
+  const result: ContentSegment[] = []
+
+  for (const segment of htmlSegments) {
+    if (segment.type !== 'markdown') {
+      result.push(segment)
+      continue
+    }
+    const widgetSegments = splitWidgetContent(segment.value)
+    for (const ws of widgetSegments) {
+      result.push(ws)
+    }
+  }
+
+  return result
 }
 
 const ALLOWED_ATTR = ['href', 'target', 'rel']
@@ -135,21 +152,46 @@ const markdownComponents: Components = {
 
 interface AssistantMessageContentProps {
   content: string
+  mode?: 'chat' | 'dashboard'
+  onSaveToDashboard?: () => void
+  onExpandWidget?: (widget: WidgetSpec) => Promise<string | null>
+  saveDisabled?: boolean
 }
 
-export default function AssistantMessageContent({ content }: AssistantMessageContentProps) {
+export default function AssistantMessageContent({
+  content,
+  mode = 'chat',
+  onSaveToDashboard,
+  onExpandWidget,
+  saveDisabled = false,
+}: AssistantMessageContentProps) {
   const segments = parseAssistantContent(content)
 
   return (
     <div className="space-y-3">
-      {segments.map((segment, index) =>
-        segment.type === 'html' ? (
-          <div
-            key={`html-${index}`}
-            className="assistant-html"
-            dangerouslySetInnerHTML={{ __html: sanitizeAssistantHtml(segment.value) }}
-          />
-        ) : (
+      {segments.map((segment, index) => {
+        if (segment.type === 'html') {
+          return (
+            <div
+              key={`html-${index}`}
+              className="assistant-html"
+              dangerouslySetInnerHTML={{ __html: sanitizeAssistantHtml(segment.value) }}
+            />
+          )
+        }
+        if (segment.type === 'widget') {
+          return (
+            <WidgetBlock
+              key={`widget-${index}`}
+              widgetJson={segment.value}
+              mode={mode}
+              onSaveToDashboard={onSaveToDashboard}
+              onExpandWidget={onExpandWidget}
+              saveDisabled={saveDisabled}
+            />
+          )
+        }
+        return (
           <Markdown
             key={`md-${index}`}
             className="prose prose-sm max-w-none"
@@ -157,8 +199,8 @@ export default function AssistantMessageContent({ content }: AssistantMessageCon
           >
             {segment.value}
           </Markdown>
-        ),
-      )}
+        )
+      })}
     </div>
   )
 }
