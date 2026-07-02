@@ -79,7 +79,7 @@ interface GalleryWidgetCardProps {
 }
 
 function GalleryWidgetCard({ item, extendedInsight, onExpand }: GalleryWidgetCardProps) {
-  const { widget, turnPrompt } = item
+  const { widget } = item
   const [expanded, setExpanded] = useState(Boolean(extendedInsight))
   const [insight, setInsight] = useState(extendedInsight ?? '')
   const [loading, setLoading] = useState(false)
@@ -110,16 +110,11 @@ function GalleryWidgetCard({ item, extendedInsight, onExpand }: GalleryWidgetCar
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm h-full">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h4 className="font-semibold text-gray-900 text-sm">{widget.title}</h4>
-          {widget.description && (
-            <p className="text-xs text-gray-500 mt-0.5">{widget.description}</p>
-          )}
-        </div>
-        <span className="text-[10px] text-gray-400 truncate max-w-[120px] shrink-0" title={turnPrompt}>
-          {turnPrompt}
-        </span>
+      <div className="min-w-0">
+        <h4 className="font-semibold text-gray-900 text-sm">{widget.title}</h4>
+        {widget.description && (
+          <p className="text-xs text-gray-500 mt-0.5">{widget.description}</p>
+        )}
       </div>
       <div className="mt-3">
         <WidgetRenderer widget={widget} />

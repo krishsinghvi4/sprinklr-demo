@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { register, verifySignupOtp } from '../api/authApi'
+import { register, verifySignupOtp, resendSignupOtp } from '../api/authApi'
 import '../styles/auth.css'
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -119,11 +119,7 @@ export default function SignupPage() {
     setFormError('')
     setLoading(true)
     try {
-      await register({
-        username: username.trim(),
-        email: email.trim(),
-        password,
-      })
+      await resendSignupOtp({ email: email.trim() })
       setResendCountdown(30)
     } catch {
       setFormError('Could not send OTP. Please check your email address.')

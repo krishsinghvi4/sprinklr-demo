@@ -20,6 +20,18 @@ import { ChartDataSchema, KpiDataSchema, PieDataSchema, TableDataSchema, Timelin
 
 const CHART_COLORS = ['#2563eb', '#7c3aed', '#059669', '#d97706', '#dc2626', '#0891b2']
 
+function chartMargins(hasYLabel: boolean) {
+  return { top: 8, right: 8, left: hasYLabel ? 16 : 0, bottom: 8 }
+}
+
+function axisLabelProps(label: string | undefined, axis: 'x' | 'y') {
+  if (!label) return undefined
+  if (axis === 'x') {
+    return { value: label, position: 'insideBottom' as const, offset: -4, style: { fontSize: 11, fill: '#6b7280' } }
+  }
+  return { value: label, angle: -90, position: 'insideLeft' as const, style: { fontSize: 11, fill: '#6b7280' } }
+}
+
 interface WidgetRendererProps {
   widget: WidgetSpec
 }
@@ -75,12 +87,13 @@ function BarChartWidget({ widget }: { widget: WidgetSpec }) {
     label,
     value: parsed.data.values[i] ?? 0,
   }))
+  const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <BarChart data={data} margin={margins}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-        <YAxis tick={{ fontSize: 12 }} />
+        <XAxis dataKey="label" tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.xAxisLabel, 'x')} />
+        <YAxis tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.yAxisLabel, 'y')} width={parsed.data.yAxisLabel ? 48 : 36} />
         <Tooltip />
         <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
       </BarChart>
@@ -97,12 +110,13 @@ function LineChartWidget({ widget }: { widget: WidgetSpec }) {
     label,
     value: parsed.data.values[i] ?? 0,
   }))
+  const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <LineChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <LineChart data={data} margin={margins}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-        <YAxis tick={{ fontSize: 12 }} />
+        <XAxis dataKey="label" tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.xAxisLabel, 'x')} />
+        <YAxis tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.yAxisLabel, 'y')} width={parsed.data.yAxisLabel ? 48 : 36} />
         <Tooltip />
         <Line type="monotone" dataKey="value" stroke={CHART_COLORS[0]} strokeWidth={2} dot={{ r: 4 }} />
       </LineChart>
@@ -119,12 +133,13 @@ function AreaChartWidget({ widget }: { widget: WidgetSpec }) {
     label,
     value: parsed.data.values[i] ?? 0,
   }))
+  const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+      <AreaChart data={data} margin={margins}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-        <YAxis tick={{ fontSize: 12 }} />
+        <XAxis dataKey="label" tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.xAxisLabel, 'x')} />
+        <YAxis tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.yAxisLabel, 'y')} width={parsed.data.yAxisLabel ? 48 : 36} />
         <Tooltip />
         <Area type="monotone" dataKey="value" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.2} />
       </AreaChart>

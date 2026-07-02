@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.application.service.insights;
 
+import com.example.sprinklr.marketplace.application.service.tool.ToolSelectionService;
 import com.example.sprinklr.marketplace.domain.model.LlmRequest;
 import com.example.sprinklr.marketplace.domain.model.LlmResponse;
 import com.example.sprinklr.marketplace.domain.model.McpInvocation;
@@ -9,7 +10,9 @@ import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.MessageRole;
 import com.example.sprinklr.marketplace.domain.model.ToolCall;
+import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.model.ToolResult;
+import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.model.insights.DashboardTurn;
 import com.example.sprinklr.marketplace.domain.model.insights.WidgetSpec;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
@@ -27,6 +30,7 @@ import reactor.core.scheduler.Schedulers;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.Flow;
@@ -38,6 +42,10 @@ public class DashboardRegenerateService {
     private static final Logger log = LoggerFactory.getLogger(DashboardRegenerateService.class);
     private static final String TOOL_LIMIT_MESSAGE =
             "Tool call limit reached for this request. Please try a simpler question.";
+    private static final String REGEN_CONTEXT = """
+            Dashboard regeneration: call getAccessibleAtlassianResources then getJiraIssueChangelog with fresh data.
+            Respond with at most 2 sentences of summary plus exactly one ```widget``` fence containing 4–6 visual widgets.
+            Every bar/line/area widget must include xAxisLabel and yAxisLabel in data. Do not use table widgets.""";
 
     private final LlmPort llmPort;
     private final McpServerPort mcpServerPort;
@@ -45,6 +53,7 @@ public class DashboardRegenerateService {
     private final McpProperties mcpProperties;
     private final McpInvocationPreflightPort mcpInvocationPreflightPort;
     private final InsightsDashboardService insightsDashboardService;
+    private final ToolSelectionService toolSelectionService;
 
     public DashboardRegenerateService(
             LlmPort llmPort,
@@ -52,7 +61,8 @@ public class DashboardRegenerateService {
             McpRegistryPort mcpRegistryPort,
             McpProperties mcpProperties,
             McpInvocationPreflightPort mcpInvocationPreflightPort,
-            InsightsDashboardService insightsDashboardService
+            InsightsDashboardService insightsDashboardService,
+            ToolSelectionService toolSelectionService
     ) {
         this.llmPort = llmPort;
         this.mcpServerPort = mcpServerPort;
@@ -60,6 +70,7 @@ public class DashboardRegenerateService {
         this.mcpProperties = mcpProperties;
         this.mcpInvocationPreflightPort = mcpInvocationPreflightPort;
         this.insightsDashboardService = insightsDashboardService;
+        this.toolSelectionService = toolSelectionService;
     }
 
     public void streamRegenerate(
@@ -91,7 +102,6 @@ public class DashboardRegenerateService {
                 }
             });
 
-            List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(userId);
             List<Message> history = new ArrayList<>();
             String userMessageId = newId();
             Message userMessage = new Message(
@@ -105,7 +115,9 @@ public class DashboardRegenerateService {
             );
             history.add(userMessage);
 
-            String additionalContext = "Dashboard regeneration: produce analytics widgets from fresh Jira changelog data.";
+            List<McpTool> toolsForTurn = resolveToolsForRegenerate(userId, existingTurn.prompt(), history);
+            log.info("[DashboardRegenerate] turnId={} scopedTools={}", existingTurn.id(), toolsForTurn.size());
+
             int iteration = 0;
             int totalToolCalls = 0;
             AtomicReference<String> lastChangelogSnapshot = new AtomicReference<>(existingTurn.toolResultSnapshot());
@@ -114,11 +126,11 @@ public class DashboardRegenerateService {
                 LlmResponse llmResponse = llmPort.complete(new LlmRequest(
                         existingTurn.prompt(),
                         history,
-                        userTools,
+                        toolsForTurn,
                         userMessageId,
                         userId,
                         "dashboard-regen-" + existingTurn.id(),
-                        additionalContext
+                        REGEN_CONTEXT
                 ));
 
                 if (llmResponse.toolCalls().isEmpty()) {
@@ -145,6 +157,38 @@ public class DashboardRegenerateService {
         } catch (Exception exception) {
             signalError(responseSubscriber, exception);
         }
+    }
+
+    private List<McpTool> resolveToolsForRegenerate(String userId, String prompt, List<Message> history) {
+        List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(userId);
+        if (userTools.isEmpty()) {
+            return List.of();
+        }
+        if (mcpProperties.getToolSelection().isEnabled()) {
+            try {
+                List<ToolDependencyGraph> graphs = mcpRegistryPort.findActiveDependencyGraphsForUser(userId);
+                ToolSelectionResult selection = toolSelectionService.selectTools(
+                        prompt, history, userTools, graphs, Optional.empty());
+                if (!selection.scopedTools().isEmpty()) {
+                    return selection.scopedTools();
+                }
+            } catch (Exception exception) {
+                log.warn("[DashboardRegenerate] Tool selection failed: {}", exception.getMessage());
+            }
+        }
+        List<McpTool> jiraTools = userTools.stream()
+                .filter(tool -> isJiraRelatedTool(tool))
+                .toList();
+        if (!jiraTools.isEmpty()) {
+            return jiraTools;
+        }
+        return userTools;
+    }
+
+    private static boolean isJiraRelatedTool(McpTool tool) {
+        String serverId = tool.serverId() != null ? tool.serverId().toLowerCase(Locale.ROOT) : "";
+        String name = tool.name() != null ? tool.name().toLowerCase(Locale.ROOT) : "";
+        return serverId.contains("jira") || name.contains("jira");
     }
 
     private void executeToolBatch(

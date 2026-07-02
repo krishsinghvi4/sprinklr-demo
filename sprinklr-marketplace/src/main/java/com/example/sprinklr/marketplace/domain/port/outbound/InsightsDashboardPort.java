@@ -18,6 +18,8 @@ public interface InsightsDashboardPort {
 
     void deleteConversation(String id, String userId);
 
+    void deleteBySourceConversationId(String userId, String sourceConversationId);
+
     List<DashboardTurn> findTurnsByDashboardConversationId(String dashboardConversationId, String userId);
 
     Optional<DashboardTurn> findTurnById(String turnId, String userId);

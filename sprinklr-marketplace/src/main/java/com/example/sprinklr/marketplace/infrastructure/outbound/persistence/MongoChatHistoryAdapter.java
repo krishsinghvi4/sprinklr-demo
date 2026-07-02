@@ -304,6 +304,15 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
         }
     }
 
+    @Override
+    public void deleteConversation(String conversationId, String userId) {
+        if (findConversationByIdAndUserId(conversationId, userId).isEmpty()) {
+            return;
+        }
+        messageRepository.deleteByConversationId(conversationId).block();
+        conversationRepository.deleteByIdAndUserId(conversationId, userId).block();
+    }
+
     private static String truncatePreview(String text) {
         String normalized = text.trim().replaceAll("\\s+", " ");
         if (normalized.length() <= PREVIEW_MAX_LENGTH) {

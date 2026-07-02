@@ -59,16 +59,17 @@ public class InsightsDashboardService {
                 .orElseGet(() -> createConversation(userId, request, now));
 
         String turnId = newId("dash-turn");
-        String narrative = WidgetBlockParser.extractNarrative(request.assistantContent());
+        WidgetBlockParser.NormalizedTurnContent normalized = WidgetBlockParser.normalizeTurnContent(
+                request.assistantContent(), request.widgets());
         DashboardTurn turn = new DashboardTurn(
                 turnId,
                 conversation.id(),
                 userId,
                 request.sourceChatMessageId(),
                 request.prompt(),
-                narrative,
-                request.assistantContent(),
-                request.widgets(),
+                normalized.narrative(),
+                normalized.assistantContent(),
+                normalized.widgets(),
                 request.toolResultSnapshot(),
                 java.util.Map.of(),
                 1,
@@ -78,12 +79,17 @@ public class InsightsDashboardService {
         insightsDashboardPort.saveTurn(turn);
 
         int newCount = conversation.turnCount() + 1;
-        String preview = truncatePreview(request.prompt());
+        String preview = normalized.narrative().isBlank()
+                ? truncatePreview(request.prompt())
+                : normalized.narrative();
+        String title = conversation.turnCount() == 0
+                ? truncatePreview(request.prompt())
+                : conversation.title();
         DashboardConversation updated = new DashboardConversation(
                 conversation.id(),
                 conversation.userId(),
                 conversation.sourceConversationId(),
-                conversation.title(),
+                title,
                 preview,
                 newCount,
                 conversation.createdAt(),
@@ -131,24 +137,28 @@ public class InsightsDashboardService {
             List<WidgetSpec> widgets,
             String toolResultSnapshot
     ) {
-        String narrative = WidgetBlockParser.extractNarrative(assistantContent);
+        WidgetBlockParser.NormalizedTurnContent normalized = WidgetBlockParser.normalizeTurnContent(
+                assistantContent, widgets);
         DashboardTurn updated = new DashboardTurn(
                 existing.id(),
                 existing.dashboardConversationId(),
                 existing.userId(),
                 existing.sourceChatMessageId(),
                 existing.prompt(),
-                narrative,
-                assistantContent,
-                widgets,
+                normalized.narrative(),
+                normalized.assistantContent(),
+                normalized.widgets(),
                 toolResultSnapshot != null ? toolResultSnapshot : existing.toolResultSnapshot(),
-                existing.extendedInsights(),
+                java.util.Map.of(),
                 existing.version() + 1,
                 existing.id(),
                 Instant.now()
         );
         insightsDashboardPort.saveTurn(updated);
-        insightsDashboardPort.touchConversation(existing.dashboardConversationId(), truncatePreview(existing.prompt()));
+        String preview = normalized.narrative().isBlank()
+                ? truncatePreview(existing.prompt())
+                : normalized.narrative();
+        insightsDashboardPort.touchConversation(existing.dashboardConversationId(), preview);
         return Optional.of(updated);
     }
 
@@ -217,7 +227,7 @@ public class InsightsDashboardService {
                 userId,
                 request.sourceConversationId(),
                 title,
-                title,
+                "",
                 0,
                 now,
                 now

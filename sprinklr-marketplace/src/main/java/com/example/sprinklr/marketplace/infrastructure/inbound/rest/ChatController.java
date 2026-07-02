@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.inbound.rest;
 
+import com.example.sprinklr.marketplace.application.service.ChatConversationService;
 import com.example.sprinklr.marketplace.domain.model.ChatRequest;
 import com.example.sprinklr.marketplace.domain.model.Conversation;
 import com.example.sprinklr.marketplace.domain.model.Message;
@@ -14,7 +15,9 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorForm
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,15 +39,18 @@ public class ChatController {
 
     private final ChatUseCase chatUseCase;
     private final ChatHistoryPort chatHistoryPort;
+    private final ChatConversationService chatConversationService;
     private final AuthenticatedUserResolver authenticatedUserResolver;
 
     public ChatController(
             ChatUseCase chatUseCase,
             ChatHistoryPort chatHistoryPort,
+            ChatConversationService chatConversationService,
             AuthenticatedUserResolver authenticatedUserResolver
     ) {
         this.chatUseCase = chatUseCase;
         this.chatHistoryPort = chatHistoryPort;
+        this.chatConversationService = chatConversationService;
         this.authenticatedUserResolver = authenticatedUserResolver;
     }
 
@@ -72,6 +78,14 @@ public class ChatController {
                 .filter(message -> message.content() != null && !message.content().isBlank())
                 .toList();
         return ChatHistoryResponse.fromMessages(displayMessages);
+    }
+
+    @DeleteMapping(value = "/conversations/{conversationId}")
+    public void deleteConversation(@PathVariable String conversationId) {
+        String userId = authenticatedUserResolver.requireUserId();
+        if (!chatConversationService.deleteConversation(conversationId, userId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found");
+        }
     }
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

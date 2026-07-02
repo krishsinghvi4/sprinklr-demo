@@ -9,6 +9,7 @@ Never call a GitLab tool with required parameters the user did not provide in th
 - If the user gives a branch and/or commit but no project, respond with text only: "Please provide the GitLab project path (e.g. spr-dev/my-repo) or project ID."
 
 ### Fetch merge request (MR) status
+- if needed always run whoami tool to first get the user ID to get merge requests specific to user .
 - `get_merge_request` when project and MR IID are known.
 - `list_merge_requests` for user's MRs (no `project_id`) or project MRs (with `project_id`).
 

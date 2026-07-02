@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Plug, PlugZap, Unplug } from 'lucide-react'
 import AppHeader from '../components/AppHeader'
 import McpConnectModal from '../components/McpConnectModal'
 import {
+  completeOAuthCallback,
   connectMcpServer,
   disconnectMcpServer,
   fetchProfile,
@@ -19,6 +20,10 @@ import { formatCostUsd, formatTokenCount } from '../utils/formatUsage'
 
 type ServerActionPhase = 'idle' | 'connecting' | 'disconnecting' | 'redirecting_oauth'
 
+const MCP_CONNECT_SAFETY_TIMEOUT_MS = 35_000
+const MCP_OAUTH_CALLBACK_SAFETY_TIMEOUT_MS = 120_000
+const OAUTH_POPUP_NAME = 'mcp-oauth'
+
 interface ServerActionState {
   phase: ServerActionPhase
   error?: { kind: ConnectErrorKind; message: string }
@@ -31,6 +36,10 @@ export default function ProfilePage() {
   const [connectingServer, setConnectingServer] = useState<AvailableServer | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [serverActions, setServerActions] = useState<Record<string, ServerActionState>>({})
+  const oauthPopupRef = useRef<Window | null>(null)
+  const oauthPollRef = useRef<number | null>(null)
+  const pendingOAuthServerRef = useRef<string | null>(null)
+  const oauthCallbackInFlightRef = useRef(false)
 
   const setServerAction = (serverId: string, state: ServerActionState) => {
     setServerActions((prev) => ({ ...prev, [serverId]: state }))
@@ -100,6 +109,84 @@ export default function ProfilePage() {
     void loadProfile()
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (oauthPollRef.current != null) {
+        window.clearInterval(oauthPollRef.current)
+      }
+    }
+  }, [])
+
+  const finishOAuthCallback = async (serverId: string, query: string) => {
+    if (oauthCallbackInFlightRef.current) return
+    oauthCallbackInFlightRef.current = true
+    setServerAction(serverId, { phase: 'connecting' })
+    try {
+      const result = await completeOAuthCallback(query)
+      if (result.ok) {
+        setActionMessage('MCP server connected successfully via OAuth.')
+        clearServerAction(serverId)
+        await loadProfile()
+      } else {
+        setServerAction(serverId, {
+          phase: 'idle',
+          error: { kind: 'OAUTH_ERROR', message: result.message || 'OAuth connection failed.' },
+        })
+        setError(result.message || 'OAuth connection failed.')
+      }
+    } finally {
+      oauthCallbackInFlightRef.current = false
+      pendingOAuthServerRef.current = null
+    }
+  }
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return
+      if (event.data?.type !== 'mcp-oauth-callback') return
+      const serverId = pendingOAuthServerRef.current
+      if (!serverId || typeof event.data.query !== 'string') return
+      void finishOAuthCallback(serverId, event.data.query)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [])
+
+  useEffect(() => {
+    const pending = Object.entries(serverActions).find(
+      ([, action]) => action.phase === 'connecting' || action.phase === 'redirecting_oauth'
+    )
+    if (!pending) return
+
+    const [serverId, action] = pending
+    const timeoutMs = action.phase === 'connecting'
+      ? MCP_OAUTH_CALLBACK_SAFETY_TIMEOUT_MS
+      : MCP_CONNECT_SAFETY_TIMEOUT_MS
+    const timer = window.setTimeout(() => {
+      setServerActions((prev) => {
+        const current = prev[serverId]
+        if (
+          !current
+          || (current.phase !== 'connecting' && current.phase !== 'redirecting_oauth')
+        ) {
+          return prev
+        }
+        return {
+          ...prev,
+          [serverId]: {
+            phase: 'idle',
+            error: {
+              kind: 'NETWORK_ERROR',
+              message: 'Request timed out — check VPN and try again.',
+            },
+          },
+        }
+      })
+    }, timeoutMs)
+
+    return () => window.clearTimeout(timer)
+  }, [serverActions])
+
   const handleConnect = async (credentials: Record<string, string>) => {
     if (!connectingServer) return
     setServerAction(connectingServer.id, { phase: 'connecting' })
@@ -122,11 +209,62 @@ export default function ProfilePage() {
   }
 
   const handleOAuthConnect = async (server: AvailableServer) => {
+    if (isAnyServerBusy()) return
     setError(null)
-    setServerAction(server.id, { phase: 'redirecting_oauth' })
+    setActionMessage(null)
+    pendingOAuthServerRef.current = server.id
+    setServerAction(server.id, { phase: 'connecting' })
     try {
       const authorizationUrl = await startOAuthConnect(server.id)
-      window.location.href = authorizationUrl
+      setServerAction(server.id, { phase: 'redirecting_oauth' })
+      const popup = window.open(
+        authorizationUrl,
+        OAUTH_POPUP_NAME,
+        'width=600,height=700,menubar=no,toolbar=no,location=yes,status=no'
+      )
+      if (!popup) {
+        setServerAction(server.id, {
+          phase: 'idle',
+          error: {
+            kind: 'OAUTH_ERROR',
+            message: 'Popup blocked. Allow popups for this site and try again.',
+          },
+        })
+        return
+      }
+      oauthPopupRef.current = popup
+      if (oauthPollRef.current != null) {
+        window.clearInterval(oauthPollRef.current)
+      }
+      oauthPollRef.current = window.setInterval(() => {
+        if (popup.closed) {
+          if (oauthPollRef.current != null) {
+            window.clearInterval(oauthPollRef.current)
+            oauthPollRef.current = null
+          }
+          oauthPopupRef.current = null
+          const completing = sessionStorage.getItem('mcp_oauth_completing') === '1'
+          if (completing) {
+            sessionStorage.removeItem('mcp_oauth_completing')
+          }
+          if (completing) {
+            setServerAction(server.id, { phase: 'connecting' })
+          } else {
+            setServerActions((prev) => {
+              const current = prev[server.id]
+              if (!current || current.phase !== 'redirecting_oauth') {
+                return prev
+              }
+              return {
+                ...prev,
+                [server.id]: { phase: 'idle' },
+              }
+            })
+            pendingOAuthServerRef.current = null
+            setError('OAuth was cancelled.')
+          }
+        }
+      }, 500)
     } catch (err: unknown) {
       const mapped = mapApiError(err)
       setServerAction(server.id, { phase: 'idle', error: mapped })
@@ -148,7 +286,16 @@ export default function ProfilePage() {
     }
   }
 
+  const isAnyServerBusy = () =>
+    Object.values(serverActions).some(
+      (action) =>
+        action.phase === 'connecting'
+        || action.phase === 'redirecting_oauth'
+        || action.phase === 'disconnecting'
+    )
+
   const handleConnectClick = (server: AvailableServer) => {
+    if (isAnyServerBusy()) return
     const method = resolveConnectMethod(server)
     if (method === 'OAUTH_REDIRECT') {
       void handleOAuthConnect(server)
@@ -263,6 +410,9 @@ export default function ProfilePage() {
               <p className="text-sm text-gray-500 mb-4">
                 Connect MCP servers to use their tools in chat.
               </p>
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3 mb-4">
+                Make sure you are connected to the company VPN before connecting MCP servers.
+              </div>
 
               {profile.marketplace.availableServers.length === 0 ? (
                 <p className="text-sm text-gray-500">No MCP servers available.</p>
@@ -272,7 +422,9 @@ export default function ProfilePage() {
                     const connection = getConnectionForServer(server.id)
                     const isConnected = server.connected && connection
                     const serverAction = serverActions[server.id]
-                    const isBusy = serverAction?.phase === 'connecting'
+                    const anyBusy = isAnyServerBusy()
+                    const isBusy = anyBusy
+                      || serverAction?.phase === 'connecting'
                       || serverAction?.phase === 'disconnecting'
                       || serverAction?.phase === 'redirecting_oauth'
 

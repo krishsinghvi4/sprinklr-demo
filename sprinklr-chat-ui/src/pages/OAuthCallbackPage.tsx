@@ -6,6 +6,21 @@ export default function OAuthCallbackPage() {
 
   useEffect(() => {
     const query = searchParams.toString()
+
+    if (window.opener && !window.opener.closed) {
+      try {
+        window.opener.sessionStorage.setItem('mcp_oauth_completing', '1')
+      } catch {
+        // ignore storage errors
+      }
+      window.opener.postMessage(
+        { type: 'mcp-oauth-callback', query },
+        window.location.origin
+      )
+      window.close()
+      return
+    }
+
     window.location.replace(`/api/v1/mcp/oauth/callback${query ? `?${query}` : ''}`)
   }, [searchParams])
 

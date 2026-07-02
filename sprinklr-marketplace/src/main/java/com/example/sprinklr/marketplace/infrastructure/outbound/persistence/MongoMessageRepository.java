@@ -25,4 +25,6 @@ public interface MongoMessageRepository extends ReactiveMongoRepository<MessageD
             String conversationId,
             MessageRole role
     );
+
+    Mono<Void> deleteByConversationId(String conversationId);
 }

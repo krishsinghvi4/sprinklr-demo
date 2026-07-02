@@ -34,4 +34,6 @@ public interface ChatHistoryPort {
     Optional<String> findFirstUserMessageContent(String conversationId);
 
     void touchConversation(String conversationId, String preview);
+
+    void deleteConversation(String conversationId, String userId);
 }

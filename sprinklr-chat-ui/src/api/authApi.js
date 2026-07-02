@@ -17,6 +17,13 @@ export async function verifySignupOtp({ email, otp }) {
   return response.data
 }
 
+export async function resendSignupOtp({ email }) {
+  const response = await axiosInstance.post('/api/auth/resend-signup-otp', {
+    email,
+  })
+  return response.data
+}
+
 export async function login({ email, password }) {
   const response = await axiosInstance.post('/api/auth/login', {
     email,

@@ -13,6 +13,8 @@ export const KpiDataSchema = z.object({
 export const ChartDataSchema = z.object({
   labels: z.array(z.string()),
   values: z.array(z.number()),
+  xAxisLabel: z.string().optional(),
+  yAxisLabel: z.string().optional(),
   series: z
     .array(
       z.object({

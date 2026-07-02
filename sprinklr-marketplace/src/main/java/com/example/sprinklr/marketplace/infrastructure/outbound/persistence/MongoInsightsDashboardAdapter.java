@@ -65,6 +65,12 @@ public class MongoInsightsDashboardAdapter implements InsightsDashboardPort {
     }
 
     @Override
+    public void deleteBySourceConversationId(String userId, String sourceConversationId) {
+        findConversationBySourceConversationId(userId, sourceConversationId)
+                .ifPresent(conversation -> deleteConversation(conversation.id(), userId));
+    }
+
+    @Override
     public List<DashboardTurn> findTurnsByDashboardConversationId(String dashboardConversationId, String userId) {
         return turnRepository.findByDashboardConversationIdAndUserIdOrderByCreatedAtAsc(
                         dashboardConversationId, userId)

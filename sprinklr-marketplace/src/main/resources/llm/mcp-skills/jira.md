@@ -28,9 +28,9 @@ When the user asks for **analytics**, **history**, **timeline**, **metrics**, **
    - Change counts by author or field → `pie` or `donut`
    - Activity over time (group histories by week/month) → `line` or `area`
    - Timeline events: one entry per history item with date, author, and change summary → `timeline`
-5. Respond with a **1–3 sentence** markdown summary + a single ` ```widget ` fence (see system prompt). **Never** use HTML tables for analytics.
+5. Respond with **at most 2 sentences** of markdown summary + a single ` ```widget ` fence (see system prompt). **Never** use HTML tables for analytics.
 
-**Required widget mix (when data allows):** status duration bar, change timeline, author/field distribution pie, activity-over-time line. Add an optional `kpi` row for headline numbers. Do **not** default to `table` for history — use `timeline` instead. If changelog is sparse, use fewer widgets but still prefer visual types over text/table.
+**Required widget mix (when data allows):** status duration bar (with xAxisLabel/yAxisLabel), change timeline, author/field distribution pie, activity-over-time line (with xAxisLabel/yAxisLabel). Optional single `kpi` row for headline numbers. **Never** use `table` widgets. Minimum 4 chart widgets.
 
 **Anti-hallucination:** Every value in widget JSON must be traceable to the changelog tool result. If the changelog is empty or missing a field, say so in prose and omit or simplify widgets — do not invent data.
 

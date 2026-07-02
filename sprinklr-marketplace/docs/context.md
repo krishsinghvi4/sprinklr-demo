@@ -108,14 +108,17 @@ cd sprinklr-marketplace
 
 **AuthController** (`infrastructure/inbound/rest/AuthController.java`)
 - `POST /api/auth/register` — create account, queue signup OTP
+- `POST /api/auth/resend-signup-otp` — resend signup OTP for unverified accounts
 - `POST /api/auth/verify-signup-otp` — verify email
 - `POST /api/auth/login` — returns JWT
 - `POST /api/auth/forgot-password` / `verify-forgot-otp` / `reset-password`
+- OTP codes expire **2 minutes** after generation (`OtpService.OTP_TTL_SECONDS = 120`); Mongo TTL index on `otp_entries.expiresAt`
 
 **ChatController** (`infrastructure/inbound/rest/ChatController.java`)
 - `POST /api/v1/chat/stream` — Main streaming endpoint (JWT required)
 - `GET /api/v1/chat/history?conversationId=...&limit=50` — Fetch conversation history
 - `GET /api/v1/chat/conversations` — List user's conversations for dashboard
+- `DELETE /api/v1/chat/conversations/{conversationId}` — Delete chat + linked insights dashboard conversation
 
 **ChatOrchestrator** (`application/service/ChatOrchestrator.java`)
 - Core business logic orchestrating the agentic loop

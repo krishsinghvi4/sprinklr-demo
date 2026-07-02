@@ -77,6 +77,21 @@ public class AuthController {
         return ResponseEntity.ok(new MessageResponse("OTP sent"));
     }
 
+    @PostMapping("/resend-signup-otp")
+    public ResponseEntity<MessageResponse> resendSignupOtp(@Valid @RequestBody ForgotPasswordRequest request) {
+        User user = userRepository.findByEmail(request.email()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.ok(new MessageResponse("If this email is registered, an OTP has been sent"));
+        }
+        if (user.isVerified()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(new MessageResponse("Email is already registered"));
+        }
+
+        otpService.generateAndQueueOtp(request.email(), OtpPurpose.SIGNUP);
+        return ResponseEntity.ok(new MessageResponse("OTP sent"));
+    }
+
     @PostMapping("/verify-signup-otp")
     public ResponseEntity<MessageResponse> verifySignupOtp(@Valid @RequestBody VerifyOtpRequest request) {
         if (!otpService.verifyOtp(request.email(), request.otp(), OtpPurpose.SIGNUP)) {
@@ -170,7 +185,7 @@ public class AuthController {
                 user.username(),
                 user.email(),
                 passwordEncoder.encode(request.newPassword()),
-                user.isVerified(),
+                true,
                 user.createdAt()
         );
         userRepository.save(updatedUser);

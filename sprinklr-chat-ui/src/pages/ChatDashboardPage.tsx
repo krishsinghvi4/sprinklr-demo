@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { MessageSquarePlus } from 'lucide-react'
+import { MessageSquarePlus, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { fetchConversations } from '../services/chatService'
+import { deleteConversation, fetchConversations } from '../services/chatService'
 import { ConversationSummary } from '../types/chat'
 
 function formatRelativeDate(isoDate: string): string {
@@ -49,6 +49,18 @@ export default function ChatDashboardPage() {
 
   const handleOpenChat = (conversationId: string) => {
     navigate(`/chat/${conversationId}`)
+  }
+
+  const handleDelete = async (e: React.MouseEvent, conversationId: string) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!confirm('Delete this conversation and any linked insights?')) {
+      return
+    }
+    const ok = await deleteConversation(conversationId)
+    if (ok) {
+      setConversations((prev) => prev.filter((c) => c.id !== conversationId))
+    }
   }
 
   return (
@@ -110,15 +122,25 @@ export default function ChatDashboardPage() {
               <li key={conversation.id}>
                 <button
                   onClick={() => handleOpenChat(conversation.id)}
-                  className="w-full text-left bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 hover:border-blue-300 hover:shadow transition"
+                  className="w-full text-left bg-white rounded-lg border border-gray-200 shadow-sm px-4 py-3 hover:border-blue-300 hover:shadow transition group"
                 >
                   <div className="flex justify-between items-start gap-4">
                     <p className="text-gray-900 text-sm font-medium line-clamp-2 flex-1">
                       {conversation.preview}
                     </p>
-                    <span className="text-xs text-gray-400 whitespace-nowrap shrink-0">
-                      {formatRelativeDate(conversation.updatedAt)}
-                    </span>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                        {formatRelativeDate(conversation.updatedAt)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => void handleDelete(e, conversation.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1.5 text-gray-400 hover:text-red-600 rounded"
+                        title="Delete"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </button>
               </li>

@@ -88,6 +88,22 @@ export async function fetchConversations(): Promise<ConversationSummary[]> {
   }
 }
 
+export async function deleteConversation(conversationId: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${CONVERSATIONS_ENDPOINT}/${encodeURIComponent(conversationId)}`,
+      {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      }
+    )
+    return response.ok
+  } catch (error) {
+    console.warn('Error deleting conversation:', error)
+    return false
+  }
+}
+
 export async function fetchChatHistory(conversationId: string, limit: number = 50): Promise<Message[]> {
   try {
     console.log(`Fetching chat history for conversation: ${conversationId}`)

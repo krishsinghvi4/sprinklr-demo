@@ -9,4 +9,6 @@ public interface ConversationRepository extends ReactiveMongoRepository<Conversa
     Flux<ConversationDocument> findByUserIdOrderByUpdatedAtDesc(String userId);
 
     Mono<ConversationDocument> findByIdAndUserId(String id, String userId);
+
+    Mono<Void> deleteByIdAndUserId(String id, String userId);
 }

@@ -43,14 +43,14 @@ class McpCatalogLoaderTest {
         assertEquals(McpCredentialHeaderMode.BEARER, red.authConfig().credentials().headerMode());
         assertEquals("http://127.0.0.1:3344/mcp", red.endpointUrl());
         assertEquals("red_ping", red.connectProbe().tool());
-        assertEquals("classpath:llm/mcp-skills/red.txt", red.llmSkillPath());
+        assertEquals("classpath:llm/mcp-skills/red.md", red.llmSkillPath());
         assertNotNull(red.toolSelection());
         assertTrue(red.toolSelection().skipDependencyGraph());
         assertFalse(jira.toolSelection().skipDependencyGraph());
         assertNull(gitlab.toolSelection());
 
-        assertEquals("classpath:llm/mcp-skills/jira.txt", jira.llmSkillPath());
-        assertEquals("classpath:llm/mcp-skills/gitlab.txt", gitlab.llmSkillPath());
+        assertEquals("classpath:llm/mcp-skills/jira.md", jira.llmSkillPath());
+        assertEquals("classpath:llm/mcp-skills/gitlab.md", gitlab.llmSkillPath());
         assertEquals(3, loader.getAll().size());
     }
 }

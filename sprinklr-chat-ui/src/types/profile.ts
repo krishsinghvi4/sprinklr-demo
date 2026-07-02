@@ -88,9 +88,20 @@ export function resolveConnectMethod(server: AvailableServer): ConnectMethod {
 }
 
 export function mapApiError(err: unknown): { message: string; kind: ConnectErrorKind } {
-  const response = (err as { response?: { data?: ApiErrorResponse; status?: number } })?.response
+  const axiosErr = err as {
+    code?: string
+    response?: { data?: ApiErrorResponse; status?: number }
+  }
+  const response = axiosErr?.response
   const message = response?.data?.message || 'Something went wrong. Please try again.'
   const errorCode = response?.data?.errorCode
+
+  if (axiosErr?.code === 'ECONNABORTED') {
+    return {
+      message: 'Request timed out — check VPN and try again.',
+      kind: 'NETWORK_ERROR',
+    }
+  }
 
   if (errorCode && isConnectErrorKind(errorCode)) {
     return { message, kind: errorCode }

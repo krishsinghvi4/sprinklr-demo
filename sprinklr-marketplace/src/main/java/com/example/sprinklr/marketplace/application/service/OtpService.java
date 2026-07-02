@@ -12,6 +12,7 @@ import java.time.Instant;
 public class OtpService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    static final int OTP_TTL_SECONDS = 120;
 
     private final OtpRepository otpRepository;
     private final AsyncOtpEmailService asyncOtpEmailService;
@@ -25,7 +26,7 @@ public class OtpService {
         otpRepository.deleteByEmailAndPurpose(email, purpose);
 
         String otp = String.format("%06d", RANDOM.nextInt(1_000_000));
-        OtpEntry entry = new OtpEntry(null, email, purpose, otp, Instant.now().plusSeconds(300));
+        OtpEntry entry = new OtpEntry(null, email, purpose, otp, Instant.now().plusSeconds(OTP_TTL_SECONDS));
         otpRepository.save(entry);
 
         return otp;

@@ -128,8 +128,8 @@ public class EmailService {
 
     private String bodyFor(String otp, OtpPurpose purpose) {
         return switch (purpose) {
-            case SIGNUP -> "Your signup verification code is: " + otp + "\n\nThis code expires in 5 minutes.";
-            case FORGOT_PASSWORD -> "Your password reset code is: " + otp + "\n\nThis code expires in 5 minutes.";
+            case SIGNUP -> "Your signup verification code is: " + otp + "\n\nThis code expires in 2 minutes.";
+            case FORGOT_PASSWORD -> "Your password reset code is: " + otp + "\n\nThis code expires in 2 minutes.";
             case PASSWORD_RESET_VERIFIED -> "Your password reset has been verified.";
         };
     }

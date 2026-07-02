@@ -85,7 +85,7 @@ To stay accurate and cheap as the catalog grows toward hundreds of tools, the ba
 
 | When | Role | Input | Output |
 |------|------|-------|--------|
-| MCP connect (once per connection) | Dependency graph builder | That server's discovered tools + optional MCP skill guidance (`mcp-skills/*.txt`) | Per-server dependency map (DAG), stored as list edges |
+| MCP connect (once per connection) | Dependency graph builder | That server's discovered tools + optional MCP skill guidance (`mcp-skills/*.md`) | Per-server dependency map (DAG), stored as list edges |
 | Chat turn start | Tool router | Compact catalog of the user's connected tools (names + descriptions only) | A few primary tool names |
 | Chat agentic loop | Agent (existing) | The scoped tools (router picks + expanded prerequisites) with full schemas | tool_calls or text |
 
