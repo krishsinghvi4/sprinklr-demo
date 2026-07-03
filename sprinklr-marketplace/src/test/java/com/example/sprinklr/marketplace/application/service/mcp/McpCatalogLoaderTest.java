@@ -7,6 +7,8 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpC
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -45,8 +47,13 @@ class McpCatalogLoaderTest {
         assertEquals("red_ping", red.connectProbe().tool());
         assertEquals("classpath:llm/mcp-skills/red.md", red.llmSkillPath());
         assertNotNull(red.toolSelection());
-        assertTrue(red.toolSelection().skipDependencyGraph());
-        assertFalse(jira.toolSelection().skipDependencyGraph());
+        assertEquals(2, red.toolSelection().staticDependencyGraph().size());
+        assertEquals(
+                List.of("red_sample_mongo_query"),
+                red.toolSelection().staticDependencyGraph().get("red_execute_mongo_query"));
+        assertEquals(
+                List.of("red_sample_elasticsearch_query"),
+                red.toolSelection().staticDependencyGraph().get("red_execute_elastic_search_query"));
         assertNull(gitlab.toolSelection());
 
         assertEquals("classpath:llm/mcp-skills/jira.md", jira.llmSkillPath());

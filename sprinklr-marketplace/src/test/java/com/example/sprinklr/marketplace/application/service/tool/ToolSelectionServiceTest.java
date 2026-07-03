@@ -11,8 +11,8 @@ import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraLocalToolSelectionSupport;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraRedAuditToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.RedQueryToolSelectionSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,15 +38,16 @@ class ToolSelectionServiceTest {
     private final McpProperties properties = new McpProperties();
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport =
             mock(McpCatalogToolSelectionSupport.class);
-    private final RedQueryToolSelectionSupport redQueryToolSelectionSupport = new RedQueryToolSelectionSupport();
     private final JiraLocalToolSelectionSupport jiraLocalToolSelectionSupport = new JiraLocalToolSelectionSupport();
+    private final JiraRedAuditToolSelectionSupport jiraRedAuditToolSelectionSupport =
+            new JiraRedAuditToolSelectionSupport();
     private final ToolSelectionService service =
             new ToolSelectionService(
                     router,
                     properties,
                     catalogToolSelectionSupport,
-                    redQueryToolSelectionSupport,
-                    jiraLocalToolSelectionSupport);
+                    jiraLocalToolSelectionSupport,
+                    jiraRedAuditToolSelectionSupport);
 
     private final McpTool getResources = tool("jira.getAccessibleAtlassianResources");
     private final McpTool getMeta = tool("jira.getJiraProjectIssueTypesMetadata");
@@ -202,68 +203,28 @@ class ToolSelectionServiceTest {
     }
 
     @Test
-    void expandsRedSampleToolBeforeMongoExecuteWhenGraphIsEmpty() {
+    void expandsRedSampleToolBeforeMongoExecuteFromDependencyGraph() {
         McpTool sampleMongo = tool("red.red_sample_mongo_query");
         McpTool executeMongo = tool("red.red_execute_mongo_query");
         when(router.selectTools(any(), anyList(), anyList(), anyInt()))
                 .thenReturn(ToolRouterResult.selected(List.of("red.red_execute_mongo_query")));
 
+        ToolDependencyGraph redGraph = new ToolDependencyGraph(
+                "red",
+                Map.of("red.red_execute_mongo_query", List.of("red.red_sample_mongo_query")),
+                "fp",
+                Instant.now(),
+                DependencyGraphStatus.READY);
+
         ToolSelectionResult result = service.selectTools(
                 "fetch linkedin adsets partner 190",
                 List.of(),
                 List.of(sampleMongo, executeMongo),
-                List.of(new ToolDependencyGraph("red", Map.of(), "fp", Instant.now(), DependencyGraphStatus.READY)),
+                List.of(redGraph),
                 Optional.empty());
 
         assertEquals(
                 List.of("red.red_sample_mongo_query", "red.red_execute_mongo_query"),
-                names(result));
-    }
-
-    @Test
-    void expandsRedSampleAndExecuteWhenRouterPicksSampleTool() {
-        McpTool sampleEs = tool("red.red_sample_elasticsearch_query");
-        McpTool executeEs = tool("red.red_execute_elastic_search_query");
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
-                .thenReturn(ToolRouterResult.selected(List.of("red.red_sample_elasticsearch_query")));
-
-        ToolSelectionResult result = service.selectTools(
-                "fetch linkedin audiences from elasticsearch",
-                List.of(),
-                List.of(sampleEs, executeEs),
-                List.of(new ToolDependencyGraph("red", Map.of(), "fp", Instant.now(), DependencyGraphStatus.READY)),
-                Optional.empty());
-
-        assertEquals(
-                List.of("red.red_sample_elasticsearch_query", "red.red_execute_elastic_search_query"),
-                names(result));
-    }
-
-    @Test
-    void redQueryPairScopesExecuteEvenWhenContinuationMarkedExecuteSatisfied() {
-        McpTool sampleEs = tool("red.red_sample_elasticsearch_query");
-        McpTool executeEs = tool("red.red_execute_elastic_search_query");
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
-                .thenReturn(ToolRouterResult.selected(List.of("red.red_sample_elasticsearch_query")));
-
-        PendingWorkflowState continuation = new PendingWorkflowState(
-                "conv-1",
-                "user-1",
-                List.of("red"),
-                List.of("red.red_sample_elasticsearch_query"),
-                List.of("red.red_execute_elastic_search_query"),
-                List.of("red.red_execute_elastic_search_query -> prior turn error"),
-                Instant.now().plusSeconds(3600));
-
-        ToolSelectionResult result = service.selectTools(
-                "fetch facebook audiences from elasticsearch",
-                List.of(),
-                List.of(sampleEs, executeEs),
-                List.of(new ToolDependencyGraph("red", Map.of(), "fp", Instant.now(), DependencyGraphStatus.READY)),
-                Optional.of(continuation));
-
-        assertEquals(
-                List.of("red.red_sample_elasticsearch_query", "red.red_execute_elastic_search_query"),
                 names(result));
     }
 

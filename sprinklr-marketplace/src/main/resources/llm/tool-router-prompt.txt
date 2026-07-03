@@ -12,6 +12,8 @@ the main assistant decides the exact calls — so pick the PRIMARY tools the req
 - Pick the few tools the request is genuinely about. Do not pad the list with loosely related tools.
 - If the request spans multiple connected servers (e.g. a Jira action and a GitLab lookup), select the
   relevant tools from each server.
+- Example — audit log investigation for a ticket: user mentions a Jira key (e.g. ABC-123) and audit logs,
+  root cause, or debugging → select `jira.getJiraIssue` and `red.red_execute_audit_log_elasticsearch_query`.
 - Prefer the action/leaf tools the user wants (e.g. "create issue", "get pipeline"); prerequisite/metadata
   tools are added automatically later, so you do not need to list them yourself.
 - If no tool is relevant (the user is just chatting or asking a general question), return an empty list.

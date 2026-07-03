@@ -79,33 +79,40 @@ class McpConnectionOrchestratorTest {
     }
 
     @Test
-    void skipsLlmDependencyGraphWhenCatalogSkipFlagSet() {
+    void storesStaticDependencyGraphFromCatalog() {
+        List<McpTool> redTools = List.of(
+                new McpTool("red.red_sample_mongo_query", "Sample mongo", "connection-id", "{}"),
+                new McpTool("red.red_execute_mongo_query", "Execute mongo", "connection-id", "{}"),
+                new McpTool("red.red_ping", "Ping RED", "connection-id", "{}")
+        );
         when(catalogLoader.findById("red-mcp")).thenReturn(Optional.of(McpCatalogTestFixtures.redEntry()));
         when(registryPort.findByUserIdAndCatalogServerId("user-1", "red-mcp")).thenReturn(Optional.empty());
         when(providerResolver.resolve(McpCatalogTestFixtures.redEntry())).thenReturn(provider);
         when(provider.buildAuthHeaders(any(), any())).thenReturn(Map.of("Authorization", "Bearer token"));
         when(discoveryPort.discover(any(), any(), any(), any()))
-                .thenReturn(new McpDiscoveryPort.McpDiscoveryResult("session-1", "2024-11-05", discoveredTools));
-        when(localToolCatalogMerger.merge(any(), any(), eq(discoveredTools))).thenReturn(discoveredTools);
+                .thenReturn(new McpDiscoveryPort.McpDiscoveryResult("session-1", "2024-11-05", redTools));
+        when(localToolCatalogMerger.merge(any(), any(), eq(redTools))).thenReturn(redTools);
         when(credentialVault.encrypt(any())).thenReturn("encrypted");
         when(registryPort.saveConnection(any(), any(), eq("red"))).thenAnswer(invocation -> invocation.getArgument(0));
-
-        ToolDependencyGraph emptyGraph = new ToolDependencyGraph(
-                "red", Map.of(), "fingerprint", Instant.now(), DependencyGraphStatus.READY);
-        when(toolDependencyGraphPort.emptyReadyGraph("red", discoveredTools)).thenReturn(emptyGraph);
+        when(toolDependencyGraphPort.emptyReadyGraph("red", redTools)).thenReturn(new ToolDependencyGraph(
+                "red", Map.of(), "fingerprint", Instant.now(), DependencyGraphStatus.READY));
 
         orchestrator.connectWithCredentials("user-1", "red-mcp", Map.of("apiToken", "token"));
 
-        verify(toolDependencyGraphPort).emptyReadyGraph("red", discoveredTools);
         verify(toolDependencyGraphPort, never()).generate(any(), any());
+        verify(toolDependencyGraphPort).emptyReadyGraph("red", redTools);
 
         ArgumentCaptor<ToolDependencyGraph> graphCaptor = ArgumentCaptor.forClass(ToolDependencyGraph.class);
         verify(registryPort).updateDependencyGraph(any(), graphCaptor.capture());
-        assertEquals(emptyGraph, graphCaptor.getValue());
+        ToolDependencyGraph storedGraph = graphCaptor.getValue();
+        assertEquals(DependencyGraphStatus.READY, storedGraph.status());
+        assertEquals(
+                List.of("red.red_sample_mongo_query"),
+                storedGraph.edges().get("red.red_execute_mongo_query"));
     }
 
     @Test
-    void generatesLlmDependencyGraphWhenCatalogSkipFlagNotSet() {
+    void generatesLlmDependencyGraphWhenNoStaticGraphConfigured() {
         when(catalogLoader.findById("gitlab-mcp")).thenReturn(Optional.of(McpCatalogTestFixtures.gitlabEntry()));
         when(registryPort.findByUserIdAndCatalogServerId("user-1", "gitlab-mcp")).thenReturn(Optional.empty());
         when(providerResolver.resolve(McpCatalogTestFixtures.gitlabEntry())).thenReturn(provider);

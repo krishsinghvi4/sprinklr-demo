@@ -128,6 +128,68 @@ class GitLabRequiredArgsPreflightGuardTest {
     }
 
     @Test
+    void allowsProjectIdDiscoveredFromSameTurnToolResults() {
+        String args = """
+                {
+                  "project_id": "198",
+                  "merge_request_iid": "263763"
+                }
+                """;
+        String conversationContext = """
+                show pipeline status for my latest MR
+                [tools-called-this-turn: gitlab.list_merge_requests]
+                [tool-results-this-turn:
+                list_merge_requests -> [{"id":263763,"iid":263763,"project_id":198,"title":"Fix auth"}]
+                ]""";
+
+        var result = guard.validate("gitlab.list_merge_request_pipelines", args, conversationContext, "conn-gitlab");
+        assertTrue(result.allowed());
+    }
+
+    @Test
+    void allowsMergeRequestIidDiscoveredFromToolResults() {
+        String args = """
+                {
+                  "project_id": "198",
+                  "merge_request_iid": "263763"
+                }
+                """;
+        String conversationContext = """
+                status of my MR
+                [tool-results-this-turn:
+                list_merge_requests -> {"project_id":198,"iid":263763}
+                ]""";
+
+        var result = guard.validate("gitlab.get_merge_request", args, conversationContext, "conn-gitlab");
+        assertTrue(result.allowed());
+    }
+
+    @Test
+    void blocksInventedProjectIdOnMrDiscussionsWhenNotDiscovered() {
+        String args = """
+                {
+                  "project_id": "198",
+                  "merge_request_iid": "263763"
+                }
+                """;
+        var result = guard.validate("gitlab.mr_discussions", args, "any comments on my MR?", "conn-gitlab");
+        assertFalse(result.allowed());
+    }
+
+    @Test
+    void blocksInventedProjectIdWhenNotInPromptOrToolResults() {
+        String args = """
+                {
+                  "project_id": "198",
+                  "merge_request_iid": "263763"
+                }
+                """;
+        var result = guard.validate(
+                "gitlab.list_merge_request_pipelines", args, "pipeline status please", "conn-gitlab");
+        assertFalse(result.allowed());
+    }
+
+    @Test
     void ignoresNonProjectScopedTools() {
         var result = guard.validate("gitlab.whoami", "{}", "who am I", "conn-gitlab");
         assertTrue(result.allowed());

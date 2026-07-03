@@ -5,9 +5,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Shared heuristics for checking whether a tool argument value was explicitly mentioned in the user prompt.
+ * Shared heuristics for checking whether a tool argument value was explicitly mentioned in the
+ * conversation or discovered from same-turn tool results.
  */
 public final class UserPromptValueMatcher {
+
+    public static final String TOOL_RESULTS_THIS_TURN_MARKER = "[tool-results-this-turn:";
+    public static final String TOOL_RESULTS_THIS_BATCH_MARKER = "[tool-results-this-batch:";
 
     private static final Pattern BRANCH_NAME_PATTERN = Pattern.compile(
             "\\bbranch\\s+([\\w./-]+)|\\bon\\s+([\\w./-]+)\\s+branch\\b",
@@ -15,6 +19,54 @@ public final class UserPromptValueMatcher {
     );
 
     private UserPromptValueMatcher() {
+    }
+
+    public static boolean valueAllowed(String conversationContext, String value) {
+        return userMentionedValue(conversationContext, value)
+                || appearsInToolResults(conversationContext, value);
+    }
+
+    public static boolean appearsInToolResults(String conversationContext, String value) {
+        if (value == null || value.isBlank()) {
+            return true;
+        }
+        if (conversationContext == null || conversationContext.isBlank()) {
+            return false;
+        }
+
+        String toolResultsText = extractToolResultsSections(conversationContext);
+        if (toolResultsText.isBlank()) {
+            return false;
+        }
+
+        String normalizedResults = normalize(toolResultsText);
+        String normalizedValue = normalize(value);
+        if (normalizedValue.length() <= 2 && !value.chars().allMatch(Character::isDigit)) {
+            return false;
+        }
+        if (normalizedResults.contains(normalizedValue)) {
+            return true;
+        }
+
+        String decodedValue = normalize(decodeUrlPath(value));
+        if (!decodedValue.equals(normalizedValue) && normalizedResults.contains(decodedValue)) {
+            return true;
+        }
+
+        if (pathSegmentsMentioned(normalizedResults, decodedValue)) {
+            return true;
+        }
+
+        // Match JSON-style numeric fields: "project_id":198, "iid":263763
+        if (value.chars().allMatch(Character::isDigit)) {
+            String raw = toolResultsText.toLowerCase(Locale.ROOT);
+            return raw.contains("\"" + value + "\"")
+                    || raw.contains(":" + value)
+                    || raw.contains(":" + value + ",")
+                    || raw.contains(":" + value + "}");
+        }
+
+        return false;
     }
 
     public static boolean userMentionedValue(String userPrompt, String value) {
@@ -104,5 +156,28 @@ public final class UserPromptValueMatcher {
 
     private static String decodeUrlPath(String value) {
         return value.replace("%2F", "/").replace("%2f", "/");
+    }
+
+    private static String extractToolResultsSections(String conversationContext) {
+        StringBuilder sections = new StringBuilder();
+        appendMarkedSection(conversationContext, TOOL_RESULTS_THIS_TURN_MARKER, sections);
+        appendMarkedSection(conversationContext, TOOL_RESULTS_THIS_BATCH_MARKER, sections);
+        return sections.toString();
+    }
+
+    private static void appendMarkedSection(String context, String marker, StringBuilder sections) {
+        int start = context.indexOf(marker);
+        while (start >= 0) {
+            int contentStart = start + marker.length();
+            int end = context.indexOf(']', contentStart);
+            if (end < 0) {
+                break;
+            }
+            if (sections.length() > 0) {
+                sections.append('\n');
+            }
+            sections.append(context, contentStart, end);
+            start = context.indexOf(marker, end + 1);
+        }
     }
 }

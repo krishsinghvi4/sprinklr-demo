@@ -9,8 +9,10 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * Deterministic sample-before-execute expansion for RED Mongo/Elasticsearch query tools.
- * Used when {@code skipDependencyGraph} is true and the connect-time graph has no edges.
+ * RED sample/execute query pair mappings for runtime workflow nudges and preflight guards.
+ * <p>
+ * Chat-time tool scoping uses the connect-time {@code staticDependencyGraph} on the RED catalog entry;
+ * this class is not used for router expansion.
  */
 @Component
 public class RedQueryToolSelectionSupport {
@@ -52,14 +54,6 @@ public class RedQueryToolSelectionSupport {
                     availableToolNames);
         }
         return List.of(fullyQualifiedToolName);
-    }
-
-    public List<String> samplePrerequisitesForPrimary(List<String> primaryToolNames) {
-        List<String> prerequisites = new java.util.ArrayList<>();
-        for (String toolName : primaryToolNames) {
-            sampleToolForExecute(toolName).ifPresent(prerequisites::add);
-        }
-        return prerequisites;
     }
 
     public static Map<String, String> sampleForExecuteMap() {

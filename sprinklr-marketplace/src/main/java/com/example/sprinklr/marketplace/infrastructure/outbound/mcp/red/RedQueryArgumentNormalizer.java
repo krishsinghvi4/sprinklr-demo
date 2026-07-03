@@ -9,6 +9,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -20,7 +22,13 @@ public class RedQueryArgumentNormalizer implements McpToolArgumentNormalizer {
     private static final Logger log = LoggerFactory.getLogger(RedQueryArgumentNormalizer.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String RED_PREFIX = "red";
-    private static final Set<String> ELASTICSEARCH_EXECUTE_TOOLS = Set.of("red_execute_elastic_search_query");
+    private static final Set<String> ELASTICSEARCH_EXECUTE_TOOLS = Set.of(
+            "red_execute_elastic_search_query",
+            "red_execute_audit_log_elasticsearch_query"
+    );
+    private static final Set<String> HOISTABLE_FROM_QUERY = Set.of(
+            "sort", "size", "from", "_source", "aggs", "track_total_hits"
+    );
 
     private final RedEsSampleFieldContext sampleFieldContext;
 
@@ -60,10 +68,24 @@ public class RedQueryArgumentNormalizer implements McpToolArgumentNormalizer {
             }
             JsonNode queryStringNode = args.get("query");
             if (queryStringNode != null && queryStringNode.isTextual()) {
+                String original = queryStringNode.asText();
+                String current = wrapQueryBodyIfNeeded(original);
+                if (!current.equals(original)) {
+                    log.info("[MCP] Normalized RED ES tool={} wrapped query body under top-level query key", toolName);
+                }
+                String hoisted = hoistNonQueryClausesFromQueryObject(current);
+                if (!hoisted.equals(current)) {
+                    current = hoisted;
+                    log.info("[MCP] Normalized RED ES tool={} hoisted sort/size (and siblings) out of query object",
+                            toolName);
+                }
+                if (!current.equals(original)) {
+                    args.put("query", current);
+                }
                 sampleFieldContext.current().ifPresent(catalog -> {
-                    String original = queryStringNode.asText();
-                    String fixed = RedEsQueryFieldCorrector.correctQueryFields(original, catalog);
-                    if (!fixed.equals(original)) {
+                    String queryForCorrection = args.get("query").asText();
+                    String fixed = RedEsQueryFieldCorrector.correctQueryFields(queryForCorrection, catalog);
+                    if (!fixed.equals(queryForCorrection)) {
                         args.put("query", fixed);
                         log.info("[MCP] Normalized RED ES tool={} corrected filter fields using sample schema",
                                 toolName);
@@ -75,6 +97,70 @@ public class RedQueryArgumentNormalizer implements McpToolArgumentNormalizer {
             log.warn("[MCP] Failed to normalize RED ES args for tool={}: {}", toolName, exception.getMessage());
             return argumentsJson;
         }
+    }
+
+    static String hoistNonQueryClausesFromQueryObject(String queryJson) {
+        if (queryJson == null || queryJson.isBlank()) {
+            return queryJson;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(queryJson);
+            if (!root.isObject()) {
+                return queryJson;
+            }
+            ObjectNode rootObj = (ObjectNode) root;
+            JsonNode queryNode = rootObj.get("query");
+            if (queryNode == null || !queryNode.isObject()) {
+                return queryJson;
+            }
+            ObjectNode queryObj = (ObjectNode) queryNode;
+            boolean changed = false;
+            Iterator<Map.Entry<String, JsonNode>> fields = queryObj.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                String key = entry.getKey();
+                if (HOISTABLE_FROM_QUERY.contains(key) && !rootObj.has(key)) {
+                    rootObj.set(key, entry.getValue());
+                    fields.remove();
+                    changed = true;
+                }
+            }
+            return changed ? OBJECT_MAPPER.writeValueAsString(rootObj) : queryJson;
+        } catch (Exception ignored) {
+            return queryJson;
+        }
+    }
+
+    static String wrapQueryBodyIfNeeded(String queryJson) {
+        if (queryJson == null || queryJson.isBlank()) {
+            return queryJson;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(queryJson);
+            if (!root.isObject() || root.has("query")) {
+                return queryJson;
+            }
+            if (looksLikeElasticsearchQueryBody(root)) {
+                ObjectNode wrapped = OBJECT_MAPPER.createObjectNode();
+                wrapped.set("query", root);
+                return OBJECT_MAPPER.writeValueAsString(wrapped);
+            }
+            return queryJson;
+        } catch (Exception ignored) {
+            return queryJson;
+        }
+    }
+
+    private static boolean looksLikeElasticsearchQueryBody(JsonNode node) {
+        return node.has("bool")
+                || node.has("match_all")
+                || node.has("term")
+                || node.has("terms")
+                || node.has("match")
+                || node.has("range")
+                || node.has("filter")
+                || node.has("must")
+                || node.has("should");
     }
 
     private static String bareToolName(String toolName) {

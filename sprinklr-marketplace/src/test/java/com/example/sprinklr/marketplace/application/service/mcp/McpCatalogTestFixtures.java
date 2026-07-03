@@ -11,6 +11,7 @@ import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
 import com.example.sprinklr.marketplace.domain.model.McpToolSelectionConfig;
 
 import java.util.List;
+import java.util.Map;
 
 /** Shared catalog fixtures for MCP extensibility tests. */
 public final class McpCatalogTestFixtures {
@@ -98,7 +99,12 @@ public final class McpCatalogTestFixtures {
                 List.of(),
                 null,
                 new McpConnectProbeConfig("red_ping", "{}", "Invalid RED token"),
-                new McpToolSelectionConfig(List.of(), true)
+                new McpToolSelectionConfig(
+                        List.of(),
+                        Map.of(
+                                "red_execute_mongo_query", List.of("red_sample_mongo_query"),
+                                "red_execute_elastic_search_query", List.of("red_sample_elasticsearch_query")
+                        ))
         );
     }
 }

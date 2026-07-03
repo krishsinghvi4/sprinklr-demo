@@ -29,7 +29,9 @@ class McpSkillPromptAssemblerTest {
         properties.setCatalogPath("classpath:mcp/mcp-catalog.json");
         McpCatalogLoader catalogLoader = new McpCatalogLoader(properties, new DefaultResourceLoader());
         McpSkillPromptLoader skillPromptLoader = new McpSkillPromptLoader(catalogLoader, new DefaultResourceLoader());
-        assembler = new McpSkillPromptAssembler(systemPromptLoader, skillPromptLoader);
+        CrossWorkflowSkillLoader crossWorkflowSkillLoader =
+                new CrossWorkflowSkillLoader(catalogLoader, new DefaultResourceLoader());
+        assembler = new McpSkillPromptAssembler(systemPromptLoader, skillPromptLoader, crossWorkflowSkillLoader);
     }
 
     @Test
@@ -68,6 +70,25 @@ class McpSkillPromptAssemblerTest {
         assertTrue(result.contains("searchJiraIssuesUsingJql"));
         assertTrue(result.contains("### GitLab"));
         assertTrue(result.contains("get_branch_diffs"));
+    }
+
+    @Test
+    void includesCrossWorkflowSkillWhenJiraAndRedToolsScoped() {
+        List<McpTool> tools = List.of(
+                jiraTool("jira.getJiraIssue"),
+                redTool("red.red_sample_elasticsearch_query")
+        );
+
+        String result = assembler.assemble(tools);
+
+        assertTrue(result.contains("### Cross-server workflows"));
+        assertTrue(result.contains("#### Jira → RED audit log investigation"));
+        assertTrue(result.contains("Phase 1 — Jira context"));
+        assertTrue(result.contains("### RED"));
+    }
+
+    private static McpTool redTool(String name) {
+        return new McpTool(name, "desc", "conn-red", "{\"type\":\"object\"}");
     }
 
     private static McpTool gitlabTool(String name) {

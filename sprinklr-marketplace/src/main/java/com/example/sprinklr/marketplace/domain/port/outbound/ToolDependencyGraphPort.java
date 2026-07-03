@@ -23,8 +23,8 @@ public interface ToolDependencyGraphPort {
     ToolDependencyGraph generate(String serverIdPrefix, List<McpTool> tools);
 
     /**
-     * Returns an empty {@code READY} graph without calling the LLM (e.g. when catalog {@code skipDependencyGraph}
-     * is set).
+     * Returns an empty {@code READY} graph without calling the LLM (e.g. trivial tool count or fingerprinting
+     * for catalog {@code staticDependencyGraph}).
      */
     ToolDependencyGraph emptyReadyGraph(String serverIdPrefix, List<McpTool> tools);
 }

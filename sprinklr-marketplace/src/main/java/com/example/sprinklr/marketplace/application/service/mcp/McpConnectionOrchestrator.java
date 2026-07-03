@@ -1,6 +1,7 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
 import com.example.sprinklr.marketplace.application.service.McpMarketplaceService;
+import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.McpToolSelectionConfig;
@@ -22,10 +23,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Shared connect orchestration: discovery handshake, credential encryption, registry persistence.
@@ -160,11 +165,10 @@ public class McpConnectionOrchestrator {
         }
         try {
             ToolDependencyGraph graph;
-            if (shouldSkipDependencyGraph(catalogEntry)) {
-                log.info("[MCP] Dependency-graph generation skipped for prefix={} (catalog skipDependencyGraph)",
+            if (hasStaticDependencyGraph(catalogEntry)) {
+                log.info("[MCP] Using catalog static dependency graph for prefix={}",
                         catalogEntry.serverIdPrefix());
-                graph = toolDependencyGraphPort.emptyReadyGraph(
-                        catalogEntry.serverIdPrefix(), saved.tools());
+                graph = buildStaticDependencyGraph(catalogEntry, saved.tools());
             } else {
                 graph = toolDependencyGraphPort.generate(
                         catalogEntry.serverIdPrefix(), saved.tools());
@@ -177,9 +181,46 @@ public class McpConnectionOrchestrator {
         }
     }
 
-    private static boolean shouldSkipDependencyGraph(McpCatalogEntry catalogEntry) {
+    private static boolean hasStaticDependencyGraph(McpCatalogEntry catalogEntry) {
         McpToolSelectionConfig toolSelection = catalogEntry.toolSelection();
-        return toolSelection != null && toolSelection.skipDependencyGraph();
+        return toolSelection != null && !toolSelection.staticDependencyGraph().isEmpty();
+    }
+
+    private ToolDependencyGraph buildStaticDependencyGraph(McpCatalogEntry catalogEntry, List<McpTool> tools) {
+        String prefix = catalogEntry.serverIdPrefix();
+        Set<String> availableToolNames = tools.stream().map(McpTool::name).collect(Collectors.toSet());
+        Map<String, List<String>> qualifiedEdges = new LinkedHashMap<>();
+
+        for (Map.Entry<String, List<String>> edge : catalogEntry.toolSelection().staticDependencyGraph().entrySet()) {
+            String dependent = qualifyToolName(prefix, edge.getKey());
+            if (!availableToolNames.contains(dependent)) {
+                continue;
+            }
+            List<String> prerequisites = new ArrayList<>();
+            for (String prerequisite : edge.getValue()) {
+                String qualifiedPrerequisite = qualifyToolName(prefix, prerequisite);
+                if (availableToolNames.contains(qualifiedPrerequisite)) {
+                    prerequisites.add(qualifiedPrerequisite);
+                }
+            }
+            if (!prerequisites.isEmpty()) {
+                qualifiedEdges.put(dependent, List.copyOf(prerequisites));
+            }
+        }
+
+        return new ToolDependencyGraph(
+                prefix,
+                Map.copyOf(qualifiedEdges),
+                toolDependencyGraphPort.emptyReadyGraph(prefix, tools).toolsFingerprint(),
+                Instant.now(),
+                DependencyGraphStatus.READY);
+    }
+
+    private static String qualifyToolName(String prefix, String toolName) {
+        if (toolName.contains(".")) {
+            return toolName;
+        }
+        return prefix + "." + toolName;
     }
 
     private McpMarketplaceService.ConnectionView toConnectionView(

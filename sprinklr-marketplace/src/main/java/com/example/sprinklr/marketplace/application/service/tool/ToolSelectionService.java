@@ -11,9 +11,9 @@ import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraRedAuditToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraLocalToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.RedQueryToolSelectionSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -41,21 +41,21 @@ public class ToolSelectionService {
     private final ToolRouterPort toolRouterPort;
     private final McpProperties mcpProperties;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
-    private final RedQueryToolSelectionSupport redQueryToolSelectionSupport;
     private final JiraLocalToolSelectionSupport jiraLocalToolSelectionSupport;
+    private final JiraRedAuditToolSelectionSupport jiraRedAuditToolSelectionSupport;
 
     public ToolSelectionService(
             ToolRouterPort toolRouterPort,
             McpProperties mcpProperties,
             McpCatalogToolSelectionSupport catalogToolSelectionSupport,
-            RedQueryToolSelectionSupport redQueryToolSelectionSupport,
-            JiraLocalToolSelectionSupport jiraLocalToolSelectionSupport
+            JiraLocalToolSelectionSupport jiraLocalToolSelectionSupport,
+            JiraRedAuditToolSelectionSupport jiraRedAuditToolSelectionSupport
     ) {
         this.toolRouterPort = toolRouterPort;
         this.mcpProperties = mcpProperties;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
-        this.redQueryToolSelectionSupport = redQueryToolSelectionSupport;
         this.jiraLocalToolSelectionSupport = jiraLocalToolSelectionSupport;
+        this.jiraRedAuditToolSelectionSupport = jiraRedAuditToolSelectionSupport;
     }
 
     public ToolSelectionResult selectTools(
@@ -114,7 +114,7 @@ public class ToolSelectionService {
                 .map(this::buildContinuationContext)
                 .orElse(null);
 
-        List<String> orderedNames = expand(primary, toolsByName, readyGraphByPrefix, satisfied);
+        List<String> orderedNames = expand(userPrompt, primary, toolsByName, readyGraphByPrefix, satisfied);
         List<String> capped = cap(orderedNames, config.getMaxTools());
 
         List<McpTool> scopedTools = new ArrayList<>();
@@ -144,6 +144,7 @@ public class ToolSelectionService {
     }
 
     private List<String> expand(
+            String userPrompt,
             List<String> primary,
             Map<String, McpTool> toolsByName,
             Map<String, ToolDependencyGraph> readyGraphByPrefix,
@@ -151,16 +152,10 @@ public class ToolSelectionService {
     ) {
         List<String> ordered = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        for (String toolName : primary) {
-            if (redQueryToolSelectionSupport.isQueryPairTool(toolName)) {
-                for (String pairedTool : redQueryToolSelectionSupport.expandQueryPair(toolName, toolsByName.keySet())) {
-                    // Sample/execute pairs are per-turn schema discovery — never omit a half because a prior turn ran it.
-                    if (toolsByName.containsKey(pairedTool) && seen.add(pairedTool)) {
-                        ordered.add(pairedTool);
-                    }
-                }
-                continue;
-            }
+        List<String> expandedPrimary = new ArrayList<>(primary);
+        expandedPrimary.addAll(jiraRedAuditToolSelectionSupport.bridgeTools(
+                primary, userPrompt, toolsByName.keySet()));
+        for (String toolName : expandedPrimary) {
             if (jiraLocalToolSelectionSupport.hasLocalPrerequisites(toolName)) {
                 for (String expandedTool : jiraLocalToolSelectionSupport.prerequisitesFor(toolName, toolsByName.keySet())) {
                     if (satisfied.contains(expandedTool)) {

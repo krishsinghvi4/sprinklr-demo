@@ -27,6 +27,8 @@ import com.example.sprinklr.marketplace.infrastructure.config.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsQueryRetrySupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsSampleFieldContext;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsSampleFieldExtractor;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryWorkflowSupport;
@@ -70,6 +72,7 @@ public class ChatOrchestrator implements ChatUseCase {
     private final PendingWorkflowPort pendingWorkflowPort;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
     private final RedQueryWorkflowSupport redQueryWorkflowSupport;
+    private final RedEsQueryRetrySupport redEsQueryRetrySupport;
     private final RedEsSampleFieldContext redEsSampleFieldContext;
 
     public ChatOrchestrator(
@@ -84,6 +87,7 @@ public class ChatOrchestrator implements ChatUseCase {
             PendingWorkflowPort pendingWorkflowPort,
             McpCatalogToolSelectionSupport catalogToolSelectionSupport,
             RedQueryWorkflowSupport redQueryWorkflowSupport,
+            RedEsQueryRetrySupport redEsQueryRetrySupport,
             RedEsSampleFieldContext redEsSampleFieldContext
     ) {
         this.chatHistoryPort = chatHistoryPort;
@@ -97,6 +101,7 @@ public class ChatOrchestrator implements ChatUseCase {
         this.pendingWorkflowPort = pendingWorkflowPort;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
         this.redQueryWorkflowSupport = redQueryWorkflowSupport;
+        this.redEsQueryRetrySupport = redEsQueryRetrySupport;
         this.redEsSampleFieldContext = redEsSampleFieldContext;
     }
 
@@ -166,6 +171,8 @@ public class ChatOrchestrator implements ChatUseCase {
 
             int iteration = 0;
             int totalToolCalls = 0;
+            String pendingEsRetryTool = null;
+            int esRetryNudgesUsed = 0;
 
             while (iteration < mcpProperties.getMaxAgenticIterations()) {
                 long llmStartMs = System.currentTimeMillis();
@@ -193,6 +200,16 @@ public class ChatOrchestrator implements ChatUseCase {
                                 pendingExecute.get());
                         agentAdditionalContext = redQueryWorkflowSupport.buildExecuteNudge(
                                 agentAdditionalContext, pendingExecute.get());
+                        iteration++;
+                        continue;
+                    }
+                    if (pendingEsRetryTool != null && iteration > 0
+                            && esRetryNudgesUsed < RedEsQueryRetrySupport.MAX_RETRY_NUDGES_PER_TURN) {
+                        log.info("[Orchestrator] Recoverable RED ES error on {} — nudging retry",
+                                pendingEsRetryTool);
+                        agentAdditionalContext = redEsQueryRetrySupport.buildRetryNudge(
+                                agentAdditionalContext, pendingEsRetryTool);
+                        esRetryNudgesUsed++;
                         iteration++;
                         continue;
                     }
@@ -224,7 +241,7 @@ public class ChatOrchestrator implements ChatUseCase {
                     return;
                 }
 
-                String toolMessageId = executeToolBatch(
+                ToolBatchResult batchResult = executeToolBatch(
                         request,
                         conversationId,
                         history,
@@ -235,8 +252,22 @@ public class ChatOrchestrator implements ChatUseCase {
                         executedToolNames,
                         executedToolSummaries
                 );
-                currentTurnToolMessageIds.add(toolMessageId);
+                currentTurnToolMessageIds.add(batchResult.toolMessageId());
                 totalToolCalls += llmResponse.toolCalls().size();
+                Optional<String> recoverableEsTool = batchResult.recoverableEsExecuteTool();
+                if (recoverableEsTool.isPresent()) {
+                    pendingEsRetryTool = recoverableEsTool.get();
+                    if (esRetryNudgesUsed < RedEsQueryRetrySupport.MAX_RETRY_NUDGES_PER_TURN) {
+                        log.info("[Orchestrator] Recoverable RED ES error — nudging {} before next LLM call",
+                                pendingEsRetryTool);
+                        agentAdditionalContext = redEsQueryRetrySupport.buildRetryNudge(
+                                agentAdditionalContext, pendingEsRetryTool);
+                        esRetryNudgesUsed++;
+                    }
+                } else if (llmResponse.toolCalls().stream()
+                        .anyMatch(toolCall -> redEsQueryRetrySupport.isRedElasticsearchExecuteTool(toolCall.name()))) {
+                    pendingEsRetryTool = null;
+                }
                 Optional<String> pendingExecuteAfterBatch = redQueryWorkflowSupport.pendingExecuteAfterSample(
                         toolsForTurn, executedToolNames);
                 redQueryWorkflowSupport.ensureExecuteToolInScope(
@@ -421,10 +452,8 @@ public class ChatOrchestrator implements ChatUseCase {
 
     /**
      * Executes a batch of tool calls and records tool results in history.
-     *
-     * @return id of the persisted TOOL message row
      */
-    private String executeToolBatch(
+    private ToolBatchResult executeToolBatch(
             ChatRequest request,
             String conversationId,
             List<Message> history,
@@ -448,24 +477,31 @@ public class ChatOrchestrator implements ChatUseCase {
         history.add(assistantToolCallMessage);
 
         List<ToolCall> toolCalls = llmResponse.toolCalls();
+        List<String> batchToolNames = toolCalls.stream().map(ToolCall::name).toList();
         List<McpInvocation> invocations = toolCalls.stream()
                 .map(toolCall -> toInvocation(request.userId(), toolCall))
                 .peek(invocation -> usedConnections.add(invocation.serverId()))
                 .toList();
 
         List<McpInvocationResult> invocationResults = new ArrayList<>();
+        StringBuilder inBatchToolResults = new StringBuilder();
+        String basePreflightContext = buildConversationContextForPreflight(history, currentTurnUserMessageId);
         for (int i = 0; i < invocations.size(); i++) {
             McpInvocation invocation = invocations.get(i);
             streamingSession.emitProgress("Running " + invocation.toolName() + "…\n");
             long toolStartMs = System.currentTimeMillis();
             McpInvocationResult result = invokeWithPreflight(
                     invocation,
-                    buildConversationContextForPreflight(history, currentTurnUserMessageId)
+                    basePreflightContext,
+                    inBatchToolResults.toString()
             );
             long toolMs = System.currentTimeMillis() - toolStartMs;
             log.info("[Orchestrator] MCP tool {} completed in {}ms conversationId={} success={}",
                     invocation.toolName(), toolMs, conversationId, result.success());
             invocationResults.add(result);
+            if (result.success() && result.content() != null && !result.content().isBlank()) {
+                appendPreflightToolResult(inBatchToolResults, invocation.toolName(), result.content());
+            }
             if (result.success() && isRedElasticsearchSampleTool(invocation.toolName())) {
                 redEsSampleFieldContext.set(RedEsSampleFieldExtractor.parseCatalog(result.content()));
             }
@@ -488,7 +524,12 @@ public class ChatOrchestrator implements ChatUseCase {
         );
         // chatHistoryPort.saveMessage(toolMessage); // debug: skip DB persist for tool results
         history.add(toolMessage);
-        return toolMessage.id();
+        Optional<String> recoverableEsTool = redEsQueryRetrySupport.findRecoverableExecuteTool(
+                batchToolNames, invocationResults);
+        return new ToolBatchResult(toolMessage.id(), recoverableEsTool);
+    }
+
+    private record ToolBatchResult(String toolMessageId, Optional<String> recoverableEsExecuteTool) {
     }
 
     /**
@@ -604,10 +645,22 @@ public class ChatOrchestrator implements ChatUseCase {
         return chatHistoryPort.saveConversation(conversation).id();
     }
 
-    private McpInvocationResult invokeWithPreflight(McpInvocation invocation, String conversationContext) {
+    private McpInvocationResult invokeWithPreflight(
+            McpInvocation invocation,
+            String conversationContext,
+            String inBatchToolResults
+    ) {
         log.info("[Orchestrator] Preflight check starting tool={} connectionId={} (runs after LLM tool_calls, before MCP invoke)",
                 invocation.toolName(), invocation.serverId());
-        var validation = mcpInvocationPreflightPort.validate(invocation, conversationContext);
+        String fullContext = conversationContext;
+        if (inBatchToolResults != null && !inBatchToolResults.isBlank()) {
+            fullContext = conversationContext
+                    + "\n"
+                    + UserPromptValueMatcher.TOOL_RESULTS_THIS_BATCH_MARKER
+                    + inBatchToolResults
+                    + "]";
+        }
+        var validation = mcpInvocationPreflightPort.validate(invocation, fullContext);
         if (!validation.allowed()) {
             log.info("[Orchestrator] Blocked tool={} via preflight guard: {}",
                     invocation.toolName(), validation.blockMessage());
@@ -619,12 +672,13 @@ public class ChatOrchestrator implements ChatUseCase {
     }
 
     /**
-     * Builds USER + ASSISTANT text from the loaded history window for preflight guards.
-     * Guards use this (not just the latest user message) so values from earlier turns or
-     * assistant confirmations (e.g. user replying "yes") still validate.
+     * Builds USER + ASSISTANT text and same-turn TOOL results for preflight guards.
+     * Guards use this (not just the latest user message) so values from earlier turns,
+     * assistant confirmations, or tool discovery in this turn still validate.
      */
     private String buildConversationContextForPreflight(List<Message> history, String currentTurnUserMessageId) {
         StringBuilder context = new StringBuilder();
+        StringBuilder toolResultsThisTurn = new StringBuilder();
         Set<String> calledToolNames = new LinkedHashSet<>();
         boolean inCurrentTurn = currentTurnUserMessageId == null || currentTurnUserMessageId.isBlank();
         for (Message message : history) {
@@ -635,6 +689,11 @@ public class ChatOrchestrator implements ChatUseCase {
             if (inCurrentTurn) {
                 for (ToolCall toolCall : message.toolCalls()) {
                     calledToolNames.add(toolCall.name());
+                }
+                if (message.role() == MessageRole.TOOL) {
+                    for (ToolResult toolResult : message.toolResults()) {
+                        appendPreflightToolResult(toolResultsThisTurn, null, toolResult.content());
+                    }
                 }
             }
             if (message.role() != MessageRole.USER && message.role() != MessageRole.ASSISTANT) {
@@ -654,7 +713,33 @@ public class ChatOrchestrator implements ChatUseCase {
                     .append(String.join(", ", calledToolNames))
                     .append(']');
         }
+        if (toolResultsThisTurn.length() > 0) {
+            context.append('\n')
+                    .append(UserPromptValueMatcher.TOOL_RESULTS_THIS_TURN_MARKER)
+                    .append(toolResultsThisTurn)
+                    .append(']');
+        }
         return context.toString();
+    }
+
+    private static final int PREFLIGHT_TOOL_RESULT_MAX_CHARS = 4_000;
+
+    private static void appendPreflightToolResult(StringBuilder buffer, String toolName, String content) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        if (buffer.length() > 0) {
+            buffer.append('\n');
+        }
+        if (toolName != null && !toolName.isBlank()) {
+            buffer.append(toolName).append(" -> ");
+        }
+        String collapsed = content.strip();
+        if (collapsed.length() <= PREFLIGHT_TOOL_RESULT_MAX_CHARS) {
+            buffer.append(collapsed);
+            return;
+        }
+        buffer.append(collapsed, 0, PREFLIGHT_TOOL_RESULT_MAX_CHARS).append("…(truncated)");
     }
 
     private McpInvocation toInvocation(String userId, ToolCall toolCall) {

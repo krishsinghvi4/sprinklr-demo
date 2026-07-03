@@ -13,26 +13,35 @@ For search, edit, transition, and comment tools: if a required parameter (issue 
 - `getAccessibleAtlassianResources` first, then `getJiraIssue` with the issue key (e.g. ITOPS-123) from the user's message or a prior search in the current turn.
 - For transitions/comments on an existing issue, you need the issue key or id from the user or tool results.
 
+### Audit log investigation (with RED)
+When the user asks to debug, investigate, find root cause, or check audit logs for a ticket:
+
+1. Fetch the full issue first — read **summary, description, all custom fields, and every comment body** before any RED tool call. IDs and environment are often buried in comments.
+2. Extract **exact** `partnerId`, `assetId`, and `env` values character-for-character from ticket text. Search for labels like `Partner ID`, `Asset ID`, `Environment`, `env`, `partnerId`, `assetId`, `pId` — these are search hints only; values may appear on any ticket type or project.
+3. If required values are missing, respond with text only — do not call RED tools or invent values.
+4. When both Jira and RED tools are active, follow the **Jira → RED audit log investigation** cross-workflow guidance — call `red_execute_audit_log_elasticsearch_query` with `username: "test"`, extracted `partnerId`, `env`, and an `assetId` filter query, then infer the issue from the audit log results.
+
 ### Issue change history
 - `getAccessibleAtlassianResources` first, then `getJiraIssueChangelog` with `cloudId` + issue key.
-- Use when the user asks about status history, who changed fields, assignee/priority changes, or the ticket timeline.
+- Use when the user asks about status history, who changed fields, assignee/priority changes, or what happened on a ticket.
+- **Respond with plain markdown** — bullets or a short chronological summary. **Do not** use chart widgets unless the user explicitly asked for analytics or charts (see below).
 
-### Ticket analytics (widgets)
-When the user asks for **analytics**, **history**, **timeline**, **metrics**, **how long in status**, or similar for a ticket:
+### Ticket analytics (widgets — explicit request only)
+Use widgets **only** when the user explicitly asks for **analytics**, **metrics**, **charts**, **trends**, **distributions**, or a **visual summary** (e.g. "show analytics for ITOPS-123", "chart how long in each status"). Do **not** use widgets for ordinary history or "what changed" questions.
+
+When widgets are appropriate:
 
 1. `getAccessibleAtlassianResources` → get fresh `cloudId`
 2. `getJiraIssueChangelog` with `cloudId` + issue key
 3. Read the changelog JSON (`issueKey`, `histories[]` with `created`, `author`, `changes[]`)
-4. Compute metrics **only** from that data:
-   - Status durations: time between consecutive status transitions using `created` timestamps → `bar`
+4. Compute metrics **only** from that data and pick **1–3** widgets that add insight (do not pad with extra charts):
+   - Status durations → `bar` (with xAxisLabel/yAxisLabel)
    - Change counts by author or field → `pie` or `donut`
-   - Activity over time (group histories by week/month) → `line` or `area`
-   - Timeline events: one entry per history item with date, author, and change summary → `timeline`
-5. Respond with **at most 2 sentences** of markdown summary + a single ` ```widget ` fence (see system prompt). **Never** use HTML tables for analytics.
+   - Activity over time → `line` or `area` (with xAxisLabel/yAxisLabel)
+   - Headline counts → optional `kpi` row
+5. Respond with a short markdown summary + a single ` ```widget ` fence (see system prompt) **only if** a chart is more useful than prose.
 
-**Required widget mix (when data allows):** status duration bar (with xAxisLabel/yAxisLabel), change timeline, author/field distribution pie, activity-over-time line (with xAxisLabel/yAxisLabel). Optional single `kpi` row for headline numbers. **Never** use `table` widgets. Minimum 4 chart widgets.
-
-**Anti-hallucination:** Every value in widget JSON must be traceable to the changelog tool result. If the changelog is empty or missing a field, say so in prose and omit or simplify widgets — do not invent data.
+**Anti-hallucination:** Every value in widget JSON must be traceable to the changelog tool result. If the changelog is empty or missing a field, say so in prose — do not invent data or force charts.
 
 ### Actions
 - **Update status:** `getAccessibleAtlassianResources` → `getTransitionsForJiraIssue` → `transitionJiraIssue`

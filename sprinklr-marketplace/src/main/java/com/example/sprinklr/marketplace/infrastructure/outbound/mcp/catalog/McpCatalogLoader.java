@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog;
 
+import com.example.sprinklr.marketplace.domain.model.CrossWorkflowSkillConfig;
 import com.example.sprinklr.marketplace.domain.model.McpAuthConfig;
 import com.example.sprinklr.marketplace.domain.model.McpAuthKind;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
@@ -20,8 +21,12 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.LinkedHashSet;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Loads the MCP server catalog from JSON and exposes catalog-driven auth/connect metadata.
@@ -33,6 +38,7 @@ public class McpCatalogLoader {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final List<McpCatalogEntry> entries;
+    private final List<CrossWorkflowSkillConfig> crossWorkflowSkills;
     private final McpProperties properties;
 
     public McpCatalogLoader(McpProperties properties, ResourceLoader resourceLoader) throws IOException {
@@ -45,11 +51,16 @@ public class McpCatalogLoader {
                 loaded.add(parseEntry(serverNode));
             }
             this.entries = List.copyOf(loaded);
+            this.crossWorkflowSkills = List.copyOf(parseCrossWorkflowSkills(root.path("crossWorkflowSkills")));
         }
     }
 
     public List<McpCatalogEntry> getAll() {
         return entries;
+    }
+
+    public List<CrossWorkflowSkillConfig> getCrossWorkflowSkills() {
+        return crossWorkflowSkills;
     }
 
     public Optional<McpCatalogEntry> findById(String id) {
@@ -214,7 +225,43 @@ public class McpCatalogLoader {
         for (JsonNode toolNode : selectionNode.path("continuationNeverSatisfyTools")) {
             neverSatisfy.add(toolNode.asText());
         }
-        boolean skipDependencyGraph = selectionNode.path("skipDependencyGraph").asBoolean(false);
-        return new McpToolSelectionConfig(neverSatisfy, skipDependencyGraph);
+        Map<String, List<String>> staticDependencyGraph = parseStaticDependencyGraph(
+                selectionNode.path("staticDependencyGraph"));
+        return new McpToolSelectionConfig(neverSatisfy, staticDependencyGraph);
+    }
+
+    private Map<String, List<String>> parseStaticDependencyGraph(JsonNode graphNode) {
+        if (graphNode.isMissingNode() || graphNode.isNull() || !graphNode.isObject()) {
+            return Map.of();
+        }
+        Map<String, List<String>> edges = new LinkedHashMap<>();
+        graphNode.fields().forEachRemaining(entry -> {
+            List<String> prerequisites = new ArrayList<>();
+            for (JsonNode prerequisiteNode : entry.getValue()) {
+                prerequisites.add(prerequisiteNode.asText());
+            }
+            edges.put(entry.getKey(), List.copyOf(prerequisites));
+        });
+        return Map.copyOf(edges);
+    }
+
+    private List<CrossWorkflowSkillConfig> parseCrossWorkflowSkills(JsonNode skillsNode) {
+        if (skillsNode.isMissingNode() || !skillsNode.isArray()) {
+            return List.of();
+        }
+        List<CrossWorkflowSkillConfig> parsed = new ArrayList<>();
+        for (JsonNode skillNode : skillsNode) {
+            Set<String> requiredPrefixes = new LinkedHashSet<>();
+            for (JsonNode prefixNode : skillNode.path("requiredPrefixes")) {
+                requiredPrefixes.add(prefixNode.asText());
+            }
+            parsed.add(new CrossWorkflowSkillConfig(
+                    skillNode.path("id").asText(),
+                    skillNode.path("title").asText(),
+                    skillNode.path("skillPath").asText(),
+                    requiredPrefixes
+            ));
+        }
+        return parsed;
     }
 }

@@ -1,4 +1,12 @@
 {
+  "crossWorkflowSkills": [
+    {
+      "id": "jira-red-audit-investigation",
+      "title": "Jira → RED audit log investigation",
+      "skillPath": "classpath:llm/mcp-skills/cross-workflows/jira-red-audit-investigation.md",
+      "requiredPrefixes": ["jira", "red"]
+    }
+  ],
   "servers": [
     {
       "id": "atlassian-jira",
@@ -91,11 +99,15 @@
         "failureMessage": "Invalid RED access token — verify the token is valid and not expired."
       },
       "toolSelection": {
-        "skipDependencyGraph": true,
+        "staticDependencyGraph": {
+          "red_execute_mongo_query": ["red_sample_mongo_query"],
+          "red_execute_elastic_search_query": ["red_sample_elasticsearch_query"]
+        },
         "continuationNeverSatisfyTools": [
           "red.red_sample_elasticsearch_query",
           "red.red_sample_mongo_query",
           "red.red_execute_elastic_search_query",
+          "red.red_execute_audit_log_elasticsearch_query",
           "red.red_execute_mongo_query"
         ]
       }

@@ -16,13 +16,16 @@ public class McpSkillPromptAssembler {
 
     private final LlmSystemPromptLoader systemPromptLoader;
     private final McpSkillPromptLoader skillPromptLoader;
+    private final CrossWorkflowSkillLoader crossWorkflowSkillLoader;
 
     public McpSkillPromptAssembler(
             LlmSystemPromptLoader systemPromptLoader,
-            McpSkillPromptLoader skillPromptLoader
+            McpSkillPromptLoader skillPromptLoader,
+            CrossWorkflowSkillLoader crossWorkflowSkillLoader
     ) {
         this.systemPromptLoader = systemPromptLoader;
         this.skillPromptLoader = skillPromptLoader;
+        this.crossWorkflowSkillLoader = crossWorkflowSkillLoader;
     }
 
     /**
@@ -51,7 +54,22 @@ public class McpSkillPromptAssembler {
             });
         }
 
+        appendCrossWorkflowSkills(assembled, prefixes);
+
         return assembled.toString();
+    }
+
+    private void appendCrossWorkflowSkills(StringBuilder assembled, Set<String> prefixes) {
+        List<CrossWorkflowSkillLoader.LoadedCrossWorkflowSkill> matching =
+                crossWorkflowSkillLoader.findMatching(prefixes);
+        if (matching.isEmpty()) {
+            return;
+        }
+        assembled.append("\n\n### Cross-server workflows");
+        for (CrossWorkflowSkillLoader.LoadedCrossWorkflowSkill skill : matching) {
+            assembled.append("\n\n#### ").append(skill.config().title()).append("\n");
+            assembled.append(skill.skillText().trim());
+        }
     }
 
     private static Set<String> extractPrefixes(List<McpTool> activeTools) {
@@ -72,6 +90,7 @@ public class McpSkillPromptAssembler {
         return switch (prefix) {
             case "jira" -> "Jira";
             case "gitlab" -> "GitLab";
+            case "red" -> "RED";
             default -> prefix.substring(0, 1).toUpperCase() + prefix.substring(1);
         };
     }
