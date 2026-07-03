@@ -28,10 +28,6 @@ import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsQueryRetrySupport;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsSampleFieldContext;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedEsSampleFieldExtractor;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryWorkflowSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -71,9 +67,6 @@ public class ChatOrchestrator implements ChatUseCase {
     private final ToolSelectionService toolSelectionService;
     private final PendingWorkflowPort pendingWorkflowPort;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
-    private final RedQueryWorkflowSupport redQueryWorkflowSupport;
-    private final RedEsQueryRetrySupport redEsQueryRetrySupport;
-    private final RedEsSampleFieldContext redEsSampleFieldContext;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -85,10 +78,7 @@ public class ChatOrchestrator implements ChatUseCase {
             McpInvocationPreflightPort mcpInvocationPreflightPort,
             ToolSelectionService toolSelectionService,
             PendingWorkflowPort pendingWorkflowPort,
-            McpCatalogToolSelectionSupport catalogToolSelectionSupport,
-            RedQueryWorkflowSupport redQueryWorkflowSupport,
-            RedEsQueryRetrySupport redEsQueryRetrySupport,
-            RedEsSampleFieldContext redEsSampleFieldContext
+            McpCatalogToolSelectionSupport catalogToolSelectionSupport
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -100,9 +90,6 @@ public class ChatOrchestrator implements ChatUseCase {
         this.toolSelectionService = toolSelectionService;
         this.pendingWorkflowPort = pendingWorkflowPort;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
-        this.redQueryWorkflowSupport = redQueryWorkflowSupport;
-        this.redEsQueryRetrySupport = redEsQueryRetrySupport;
-        this.redEsSampleFieldContext = redEsSampleFieldContext;
     }
 
     /**
@@ -126,7 +113,6 @@ public class ChatOrchestrator implements ChatUseCase {
         Set<String> usedConnections = new HashSet<>();
         StreamingSession streamingSession = new StreamingSession(responseSubscriber);
         try {
-            redEsSampleFieldContext.clear();
             long setupStartMs = System.currentTimeMillis();
             String conversationId = resolveConversationId(request);
             int priorTurnLimit = Math.max(0, chatProperties.getHistoryTurnLimit() - 1);
@@ -171,8 +157,6 @@ public class ChatOrchestrator implements ChatUseCase {
 
             int iteration = 0;
             int totalToolCalls = 0;
-            String pendingEsRetryTool = null;
-            int esRetryNudgesUsed = 0;
 
             while (iteration < mcpProperties.getMaxAgenticIterations()) {
                 long llmStartMs = System.currentTimeMillis();
@@ -193,26 +177,6 @@ public class ChatOrchestrator implements ChatUseCase {
                         iteration, llmMs, conversationId, responseType, llmResponse.toolCalls().size());
 
                 if (llmResponse.toolCalls().isEmpty()) {
-                    Optional<String> pendingExecute = redQueryWorkflowSupport.pendingExecuteAfterSample(
-                            toolsForTurn, executedToolNames);
-                    if (pendingExecute.isPresent() && iteration > 0) {
-                        log.info("[Orchestrator] RED sample complete but {} pending — continuing agentic loop",
-                                pendingExecute.get());
-                        agentAdditionalContext = redQueryWorkflowSupport.buildExecuteNudge(
-                                agentAdditionalContext, pendingExecute.get());
-                        iteration++;
-                        continue;
-                    }
-                    if (pendingEsRetryTool != null && iteration > 0
-                            && esRetryNudgesUsed < RedEsQueryRetrySupport.MAX_RETRY_NUDGES_PER_TURN) {
-                        log.info("[Orchestrator] Recoverable RED ES error on {} — nudging retry",
-                                pendingEsRetryTool);
-                        agentAdditionalContext = redEsQueryRetrySupport.buildRetryNudge(
-                                agentAdditionalContext, pendingEsRetryTool);
-                        esRetryNudgesUsed++;
-                        iteration++;
-                        continue;
-                    }
                     if (iteration == 0) {
                         handleTextOnlyResponse(conversationId, llmResponse, responseSubscriber);
                     } else {
@@ -254,32 +218,6 @@ public class ChatOrchestrator implements ChatUseCase {
                 );
                 currentTurnToolMessageIds.add(batchResult.toolMessageId());
                 totalToolCalls += llmResponse.toolCalls().size();
-                Optional<String> recoverableEsTool = batchResult.recoverableEsExecuteTool();
-                if (recoverableEsTool.isPresent()) {
-                    pendingEsRetryTool = recoverableEsTool.get();
-                    if (esRetryNudgesUsed < RedEsQueryRetrySupport.MAX_RETRY_NUDGES_PER_TURN) {
-                        log.info("[Orchestrator] Recoverable RED ES error — nudging {} before next LLM call",
-                                pendingEsRetryTool);
-                        agentAdditionalContext = redEsQueryRetrySupport.buildRetryNudge(
-                                agentAdditionalContext, pendingEsRetryTool);
-                        esRetryNudgesUsed++;
-                    }
-                } else if (llmResponse.toolCalls().stream()
-                        .anyMatch(toolCall -> redEsQueryRetrySupport.isRedElasticsearchExecuteTool(toolCall.name()))) {
-                    pendingEsRetryTool = null;
-                }
-                Optional<String> pendingExecuteAfterBatch = redQueryWorkflowSupport.pendingExecuteAfterSample(
-                        toolsForTurn, executedToolNames);
-                redQueryWorkflowSupport.ensureExecuteToolInScope(
-                        toolsForTurn, userTools, executedToolNames);
-                pendingExecuteAfterBatch = redQueryWorkflowSupport.pendingExecuteAfterSample(
-                        toolsForTurn, executedToolNames);
-                if (pendingExecuteAfterBatch.isPresent()) {
-                    log.info("[Orchestrator] RED sample ran — nudging {} before next LLM call",
-                            pendingExecuteAfterBatch.get());
-                    agentAdditionalContext = redQueryWorkflowSupport.buildExecuteNudge(
-                            agentAdditionalContext, pendingExecuteAfterBatch.get());
-                }
                 iteration++;
             }
 
@@ -293,8 +231,6 @@ public class ChatOrchestrator implements ChatUseCase {
             signalError(responseSubscriber, exception);
             log.warn("[Orchestrator] Turn failed after {}ms: {}",
                     System.currentTimeMillis() - turnStartMs, exception.getMessage());
-        } finally {
-            redEsSampleFieldContext.clear();
         }
     }
 
@@ -477,7 +413,6 @@ public class ChatOrchestrator implements ChatUseCase {
         history.add(assistantToolCallMessage);
 
         List<ToolCall> toolCalls = llmResponse.toolCalls();
-        List<String> batchToolNames = toolCalls.stream().map(ToolCall::name).toList();
         List<McpInvocation> invocations = toolCalls.stream()
                 .map(toolCall -> toInvocation(request.userId(), toolCall))
                 .peek(invocation -> usedConnections.add(invocation.serverId()))
@@ -502,9 +437,6 @@ public class ChatOrchestrator implements ChatUseCase {
             if (result.success() && result.content() != null && !result.content().isBlank()) {
                 appendPreflightToolResult(inBatchToolResults, invocation.toolName(), result.content());
             }
-            if (result.success() && isRedElasticsearchSampleTool(invocation.toolName())) {
-                redEsSampleFieldContext.set(RedEsSampleFieldExtractor.parseCatalog(result.content()));
-            }
             // Record the fully-qualified name + a compact summary for cross-turn continuation reuse.
             recordExecutedTool(toolCalls.get(i).name(), result, executedToolNames, executedToolSummaries);
         }
@@ -524,12 +456,10 @@ public class ChatOrchestrator implements ChatUseCase {
         );
         // chatHistoryPort.saveMessage(toolMessage); // debug: skip DB persist for tool results
         history.add(toolMessage);
-        Optional<String> recoverableEsTool = redEsQueryRetrySupport.findRecoverableExecuteTool(
-                batchToolNames, invocationResults);
-        return new ToolBatchResult(toolMessage.id(), recoverableEsTool);
+        return new ToolBatchResult(toolMessage.id());
     }
 
-    private record ToolBatchResult(String toolMessageId, Optional<String> recoverableEsExecuteTool) {
+    private record ToolBatchResult(String toolMessageId) {
     }
 
     /**
@@ -797,10 +727,6 @@ public class ChatOrchestrator implements ChatUseCase {
             public void cancel() {
             }
         });
-    }
-
-    private static boolean isRedElasticsearchSampleTool(String toolName) {
-        return "red_sample_elasticsearch_query".equals(toolName);
     }
 
     private String newId() {

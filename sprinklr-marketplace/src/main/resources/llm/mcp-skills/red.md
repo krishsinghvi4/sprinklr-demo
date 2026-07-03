@@ -117,15 +117,15 @@ Use only when the backend is **Elasticsearch** (user provided an index name or E
 - Use **only filter values from allowed sources** (user message or same-turn tool results).
 - If the user asked for LinkedIn, Facebook, or any channel/platform filter, build the execute query using the **exact dotted path** from the sample (e.g. `audience.channelTypes`), not a shortened or guessed name.
 - For array fields such as `audience.channelTypes`, use a **`terms`** query with a JSON array value, not `term`.
-- **Never append `.keyword`** to a field name unless that exact path (including `.keyword`) appears in the sample `_source` or the appended FILTER FIELD PATHS list.
-- Sample output may include a `FILTER FIELD PATHS` section — copy those paths exactly into the execute query.
+- **Never append `.keyword`** to a field name unless that exact path (including `.keyword`) appears in the sample `_source` hits.
+- Read dotted field paths directly from sample `_source` documents — copy those paths exactly into the execute query.
 
 **Worked example:**
 
 > "Fetch 6 most recent LinkedIn audience from elasticsearch, SEARCH searchtype, AUDIENCE_CONTAINER, index name audience_container_190*"
 
 1. **Sample:** `red_sample_elasticsearch_query` with `partnerId: 190`, `serverType: "AUDIENCE_CONTAINER"`, `searchType: "SEARCH"`, `indexName: "audience_container_190*"` — no `query`.
-2. Read sample `_source` + appended `FILTER FIELD PATHS` (e.g. `audience.channelTypes`).
+2. Read field paths from sample `_source` hits (e.g. `audience.channelTypes`).
 3. **Execute:** `red_execute_elastic_search_query` with same scope args plus `query` JSON string:
    - Filter LinkedIn using exact dotted path from sample (e.g. `terms` on `audience.channelTypes` with `["LINKEDIN"]` — exact enum from sample hits)
    - `sort` on a timestamp field seen in sample (e.g. `createdAt` desc)
