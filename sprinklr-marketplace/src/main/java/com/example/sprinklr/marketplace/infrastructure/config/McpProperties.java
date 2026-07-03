@@ -28,6 +28,9 @@ public class McpProperties {
     /** Progressive tool-context (router + dependency-graph expansion) settings. */
     private ToolSelection toolSelection = new ToolSelection();
 
+    /** RED-specific MCP settings. */
+    private Red red = new Red();
+
     /**
      * Tunables for the two-stage tool selection pipeline. All values are configurable via
      * {@code app.mcp.tool-selection.*} in application.properties.
@@ -48,5 +51,20 @@ public class McpProperties {
         private boolean dependencyPreflightEnabled = true;
         /** TTL (hours) for cross-turn continuation state. */
         private int continuationTtlHours = 24;
+        /** Max characters per tool result summary stored in pending workflow continuation. */
+        private int continuationSummaryMaxChars = 5000;
+    }
+
+    @Data
+    public static class Red {
+        private SampleQueryCache sampleQueryCache = new SampleQueryCache();
+
+        @Data
+        public static class SampleQueryCache {
+            /** When true, RED sample tool results are cached and reused within TTL. */
+            private boolean enabled = true;
+            /** Cache entry lifetime in hours (default 24 = 1 day). */
+            private int ttlHours = 24;
+        }
     }
 }

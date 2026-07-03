@@ -109,6 +109,7 @@ Use only when the backend is **Elasticsearch** (user provided an index name or E
 **Step 1 — Sample (always first):**
 - Call `red_sample_elasticsearch_query` with scope args above plus optional `env`, `preference`, `host`, `queryExecutorLongQuery`.
 - Do **not** pass a `query` parameter — the tool returns up to 5 sample documents with an internal empty query (size 5).
+- Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
 - Read field names from the returned documents. **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
 
 **Step 2 — Filtered query (required when the user asks to fetch, search, or filter records):**
@@ -174,6 +175,7 @@ Use only when the backend is **Mongo** (user provided a collection name or Mongo
 **Step 1 — Sample (always first):**
 - Call `red_sample_mongo_query` with scope args above plus optional `sequenceName`, `skip`, `includeFields`, `sortField`, `sortDirection`, `env`.
 - Do **not** pass a `query` or `limit` parameter — the tool uses an internal empty filter `{}` and returns up to 5 documents.
+- Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
 - Read field names from the returned documents. **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
 
 **Step 2 — Filtered query (required when the user asks to fetch, search, or filter records):**

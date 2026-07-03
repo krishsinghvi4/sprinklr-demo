@@ -28,6 +28,7 @@ import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCachePreflightSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -67,6 +68,7 @@ public class ChatOrchestrator implements ChatUseCase {
     private final ToolSelectionService toolSelectionService;
     private final PendingWorkflowPort pendingWorkflowPort;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
+    private final RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -78,7 +80,8 @@ public class ChatOrchestrator implements ChatUseCase {
             McpInvocationPreflightPort mcpInvocationPreflightPort,
             ToolSelectionService toolSelectionService,
             PendingWorkflowPort pendingWorkflowPort,
-            McpCatalogToolSelectionSupport catalogToolSelectionSupport
+            McpCatalogToolSelectionSupport catalogToolSelectionSupport,
+            RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -90,6 +93,7 @@ public class ChatOrchestrator implements ChatUseCase {
         this.toolSelectionService = toolSelectionService;
         this.pendingWorkflowPort = pendingWorkflowPort;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
+        this.redSampleQueryCachePreflightSupport = redSampleQueryCachePreflightSupport;
     }
 
     /**
@@ -368,10 +372,26 @@ public class ChatOrchestrator implements ChatUseCase {
         executedToolSummaries.add(toolName + " -> " + truncateForSummary(content));
     }
 
-    private static String truncateForSummary(String content) {
+    private String truncateForSummary(String content) {
         String collapsed = content.strip();
-        int max = 800;
+        int max = Math.max(1, mcpProperties.getToolSelection().getContinuationSummaryMaxChars());
         return collapsed.length() <= max ? collapsed : collapsed.substring(0, max) + "…(truncated)";
+    }
+
+    private static Set<String> toolNamesCalledThisTurn(List<Message> history, String currentTurnUserMessageId) {
+        Set<String> calledToolNames = new LinkedHashSet<>();
+        boolean inCurrentTurn = currentTurnUserMessageId == null || currentTurnUserMessageId.isBlank();
+        for (Message message : history) {
+            if (!inCurrentTurn && currentTurnUserMessageId.equals(message.id())) {
+                inCurrentTurn = true;
+            }
+            if (inCurrentTurn) {
+                for (ToolCall toolCall : message.toolCalls()) {
+                    calledToolNames.add(toolCall.name());
+                }
+            }
+        }
+        return calledToolNames;
     }
 
     /** Tools to expose this turn plus continuation context and router primary picks for this turn. */
@@ -421,8 +441,15 @@ public class ChatOrchestrator implements ChatUseCase {
         List<McpInvocationResult> invocationResults = new ArrayList<>();
         StringBuilder inBatchToolResults = new StringBuilder();
         String basePreflightContext = buildConversationContextForPreflight(history, currentTurnUserMessageId);
+        Set<String> calledToolNamesThisTurn = toolNamesCalledThisTurn(history, currentTurnUserMessageId);
         for (int i = 0; i < invocations.size(); i++) {
             McpInvocation invocation = invocations.get(i);
+            redSampleQueryCachePreflightSupport.findCachedSampleForExecute(invocation, calledToolNamesThisTurn)
+                    .ifPresent(hit -> appendPreflightToolResult(
+                            inBatchToolResults,
+                            hit.sampleToolLabel() + " (cached)",
+                            hit.resultContent()
+                    ));
             streamingSession.emitProgress("Running " + invocation.toolName() + "…\n");
             long toolStartMs = System.currentTimeMillis();
             McpInvocationResult result = invokeWithPreflight(

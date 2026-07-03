@@ -5,6 +5,7 @@ import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCachePreflightSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -30,10 +31,16 @@ public class ToolDependencyPreflightGuard implements McpInvocationPreflightStrat
 
     private final McpRegistryPort registryPort;
     private final McpProperties mcpProperties;
+    private final RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport;
 
-    public ToolDependencyPreflightGuard(McpRegistryPort registryPort, McpProperties mcpProperties) {
+    public ToolDependencyPreflightGuard(
+            McpRegistryPort registryPort,
+            McpProperties mcpProperties,
+            RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport
+    ) {
         this.registryPort = registryPort;
         this.mcpProperties = mcpProperties;
+        this.redSampleQueryCachePreflightSupport = redSampleQueryCachePreflightSupport;
     }
 
     @Override
@@ -58,9 +65,15 @@ public class ToolDependencyPreflightGuard implements McpInvocationPreflightStrat
         String context = userPrompt == null ? "" : userPrompt;
         List<String> missing = new ArrayList<>();
         for (String prerequisite : prerequisites) {
-            if (!context.contains(prerequisite)) {
-                missing.add(prerequisite);
+            if (context.contains(prerequisite)) {
+                continue;
             }
+            if (redSampleQueryCachePreflightSupport.satisfiesMissingPrerequisite(invocation, prerequisite)) {
+                log.info("[Preflight] Dependency guard satisfied by RED sample cache tool={} prerequisite={}",
+                        fullyQualifiedName, prerequisite);
+                continue;
+            }
+            missing.add(prerequisite);
         }
         if (missing.isEmpty()) {
             return PreflightResult.allow();
