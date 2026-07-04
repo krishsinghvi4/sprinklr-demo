@@ -33,6 +33,17 @@ export interface McpConnection {
   status: string
   toolCount: number
   connectedAt: string
+  hasRedQueryPreferences: boolean
+}
+
+export interface MongoServerTypeConfig {
+  serverType: string
+  collectionNames: string[]
+}
+
+export interface RedQueryPreferences {
+  elasticsearchServerTypes: string[]
+  mongoServerTypes: MongoServerTypeConfig[]
 }
 
 export interface Marketplace {

@@ -233,7 +233,8 @@ public class McpConnectionOrchestrator {
                 catalogEntry.displayName(),
                 connection.status().name(),
                 connection.tools().size(),
-                connection.connectedAt()
+                connection.connectedAt(),
+                false
         );
     }
 }

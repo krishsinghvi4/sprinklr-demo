@@ -196,3 +196,11 @@ Use only when the backend is **Mongo** (user provided a collection name or Mongo
 - Field names for filters must come from sample tool results in the current turn — do not guess schema.
 - Prefer the most specific tool for the request; do not broaden to unrelated lookup tools when allowed sources already supply the needed identifiers.
 - Confirm Elasticsearch vs Mongo using **Choosing Elasticsearch vs Mongo** before any sample/execute call — backend accuracy is critical.
+
+### User-configured query allowlists
+
+When the user has configured query allowlists on Profile for their RED connection, a **RED configured allowlists** section is appended automatically to your context when Elasticsearch or Mongo query tools are in scope (sample or execute).
+
+- Prefer `serverType` and `collectionName` values from that section.
+- Mongo collections are scoped per `serverType` — when only one server type is known, only that server's collections are listed.
+- If `partnerId`, backend choice (ES vs Mongo), `serverType`, or `collectionName` is still missing or ambiguous, respond with text only (no tool calls) and ask the user — offer options from the allowlist section when applicable.

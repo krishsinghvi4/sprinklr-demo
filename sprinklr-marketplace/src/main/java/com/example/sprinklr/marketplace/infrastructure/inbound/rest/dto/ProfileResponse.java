@@ -80,7 +80,8 @@ public record ProfileResponse(
             String displayName,
             String status,
             int toolCount,
-            Instant connectedAt
+            Instant connectedAt,
+            boolean hasRedQueryPreferences
     ) {
         static ConnectionDto from(McpMarketplaceService.ConnectionView connection) {
             return new ConnectionDto(
@@ -89,7 +90,8 @@ public record ProfileResponse(
                     connection.displayName(),
                     connection.status(),
                     connection.toolCount(),
-                    connection.connectedAt()
+                    connection.connectedAt(),
+                    connection.hasRedQueryPreferences()
             );
         }
     }

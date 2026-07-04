@@ -2,6 +2,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryAllowlistContext;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;
@@ -39,6 +40,13 @@ public class McpSkillPromptAssembler {
      * Appends skill sections for prefixes present in {@code activeTools} to {@code basePrompt}.
      */
     public String assemble(String basePrompt, List<McpTool> activeTools) {
+        return assemble(basePrompt, activeTools, RedQueryAllowlistContext.empty());
+    }
+
+    /**
+     * Appends skill sections and optional RED query allowlists under the RED skill heading.
+     */
+    public String assemble(String basePrompt, List<McpTool> activeTools, RedQueryAllowlistContext redAllowlistContext) {
         Set<String> prefixes = extractPrefixes(activeTools);
         if (prefixes.isEmpty()) {
             return basePrompt;
@@ -51,6 +59,9 @@ public class McpSkillPromptAssembler {
             skillPromptLoader.findByServerIdPrefix(prefix).ifPresent(skillText -> {
                 assembled.append("\n\n### ").append(displayNameForPrefix(prefix)).append("\n");
                 assembled.append(skillText.trim());
+                if ("red".equals(prefix) && redAllowlistContext != null && redAllowlistContext.hasContent()) {
+                    assembled.append(redAllowlistContext.markdownSection());
+                }
             });
         }
 

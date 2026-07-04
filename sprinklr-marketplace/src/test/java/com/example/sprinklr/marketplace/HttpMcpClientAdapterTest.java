@@ -58,6 +58,7 @@ class HttpMcpClientAdapterTest {
                 Instant.now(),
                 null,
                 null,
+                null,
                 null
         );
 
@@ -118,6 +119,7 @@ class HttpMcpClientAdapterTest {
                 "CONNECTED",
                 List.of(),
                 Instant.now(),
+                null,
                 null,
                 null,
                 null

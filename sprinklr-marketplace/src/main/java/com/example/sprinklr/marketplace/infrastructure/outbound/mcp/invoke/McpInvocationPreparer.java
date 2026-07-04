@@ -148,7 +148,8 @@ public class McpInvocationPreparer {
                 connection.connectedAt(),
                 connection.lastError(),
                 connection.toolDependencyGraph(),
-                connection.dependencyGraphStatus()
+                connection.dependencyGraphStatus(),
+                connection.redQueryPreferences()
         );
     }
 

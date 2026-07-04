@@ -229,6 +229,54 @@ class ToolSelectionServiceTest {
     }
 
     @Test
+    void resumesAwaitingGoalsWhenRouterReturnsNoToolsForFollowUp() {
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.noToolsNeeded());
+        PendingWorkflowState continuation = new PendingWorkflowState(
+                "conv-1",
+                "user-1",
+                List.of("jira"),
+                List.of("jira.createJiraIssue"),
+                List.of("jira.getJiraProjectIssueTypesMetadata"),
+                List.of("Awaiting user input to continue workflow"),
+                Instant.now().plusSeconds(3600)
+        );
+
+        ToolSelectionResult result = service.selectTools(
+                "PAID", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation));
+
+        assertEquals(
+                List.of(
+                        "jira.getAccessibleAtlassianResources",
+                        "jira.getJiraProjectIssueTypesMetadata",
+                        "jira.createJiraIssue"),
+                names(result));
+        assertTrue(result.hasContinuationContext());
+        assertFalse(result.continuationDiscarded());
+    }
+
+    @Test
+    void marksContinuationDiscardedWhenRouterPicksUnrelatedPrimary() {
+        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+                .thenReturn(ToolRouterResult.selected(List.of("jira.searchJiraIssuesUsingJql")));
+        PendingWorkflowState continuation = new PendingWorkflowState(
+                "conv-1",
+                "user-1",
+                List.of("jira"),
+                List.of("jira.createJiraIssue"),
+                List.of("jira.getAccessibleAtlassianResources"),
+                List.of("jira.getAccessibleAtlassianResources -> ok"),
+                Instant.now().plusSeconds(3600)
+        );
+
+        ToolSelectionResult result = service.selectTools(
+                "search jira tickets", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation));
+
+        assertTrue(result.continuationDiscarded());
+        assertFalse(result.hasContinuationContext());
+    }
+
+    @Test
     void expandsAccessibleResourcesBeforeChangelogTool() {
         McpTool changelog = tool("jira.getJiraIssueChangelog");
         List<McpTool> tools = List.of(getResources, changelog);

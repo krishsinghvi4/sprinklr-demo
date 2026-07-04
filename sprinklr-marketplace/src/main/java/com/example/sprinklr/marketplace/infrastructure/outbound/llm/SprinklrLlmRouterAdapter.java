@@ -6,6 +6,8 @@ import com.example.sprinklr.marketplace.domain.model.Message;
 import com.example.sprinklr.marketplace.domain.model.MessageRole;
 import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryAllowlistContext;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryPreferencesContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,15 +32,18 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
     private final LlmService llmService;
     private final LlmSystemPromptLoader systemPromptLoader;
     private final McpSkillPromptAssembler skillPromptAssembler;
+    private final RedQueryPreferencesContextBuilder redQueryPreferencesContextBuilder;
 
     public SprinklrLlmRouterAdapter(
             LlmService llmService,
             LlmSystemPromptLoader systemPromptLoader,
-            McpSkillPromptAssembler skillPromptAssembler
+            McpSkillPromptAssembler skillPromptAssembler,
+            RedQueryPreferencesContextBuilder redQueryPreferencesContextBuilder
     ) {
         this.llmService = llmService;
         this.systemPromptLoader = systemPromptLoader;
         this.skillPromptAssembler = skillPromptAssembler;
+        this.redQueryPreferencesContextBuilder = redQueryPreferencesContextBuilder;
     }
 
     /**
@@ -47,7 +52,15 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
     @Override
     public LlmResponse complete(LlmRequest request) {
         boolean fullToolHistoryForCurrentTurn = !request.tools().isEmpty();
-        String systemPrompt = skillPromptAssembler.assemble(request.tools());
+        RedQueryAllowlistContext redAllowlistContext = redQueryPreferencesContextBuilder.build(
+                request.userId(),
+                request.tools(),
+                request.history(),
+                request.currentTurnUserMessageId());
+        String systemPrompt = skillPromptAssembler.assemble(
+                systemPromptLoader.getSystemPrompt(),
+                request.tools(),
+                redAllowlistContext);
         if (request.additionalContext() != null && !request.additionalContext().isBlank()) {
             // Continuation context: prior-turn tool results reused so the agent need not re-fetch them.
             systemPrompt = systemPrompt + "\n\n## Continuation context\n" + request.additionalContext();

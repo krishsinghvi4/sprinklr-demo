@@ -1,5 +1,10 @@
 import axiosInstance from '../api/axiosInstance'
-import { ConnectMcpServerRequest, McpConnection, ProfileResponse } from '../types/profile'
+import {
+  ConnectMcpServerRequest,
+  McpConnection,
+  ProfileResponse,
+  RedQueryPreferences,
+} from '../types/profile'
 
 export async function fetchProfile(): Promise<ProfileResponse | null> {
   try {
@@ -26,6 +31,24 @@ export async function connectMcpServer(
 
 export async function disconnectMcpServer(connectionId: string): Promise<void> {
   await axiosInstance.delete(`/api/v1/mcp/connections/${connectionId}`)
+}
+
+export async function fetchRedQueryPreferences(connectionId: string): Promise<RedQueryPreferences> {
+  const response = await axiosInstance.get<RedQueryPreferences>(
+    `/api/v1/mcp/connections/${connectionId}/red-query-preferences`
+  )
+  return response.data
+}
+
+export async function updateRedQueryPreferences(
+  connectionId: string,
+  preferences: RedQueryPreferences
+): Promise<RedQueryPreferences> {
+  const response = await axiosInstance.put<RedQueryPreferences>(
+    `/api/v1/mcp/connections/${connectionId}/red-query-preferences`,
+    preferences
+  )
+  return response.data
 }
 
 export async function startOAuthConnect(catalogServerId: string): Promise<string> {

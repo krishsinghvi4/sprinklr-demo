@@ -87,20 +87,39 @@ public class ToolSelectionService {
         ToolRouterResult routerResult = toolRouterPort.selectTools(
                 userPrompt, routerHistory, allUserTools, config.getRouterMaxPrimaryTools());
 
+        boolean continuationDiscarded = false;
+        if (continuation.isPresent()
+                && routerResult.outcome() != RouterOutcome.FAILED
+                && !routerResult.toolNames().isEmpty()) {
+            Set<String> awaiting = new HashSet<>(continuation.get().awaitingGoalTools());
+            boolean overlap = routerResult.toolNames().stream().anyMatch(awaiting::contains);
+            if (!overlap) {
+                continuationDiscarded = true;
+            }
+        }
+
         if (routerResult.outcome() == RouterOutcome.FAILED) {
             log.info("[ToolSelection] Router failed — falling back to all {} tools", allUserTools.size());
             return new ToolSelectionResult(
                     List.copyOf(allUserTools),
                     List.copyOf(prefixesOf(toolsByName.keySet())),
                     List.copyOf(toolsByName.keySet()),
-                    null);
+                    null,
+                    false);
         }
 
         List<String> primary = routerResult.toolNames();
 
         if (routerResult.outcome() == RouterOutcome.NO_TOOLS_NEEDED) {
-            log.info("[ToolSelection] Router found no relevant tools — sending zero tools for conversational turn");
-            return new ToolSelectionResult(List.of(), List.of(), List.of(), null);
+            if (continuation.isPresent()
+                    && !continuation.get().awaitingGoalTools().isEmpty()
+                    && !continuation.get().isExpired(Instant.now())) {
+                primary = List.copyOf(continuation.get().awaitingGoalTools());
+                log.info("[ToolSelection] NO_TOOLS follow-up — resuming awaiting goals {}", primary);
+            } else {
+                log.info("[ToolSelection] Router found no relevant tools — sending zero tools for conversational turn");
+                return new ToolSelectionResult(List.of(), List.of(), List.of(), null, continuationDiscarded);
+            }
         }
 
         Set<String> neverSatisfy = catalogToolSelectionSupport.continuationNeverSatisfyToolsForToolNames(
@@ -130,7 +149,8 @@ public class ToolSelectionService {
                 primary, orderedNames.size(), scopedTools.size(), capped, activePrefixes,
                 applicableContinuation.isPresent());
 
-        return new ToolSelectionResult(scopedTools, activePrefixes, List.copyOf(primary), continuationContext);
+        return new ToolSelectionResult(
+                scopedTools, activePrefixes, List.copyOf(primary), continuationContext, continuationDiscarded);
     }
 
     private Set<String> filterSatisfied(List<String> satisfiedToolNames, Set<String> neverSatisfy) {

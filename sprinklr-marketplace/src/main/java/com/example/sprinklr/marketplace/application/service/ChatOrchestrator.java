@@ -264,7 +264,7 @@ public class ChatOrchestrator implements ChatUseCase {
                     pendingWorkflowPort.find(conversationId, request.userId());
             ToolSelectionResult selection = toolSelectionService.selectTools(
                     request.prompt(), history, userTools, graphs, storedContinuation);
-            if (storedContinuation.isPresent() && !selection.hasContinuationContext()) {
+            if (selection.continuationDiscarded()) {
                 pendingWorkflowPort.delete(conversationId);
             }
             return new TurnToolScope(
@@ -291,10 +291,7 @@ public class ChatOrchestrator implements ChatUseCase {
         if (!mcpProperties.getToolSelection().isEnabled()) {
             return;
         }
-        if (executedToolNames.isEmpty()) {
-            if (iteration == 0) {
-                pendingWorkflowPort.delete(conversationId);
-            }
+        if (primaryToolNames.isEmpty()) {
             return;
         }
 
@@ -303,13 +300,17 @@ public class ChatOrchestrator implements ChatUseCase {
                 .filter(name -> !executed.contains(name))
                 .toList();
 
-        if (iteration == 0 || awaitingGoalTools.isEmpty()) {
+        if (awaitingGoalTools.isEmpty()) {
             pendingWorkflowPort.delete(conversationId);
             return;
         }
 
         Set<String> prefixes = new LinkedHashSet<>();
         for (String name : executedToolNames) {
+            int dot = name.indexOf('.');
+            prefixes.add(dot > 0 ? name.substring(0, dot) : name);
+        }
+        for (String name : primaryToolNames) {
             int dot = name.indexOf('.');
             prefixes.add(dot > 0 ? name.substring(0, dot) : name);
         }
@@ -320,6 +321,9 @@ public class ChatOrchestrator implements ChatUseCase {
                 .toList();
         List<String> summariesForContinuation = filterSummariesForContinuation(
                 executedToolSummaries, neverSatisfy);
+        if (summariesForContinuation.isEmpty() && executedToolNames.isEmpty()) {
+            summariesForContinuation = List.of("Awaiting user input to continue workflow");
+        }
 
         Instant expiresAt = Instant.now()
                 .plus(mcpProperties.getToolSelection().getContinuationTtlHours(), ChronoUnit.HOURS);

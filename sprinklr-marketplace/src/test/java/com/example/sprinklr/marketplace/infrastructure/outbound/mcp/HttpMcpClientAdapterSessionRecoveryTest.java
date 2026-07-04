@@ -146,6 +146,7 @@ class HttpMcpClientAdapterSessionRecoveryTest {
                 Instant.now(),
                 null,
                 null,
+                null,
                 null
         );
 

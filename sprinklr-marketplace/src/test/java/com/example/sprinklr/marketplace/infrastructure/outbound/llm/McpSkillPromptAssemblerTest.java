@@ -4,6 +4,7 @@ import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryAllowlistContext;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,22 @@ class McpSkillPromptAssemblerTest {
         assertTrue(result.contains("#### Jira → RED audit log investigation"));
         assertTrue(result.contains("Phase 1 — Jira context"));
         assertTrue(result.contains("### RED"));
+    }
+
+    @Test
+    void appendsRedAllowlistSectionUnderRedSkillHeading() {
+        List<McpTool> tools = List.of(redTool("red.red_sample_mongo_query"));
+        RedQueryAllowlistContext context = new RedQueryAllowlistContext(
+                "\n\n#### RED configured allowlists (use these values for serverType / collectionName)\n"
+                        + "**Mongo (serverType → collections):**\n- PAID: adSet");
+
+        String result = assembler.assemble("Base prompt", tools, context);
+
+        int redHeading = result.indexOf("### RED");
+        int allowlistHeading = result.indexOf("RED configured allowlists");
+        assertTrue(redHeading >= 0);
+        assertTrue(allowlistHeading > redHeading);
+        assertTrue(result.contains("PAID: adSet"));
     }
 
     private static McpTool redTool(String name) {

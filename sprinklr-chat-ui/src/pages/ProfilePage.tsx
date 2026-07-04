@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Plug, PlugZap, Unplug } from 'lucide-react'
 import AppHeader from '../components/AppHeader'
 import McpConnectModal from '../components/McpConnectModal'
+import RedQueryPreferencesPanel from '../components/RedQueryPreferencesPanel'
 import {
   completeOAuthCallback,
   connectMcpServer,
@@ -319,6 +320,8 @@ export default function ProfilePage() {
     return 'Connect'
   }
 
+  const isRedServer = (serverId: string) => serverId === 'red-mcp'
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <AppHeader title="Profile" backLink={{ to: '/', label: '← Back to chats' }} />
@@ -448,6 +451,12 @@ export default function ProfilePage() {
                               <p className="text-xs text-green-700 mt-2">
                                 Connected — {connection.toolCount} tools available
                               </p>
+                            )}
+                            {isConnected && connection && isRedServer(server.id) && (
+                              <RedQueryPreferencesPanel
+                                connectionId={connection.id}
+                                initiallyConfigured={connection.hasRedQueryPreferences}
+                              />
                             )}
                             {serverAction?.error && (
                               <p className="text-xs text-red-600 mt-2">{serverAction.error.message}</p>

@@ -130,6 +130,7 @@ class ToolDependencyPreflightGuardTest {
                 Instant.now(),
                 null,
                 null,
+                null,
                 null
         );
     }

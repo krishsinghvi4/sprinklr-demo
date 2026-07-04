@@ -19,13 +19,23 @@ public record ToolSelectionResult(
         List<McpTool> scopedTools,
         List<String> activeServerPrefixes,
         List<String> primaryToolNames,
-        String continuationContext
+        String continuationContext,
+        boolean continuationDiscarded
 ) {
 
     public ToolSelectionResult {
         scopedTools = scopedTools == null ? List.of() : List.copyOf(scopedTools);
         activeServerPrefixes = activeServerPrefixes == null ? List.of() : List.copyOf(activeServerPrefixes);
         primaryToolNames = primaryToolNames == null ? List.of() : List.copyOf(primaryToolNames);
+    }
+
+    public ToolSelectionResult(
+            List<McpTool> scopedTools,
+            List<String> activeServerPrefixes,
+            List<String> primaryToolNames,
+            String continuationContext
+    ) {
+        this(scopedTools, activeServerPrefixes, primaryToolNames, continuationContext, false);
     }
 
     public boolean hasContinuationContext() {

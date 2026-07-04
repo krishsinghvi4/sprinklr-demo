@@ -30,8 +30,14 @@ public class LlmConfig {
     public LlmPort sprinklrLlmRouterPort(
             com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmService llmService,
             LlmSystemPromptLoader systemPromptLoader,
-            McpSkillPromptAssembler skillPromptAssembler
+            McpSkillPromptAssembler skillPromptAssembler,
+            com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryPreferencesContextBuilder
+                    redQueryPreferencesContextBuilder
     ) {
-        return new SprinklrLlmRouterAdapter(llmService, systemPromptLoader, skillPromptAssembler);
+        return new SprinklrLlmRouterAdapter(
+                llmService,
+                systemPromptLoader,
+                skillPromptAssembler,
+                redQueryPreferencesContextBuilder);
     }
 }

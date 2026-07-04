@@ -124,7 +124,8 @@ public class McpOAuthTokenRefreshService {
                 connection.connectedAt(),
                 connection.lastError(),
                 connection.toolDependencyGraph(),
-                connection.dependencyGraphStatus()
+                connection.dependencyGraphStatus(),
+                connection.redQueryPreferences()
         );
         connectionRepository.save(updatedDocument);
     }

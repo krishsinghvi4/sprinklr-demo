@@ -1,15 +1,20 @@
 package com.example.sprinklr.marketplace.infrastructure.inbound.rest;
 
 import com.example.sprinklr.marketplace.application.service.McpMarketplaceService;
+import com.example.sprinklr.marketplace.application.service.RedQueryPreferencesValidator;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ConnectMcpServerRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.McpConnectionResponse;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.RedQueryPreferencesRequest;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.RedQueryPreferencesResponse;
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -47,5 +52,28 @@ public class McpConnectionController {
     public void disconnect(@PathVariable String connectionId) {
         String userId = authenticatedUserResolver.requireUserId();
         marketplaceService.disconnect(userId, connectionId);
+    }
+
+    @GetMapping("/{connectionId}/red-query-preferences")
+    public RedQueryPreferencesResponse getRedQueryPreferences(@PathVariable String connectionId) {
+        String userId = authenticatedUserResolver.requireUserId();
+        return RedQueryPreferencesResponse.from(marketplaceService.getRedQueryPreferences(userId, connectionId));
+    }
+
+    @PutMapping(
+            path = "/{connectionId}/red-query-preferences",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public RedQueryPreferencesResponse updateRedQueryPreferences(
+            @PathVariable String connectionId,
+            @Valid @RequestBody RedQueryPreferencesRequest request
+    ) {
+        String userId = authenticatedUserResolver.requireUserId();
+        return RedQueryPreferencesResponse.from(
+                marketplaceService.updateRedQueryPreferences(
+                        userId,
+                        connectionId,
+                        RedQueryPreferencesValidator.toDomain(request)));
     }
 }

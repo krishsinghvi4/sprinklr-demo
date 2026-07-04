@@ -45,6 +45,7 @@ class McpInvocationPreparerTest {
                 Instant.now(),
                 null,
                 null,
+                null,
                 null
         );
         var catalogEntry = McpCatalogTestFixtures.jiraEntry();
@@ -90,6 +91,7 @@ class McpInvocationPreparerTest {
                 "CONNECTED",
                 List.of(),
                 Instant.now(),
+                null,
                 null,
                 null,
                 null

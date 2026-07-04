@@ -5,6 +5,7 @@ import com.example.sprinklr.marketplace.application.service.mcp.CredentialAuthFl
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
+import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import org.slf4j.Logger;
@@ -77,6 +78,36 @@ public class McpMarketplaceService {
         registryPort.delete(connectionId, userId);
     }
 
+    public RedQueryPreferences getRedQueryPreferences(String userId, String connectionId) {
+        assertRedConnection(userId, connectionId);
+        return registryPort.findRedQueryPreferences(userId, connectionId)
+                .orElseGet(() -> new RedQueryPreferences(List.of(), List.of()));
+    }
+
+    public RedQueryPreferences updateRedQueryPreferences(
+            String userId,
+            String connectionId,
+            RedQueryPreferences preferences
+    ) {
+        assertRedConnection(userId, connectionId);
+        registryPort.updateRedQueryPreferences(userId, connectionId, preferences);
+        return preferences;
+    }
+
+    private void assertRedConnection(String userId, String connectionId) {
+        McpUserConnection connection = registryPort.findByIdAndUserId(connectionId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Connection not found"));
+        if (!isRedConnection(connection)) {
+            throw new IllegalArgumentException("RED query preferences apply only to RED connections");
+        }
+    }
+
+    private boolean isRedConnection(McpUserConnection connection) {
+        return catalogLoader.findById(connection.catalogServerId())
+                .map(entry -> "red".equals(entry.serverIdPrefix()))
+                .orElse(false);
+    }
+
     private AvailableServerView toAvailableServer(McpCatalogEntry entry, List<McpUserConnection> connections) {
         boolean connected = connections.stream()
                 .anyMatch(c -> c.catalogServerId().equals(entry.id())
@@ -96,6 +127,10 @@ public class McpMarketplaceService {
         String displayName = catalogLoader.findById(connection.catalogServerId())
                 .map(McpCatalogEntry::displayName)
                 .orElse(connection.catalogServerId());
+        boolean hasRedQueryPreferences = isRedConnection(connection)
+                && registryPort.findRedQueryPreferences(connection.userId(), connection.id())
+                .map(RedQueryPreferences::hasConfiguredValues)
+                .orElse(false);
 
         return new ConnectionView(
                 connection.id(),
@@ -103,7 +138,8 @@ public class McpMarketplaceService {
                 displayName,
                 connection.status().name(),
                 connection.tools().size(),
-                connection.connectedAt()
+                connection.connectedAt(),
+                hasRedQueryPreferences
         );
     }
 
@@ -128,6 +164,7 @@ public class McpMarketplaceService {
             String displayName,
             String status,
             int toolCount,
-            Instant connectedAt
+            Instant connectedAt,
+            boolean hasRedQueryPreferences
     ) {}
 }

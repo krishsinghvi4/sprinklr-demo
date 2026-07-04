@@ -65,6 +65,7 @@ class RedSampleQueryCacheLocalToolTest {
                 Instant.now(),
                 null,
                 null,
+                null,
                 null
         );
         context = new McpLocalToolInvocationContext(

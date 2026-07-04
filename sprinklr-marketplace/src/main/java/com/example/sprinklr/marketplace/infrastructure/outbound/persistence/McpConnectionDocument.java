@@ -24,5 +24,7 @@ public record McpConnectionDocument(
         // LLM-generated tool dependency graph for this server (null until generated at connect time).
         ToolDependencyGraphDocument toolDependencyGraph,
         // DependencyGraphStatus name: PENDING | READY | FAILED (null treated as PENDING).
-        String dependencyGraphStatus
+        String dependencyGraphStatus,
+        // User-configured RED query allowlists (RED connections only; null = not configured).
+        RedQueryPreferencesDocument redQueryPreferences
 ) {}

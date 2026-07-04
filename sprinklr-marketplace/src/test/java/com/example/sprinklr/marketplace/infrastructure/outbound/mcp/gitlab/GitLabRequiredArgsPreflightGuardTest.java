@@ -37,6 +37,7 @@ class GitLabRequiredArgsPreflightGuardTest {
                         Instant.now(),
                         null,
                         null,
+                        null,
                         null
                 )
         ));

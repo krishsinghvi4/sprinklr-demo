@@ -2,6 +2,7 @@ package com.example.sprinklr.marketplace.domain.port.outbound;
 
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
+import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
 import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 
 import java.util.List;
@@ -35,4 +36,10 @@ public interface McpRegistryPort {
 
     /** The dependency graph for a single connection, if one has been generated. */
     Optional<ToolDependencyGraph> findDependencyGraphByConnectionId(String connectionId);
+
+    /** RED query allowlists for a connection, if configured. */
+    Optional<RedQueryPreferences> findRedQueryPreferences(String userId, String connectionId);
+
+    /** Replaces RED query allowlists for a connection (RED connections only). */
+    void updateRedQueryPreferences(String userId, String connectionId, RedQueryPreferences preferences);
 }

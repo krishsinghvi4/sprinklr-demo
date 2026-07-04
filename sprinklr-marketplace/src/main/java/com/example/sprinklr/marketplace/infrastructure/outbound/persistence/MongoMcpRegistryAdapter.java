@@ -4,6 +4,7 @@ import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
 import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
+import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
 import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
@@ -60,6 +61,8 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
         String graphStatus = existing
                 .map(McpConnectionDocument::dependencyGraphStatus)
                 .orElse(DependencyGraphStatus.PENDING.name());
+        RedQueryPreferencesDocument redQueryPreferences =
+                existing.map(McpConnectionDocument::redQueryPreferences).orElse(null);
 
         McpConnectionDocument document = new McpConnectionDocument(
                 connection.id(),
@@ -74,7 +77,8 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
                 connection.connectedAt(),
                 connection.lastError(),
                 graphDocument,
-                graphStatus
+                graphStatus,
+                redQueryPreferences
         );
 
         McpConnectionDocument saved = repository.save(document);
@@ -119,7 +123,8 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
                     existing.connectedAt(),
                     existing.lastError(),
                     existing.toolDependencyGraph(),
-                    existing.dependencyGraphStatus()
+                    existing.dependencyGraphStatus(),
+                    existing.redQueryPreferences()
             );
             repository.save(updated);
         });
@@ -176,7 +181,8 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
                     existing.connectedAt(),
                     existing.lastError(),
                     graphDocument,
-                    graph.status().name()
+                    graph.status().name(),
+                    existing.redQueryPreferences()
             );
             repository.save(updated);
             log.info("[McpRegistry] Stored dependency graph connectionId={} prefix={} status={} edges={}",
@@ -196,6 +202,74 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
     @Override
     public Optional<ToolDependencyGraph> findDependencyGraphByConnectionId(String connectionId) {
         return repository.findById(connectionId).flatMap(this::toDependencyGraph);
+    }
+
+    @Override
+    public Optional<RedQueryPreferences> findRedQueryPreferences(String userId, String connectionId) {
+        return repository.findByIdAndUserId(connectionId, userId)
+                .map(McpConnectionDocument::redQueryPreferences)
+                .flatMap(this::toRedQueryPreferences);
+    }
+
+    @Override
+    public void updateRedQueryPreferences(String userId, String connectionId, RedQueryPreferences preferences) {
+        repository.findByIdAndUserId(connectionId, userId).ifPresentOrElse(existing -> {
+            if (!"red".equals(existing.serverIdPrefix())) {
+                throw new IllegalArgumentException("RED query preferences apply only to RED connections");
+            }
+            RedQueryPreferencesDocument document = toRedQueryPreferencesDocument(preferences);
+            McpConnectionDocument updated = new McpConnectionDocument(
+                    existing.id(),
+                    existing.userId(),
+                    existing.catalogServerId(),
+                    existing.serverIdPrefix(),
+                    existing.encryptedCredentials(),
+                    existing.mcpSessionId(),
+                    existing.mcpProtocolVersion(),
+                    existing.status(),
+                    existing.tools(),
+                    existing.connectedAt(),
+                    existing.lastError(),
+                    existing.toolDependencyGraph(),
+                    existing.dependencyGraphStatus(),
+                    document
+            );
+            repository.save(updated);
+            log.info("[McpRegistry] Updated RED query preferences connectionId={} esTypes={} mongoTypes={}",
+                    connectionId,
+                    preferences.elasticsearchServerTypes().size(),
+                    preferences.mongoServerTypes().size());
+        }, () -> {
+            throw new IllegalArgumentException("Connection not found");
+        });
+    }
+
+    private Optional<RedQueryPreferences> toRedQueryPreferences(RedQueryPreferencesDocument document) {
+        if (document == null) {
+            return Optional.empty();
+        }
+        List<RedQueryPreferences.MongoServerTypeConfig> mongoConfigs = document.mongoServerTypes() == null
+                ? List.of()
+                : document.mongoServerTypes().stream()
+                .map(entry -> new RedQueryPreferences.MongoServerTypeConfig(
+                        entry.serverType(),
+                        entry.collectionNames() == null ? List.of() : entry.collectionNames()))
+                .toList();
+        RedQueryPreferences preferences = new RedQueryPreferences(
+                document.elasticsearchServerTypes() == null ? List.of() : document.elasticsearchServerTypes(),
+                mongoConfigs
+        );
+        return preferences.isEmpty() ? Optional.empty() : Optional.of(preferences);
+    }
+
+    private RedQueryPreferencesDocument toRedQueryPreferencesDocument(RedQueryPreferences preferences) {
+        List<MongoServerTypeConfigDocument> mongoDocuments = preferences.mongoServerTypes().stream()
+                .map(entry -> new MongoServerTypeConfigDocument(entry.serverType(), entry.collectionNames()))
+                .toList();
+        return new RedQueryPreferencesDocument(
+                preferences.elasticsearchServerTypes(),
+                mongoDocuments
+        );
     }
 
     private Optional<ToolDependencyGraph> toDependencyGraph(McpConnectionDocument document) {
