@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
-import { Plus, Save, X } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Plus, Save } from 'lucide-react'
 import {
   fetchRedQueryPreferences,
   updateRedQueryPreferences,
 } from '../services/profileService'
 import { MongoServerTypeConfig, RedQueryPreferences } from '../types/profile'
+import {
+  formatAllowlistLines,
+  parseBulkAllowlistLines,
+} from '../utils/parseBulkAllowlistLines'
 
 interface RedQueryPreferencesPanelProps {
   connectionId: string
@@ -16,27 +20,58 @@ const emptyPreferences = (): RedQueryPreferences => ({
   mongoServerTypes: [],
 })
 
+function mongoCollectionsTextFromPreferences(
+  preferences: RedQueryPreferences
+): Record<string, string> {
+  return Object.fromEntries(
+    preferences.mongoServerTypes.map((entry) => [
+      entry.serverType,
+      formatAllowlistLines(entry.collectionNames),
+    ])
+  )
+}
+
+function buildDraftFromText(
+  esTypesText: string,
+  mongoCollectionsText: Record<string, string>,
+  mongoServerTypes: MongoServerTypeConfig[]
+): RedQueryPreferences {
+  return {
+    elasticsearchServerTypes: parseBulkAllowlistLines(esTypesText),
+    mongoServerTypes: mongoServerTypes.map((entry) => ({
+      serverType: entry.serverType,
+      collectionNames: parseBulkAllowlistLines(mongoCollectionsText[entry.serverType] || ''),
+    })),
+  }
+}
+
 export default function RedQueryPreferencesPanel({
   connectionId,
   initiallyConfigured,
 }: RedQueryPreferencesPanelProps) {
   const [saved, setSaved] = useState<RedQueryPreferences>(emptyPreferences())
-  const [draft, setDraft] = useState<RedQueryPreferences>(emptyPreferences())
+  const [mongoServerTypes, setMongoServerTypes] = useState<MongoServerTypeConfig[]>([])
+  const [esTypesText, setEsTypesText] = useState('')
+  const [mongoCollectionsText, setMongoCollectionsText] = useState<Record<string, string>>({})
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-  const [newEsType, setNewEsType] = useState('')
   const [newMongoServerType, setNewMongoServerType] = useState('')
-  const [newCollectionByServerType, setNewCollectionByServerType] = useState<Record<string, string>>({})
+
+  const applyPreferencesToForm = (preferences: RedQueryPreferences) => {
+    setSaved(preferences)
+    setMongoServerTypes(preferences.mongoServerTypes)
+    setEsTypesText(formatAllowlistLines(preferences.elasticsearchServerTypes))
+    setMongoCollectionsText(mongoCollectionsTextFromPreferences(preferences))
+  }
 
   const loadPreferences = async () => {
     setIsLoading(true)
     setError(null)
     try {
       const preferences = await fetchRedQueryPreferences(connectionId)
-      setSaved(preferences)
-      setDraft(preferences)
+      applyPreferencesToForm(preferences)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load query allowlists.')
     } finally {
@@ -48,16 +83,31 @@ export default function RedQueryPreferencesPanel({
     void loadPreferences()
   }, [connectionId])
 
-  const hasUnsavedChanges = JSON.stringify(saved) !== JSON.stringify(draft)
+  const parsedDraft = useMemo(
+    () => buildDraftFromText(esTypesText, mongoCollectionsText, mongoServerTypes),
+    [esTypesText, mongoCollectionsText, mongoServerTypes]
+  )
+
+  const hasUnsavedChanges = JSON.stringify(saved) !== JSON.stringify(parsedDraft)
 
   const handleSave = async () => {
+    const emptyMongoEntry = parsedDraft.mongoServerTypes.find(
+      (entry) => entry.collectionNames.length === 0
+    )
+    if (emptyMongoEntry) {
+      setError(
+        `Mongo serverType '${emptyMongoEntry.serverType}' must have at least one collection name.`
+      )
+      setSuccess(null)
+      return
+    }
+
     setIsSaving(true)
     setError(null)
     setSuccess(null)
     try {
-      const updated = await updateRedQueryPreferences(connectionId, draft)
-      setSaved(updated)
-      setDraft(updated)
+      const updated = await updateRedQueryPreferences(connectionId, parsedDraft)
+      applyPreferencesToForm(updated)
       setSuccess('Query allowlists saved.')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to save query allowlists.')
@@ -67,74 +117,28 @@ export default function RedQueryPreferencesPanel({
   }
 
   const handleCancel = () => {
-    setDraft(saved)
+    applyPreferencesToForm(saved)
     setError(null)
     setSuccess(null)
   }
 
-  const addEsType = () => {
-    const value = newEsType.trim()
-    if (!value || draft.elasticsearchServerTypes.includes(value)) return
-    setDraft({
-      ...draft,
-      elasticsearchServerTypes: [...draft.elasticsearchServerTypes, value],
-    })
-    setNewEsType('')
-  }
-
-  const removeEsType = (value: string) => {
-    setDraft({
-      ...draft,
-      elasticsearchServerTypes: draft.elasticsearchServerTypes.filter((entry) => entry !== value),
-    })
-  }
-
   const addMongoServerType = () => {
     const value = newMongoServerType.trim()
-    if (!value || draft.mongoServerTypes.some((entry) => entry.serverType === value)) return
-    const next: MongoServerTypeConfig = { serverType: value, collectionNames: [] }
-    setDraft({
-      ...draft,
-      mongoServerTypes: [...draft.mongoServerTypes, next],
-    })
+    if (!value || mongoServerTypes.some((entry) => entry.serverType === value)) return
+    setMongoServerTypes([
+      ...mongoServerTypes,
+      { serverType: value, collectionNames: [] },
+    ])
+    setMongoCollectionsText((prev) => ({ ...prev, [value]: '' }))
     setNewMongoServerType('')
   }
 
   const removeMongoServerType = (serverType: string) => {
-    setDraft({
-      ...draft,
-      mongoServerTypes: draft.mongoServerTypes.filter((entry) => entry.serverType !== serverType),
-    })
-  }
-
-  const addCollection = (serverType: string) => {
-    const value = (newCollectionByServerType[serverType] || '').trim()
-    if (!value) return
-    setDraft({
-      ...draft,
-      mongoServerTypes: draft.mongoServerTypes.map((entry) => {
-        if (entry.serverType !== serverType || entry.collectionNames.includes(value)) {
-          return entry
-        }
-        return {
-          ...entry,
-          collectionNames: [...entry.collectionNames, value],
-        }
-      }),
-    })
-    setNewCollectionByServerType((prev) => ({ ...prev, [serverType]: '' }))
-  }
-
-  const removeCollection = (serverType: string, collectionName: string) => {
-    setDraft({
-      ...draft,
-      mongoServerTypes: draft.mongoServerTypes.map((entry) => {
-        if (entry.serverType !== serverType) return entry
-        return {
-          ...entry,
-          collectionNames: entry.collectionNames.filter((name) => name !== collectionName),
-        }
-      }),
+    setMongoServerTypes(mongoServerTypes.filter((entry) => entry.serverType !== serverType))
+    setMongoCollectionsText((prev) => {
+      const next = { ...prev }
+      delete next[serverType]
+      return next
     })
   }
 
@@ -185,100 +189,62 @@ export default function RedQueryPreferencesPanel({
           )}
 
           <div>
-            <p className="text-xs font-medium text-gray-700 mb-2">Elasticsearch server types</p>
-            <div className="flex flex-wrap gap-2 mb-2">
-              {draft.elasticsearchServerTypes.map((serverType) => (
-                <span
-                  key={serverType}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full"
-                >
-                  {serverType}
-                  <button
-                    type="button"
-                    onClick={() => removeEsType(serverType)}
-                    className="text-gray-500 hover:text-gray-800"
-                    aria-label={`Remove ${serverType}`}
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={newEsType}
-                onChange={(event) => setNewEsType(event.target.value)}
-                placeholder="e.g. AUDIENCE_CONTAINER"
-                className="flex-1 text-xs border border-gray-200 rounded-md px-2 py-1.5"
-              />
-              <button
-                type="button"
-                onClick={addEsType}
-                className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50"
-              >
-                <Plus className="w-3 h-3" />
-                Add
-              </button>
-            </div>
+            <p className="text-xs font-medium text-gray-700 mb-1">Elasticsearch server types</p>
+            <p className="text-xs text-gray-500 mb-2">
+              One server type per line (paste from spreadsheet OK).
+            </p>
+            <textarea
+              value={esTypesText}
+              onChange={(event) => setEsTypesText(event.target.value)}
+              placeholder={'AUDIENCE_CONTAINER\nAUDIT_LOGS\nAD_ENTITY'}
+              rows={4}
+              className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 font-mono resize-y min-h-[6rem]"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              {parsedDraft.elasticsearchServerTypes.length} server type
+              {parsedDraft.elasticsearchServerTypes.length === 1 ? '' : 's'}
+            </p>
           </div>
 
           <div>
             <p className="text-xs font-medium text-gray-700 mb-2">Mongo server types & collections</p>
             <div className="space-y-3">
-              {draft.mongoServerTypes.map((entry) => (
-                <div key={entry.serverType} className="border border-gray-100 rounded-md p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-gray-900">{entry.serverType}</span>
-                    <button
-                      type="button"
-                      onClick={() => removeMongoServerType(entry.serverType)}
-                      className="text-xs text-red-600 hover:text-red-700"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                  <div className="flex flex-wrap gap-2 mb-2">
-                    {entry.collectionNames.map((collectionName) => (
-                      <span
-                        key={collectionName}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-100 rounded-full"
+              {mongoServerTypes.map((entry) => {
+                const collectionCount = parseBulkAllowlistLines(
+                  mongoCollectionsText[entry.serverType] || ''
+                ).length
+                return (
+                  <div key={entry.serverType} className="border border-gray-100 rounded-md p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium text-gray-900">{entry.serverType}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeMongoServerType(entry.serverType)}
+                        className="text-xs text-red-600 hover:text-red-700"
                       >
-                        {collectionName}
-                        <button
-                          type="button"
-                          onClick={() => removeCollection(entry.serverType, collectionName)}
-                          className="text-gray-500 hover:text-gray-800"
-                          aria-label={`Remove ${collectionName}`}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newCollectionByServerType[entry.serverType] || ''}
+                        Remove
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-2">
+                      One collection name per line (paste from spreadsheet OK).
+                    </p>
+                    <textarea
+                      value={mongoCollectionsText[entry.serverType] || ''}
                       onChange={(event) =>
-                        setNewCollectionByServerType((prev) => ({
+                        setMongoCollectionsText((prev) => ({
                           ...prev,
                           [entry.serverType]: event.target.value,
                         }))}
-                      placeholder="Collection name"
-                      className="flex-1 text-xs border border-gray-200 rounded-md px-2 py-1.5"
+                      placeholder="collectionOne&#10;collectionTwo"
+                      rows={6}
+                      className="w-full text-xs border border-gray-200 rounded-md px-2 py-1.5 font-mono resize-y min-h-[8rem]"
                     />
-                    <button
-                      type="button"
-                      onClick={() => addCollection(entry.serverType)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Add
-                    </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {collectionCount} collection{collectionCount === 1 ? '' : 's'}
+                    </p>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
             <div className="flex gap-2 mt-3">
               <input

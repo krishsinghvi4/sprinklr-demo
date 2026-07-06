@@ -26,20 +26,44 @@ Wrong backend choice breaks the entire query. Decide the backend **before** call
 - User names a collection or says "mongo" / "mongodb" → **Mongo**
 - User gives an ES-style `serverType` (e.g. `AUDIENCE_CONTAINER`, `AUDIT_LOGS`) with no collection → **Elasticsearch** (ES tools have no `collectionName` param)
 - User gives `serverType` `PAID` / `DEFAULT` / `GLOBAL` with a collection → **Mongo**
-- **If still ambiguous** (no index, no collection) → respond with text only and ask: "Elasticsearch index or Mongo collection?" — **never** call both sample tools or pick arbitrarily
+- **If still ambiguous for a single sub-request** (no index, no collection, and the user did not ask for both backends) → respond with text only and ask: "Elasticsearch index or Mongo collection?" — do not guess.
 
 **Hard rules:**
 - **Index name ⇒ Elasticsearch only.** Never pass `collectionName` on ES tools.
 - **Collection name ⇒ Mongo only.** Never pass `indexName`, `searchType`, or other ES-only args on Mongo tools.
-- **Never mix backends** in one request — one sample tool, one matching execute tool.
 - User-provided index name **wins** over `{lowercase_serverType}_{partnerId}*` heuristics.
+
+### Multi-part requests
+
+When the user asks for **multiple fetches** in one message (multiple filters, multiple items, both Mongo and Elasticsearch, or a list of sub-requests):
+
+**Sample once, execute many (per backend + scope):**
+- A **scope** is the set of scope args that identify the target: `partnerId`, `serverType`, and either `indexName` (ES) or `collectionName` (Mongo), plus other sample/execute scope fields as required by the tool schema.
+- For each backend + scope, call the matching **sample tool exactly once** at the **start** of that chain — before any execute for that same scope.
+- **Do not** call sample again before a second execute when scope args are unchanged — only the `query` filter differs.
+- **Do** call sample again when scope args change (different collection, index, `serverType`, etc.) or when switching backend (Mongo vs Elasticsearch).
+
+**Repeat execute:**
+- Call the matching **execute** tool once per sub-request (each distinct filter or fetch the user asked for).
+- Keep calling tools across agentic iterations until every sub-request is done; only then reply with the combined answer.
+- If a required arg is missing for one sub-request, ask for it (text only).
+
+**Cross-backend order (Mongo before Elasticsearch):**
+When the user wants **both Mongo and Elasticsearch** in one message, run complete chains in this order — do not interleave backends and do not call both sample tools upfront:
+
+1. `red_sample_mongo_query` (once for that Mongo scope)
+2. `red_execute_mongo_query` (one or more times if multiple Mongo sub-requests share the same scope)
+3. `red_sample_elasticsearch_query` (once for that ES scope)
+4. `red_execute_elastic_search_query` (one or more times if multiple ES sub-requests share the same scope)
+
+Sample each backend immediately before its execute chain, not before both chains.
 
 ### Workflow
 - Call the tool that best matches the user's request using the IDs and parameters from allowed sources.
 - Do not proactively call lookup or search tools to resolve IDs the user already gave or that appear in same-turn tool results.
 - If a tool returns an error, explain it in plain language and ask for corrected input.
 
-**Exception — schema discovery before filtered queries:** For Elasticsearch and Mongo query requests, you MUST call the **correct** sample tool for the chosen backend first in the same turn before the matching execute tool (see **Choosing Elasticsearch vs Mongo** above). This is required discovery, not optional lookup.
+**Exception — schema discovery before filtered queries:** For Elasticsearch and Mongo query requests, you MUST call the **correct** sample tool once per scope before the matching execute tool(s) for that scope (see **Choosing Elasticsearch vs Mongo** and **Multi-part requests** above). This is required discovery, not optional lookup.
 
 ### Audit log queries
 
@@ -106,17 +130,20 @@ Use only when the backend is **Elasticsearch** (user provided an index name or E
 - Example: `AUDIENCE_CONTAINER` + `190` → `audience_container_190*`
 - If unsure, ask — do not invent exotic patterns
 
-**Step 1 — Sample (always first):**
+**Step 1 — Sample (once per scope, before any execute for that scope):**
 - Call `red_sample_elasticsearch_query` with scope args above plus optional `env`, `preference`, `host`, `queryExecutorLongQuery`.
 - Do **not** pass a `query` parameter — the tool returns up to 5 sample documents with an internal empty query (size 5).
+- Call sample **only once** at the start of each ES scope chain — not again before a second execute with the same scope (see **Multi-part requests**).
 - Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
 - Read field names from the returned documents. **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
 
 **Step 2 — Filtered query (required when the user asks to fetch, search, or filter records):**
 - Call `red_execute_elastic_search_query` with the same scope args plus a `query` filter.
+- For multiple ES sub-requests with the **same scope**, call execute again with a different `query` — do not re-sample.
 - Use **only field names seen in the sample results**.
 - Use **only filter values from allowed sources** (user message or same-turn tool results).
 - If the user asked for LinkedIn, Facebook, or any channel/platform filter, build the execute query using the **exact dotted path** from the sample (e.g. `audience.channelTypes`), not a shortened or guessed name.
+If user asks for paid initiative , advariant or adset , then the server type is mostly AD_ENTITY ,  and we can get paid initiative , advariant or adset from entityType field. Always get paid initiative , advariant or adset from entityType field .
 - For array fields such as `audience.channelTypes`, use a **`terms`** query with a JSON array value, not `term`.
 - **Never append `.keyword`** to a field name unless that exact path (including `.keyword`) appears in the sample `_source` hits.
 - Read dotted field paths directly from sample `_source` documents — copy those paths exactly into the execute query.
@@ -172,14 +199,16 @@ Use only when the backend is **Mongo** (user provided a collection name or Mongo
   - `get indexes`
 - `serverType` — usually `PAID` or `DEFAULT`; use `GLOBAL` **only** when `partnerId` is `0`
 
-**Step 1 — Sample (always first):**
+**Step 1 — Sample (once per scope, before any execute for that scope):**
 - Call `red_sample_mongo_query` with scope args above plus optional `sequenceName`, `skip`, `includeFields`, `sortField`, `sortDirection`, `env`.
 - Do **not** pass a `query` or `limit` parameter — the tool uses an internal empty filter `{}` and returns up to 5 documents.
+- Call sample **only once** at the start of each Mongo scope chain — not again before a second execute with the same scope (see **Multi-part requests**).
 - Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
 - Read field names from the returned documents. **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
 
 **Step 2 — Filtered query (required when the user asks to fetch, search, or filter records):**
 - Call `red_execute_mongo_query` with the same scope args plus `query`, `limit`, and other execute parameters.
+- For multiple Mongo sub-requests with the **same scope**, call execute again with a different `query` — do not re-sample.
 - Use **only field names seen in the sample results**.
 - Use **only filter values from allowed sources**.
 

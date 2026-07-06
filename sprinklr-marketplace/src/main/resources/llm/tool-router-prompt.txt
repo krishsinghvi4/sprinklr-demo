@@ -16,6 +16,9 @@ the main assistant decides the exact calls — so pick the PRIMARY tools the req
   root cause, or debugging → select `jira.getJiraIssue` and `red.red_execute_audit_log_elasticsearch_query`.
 - Prefer the action/leaf tools the user wants (e.g. "create issue", "get pipeline"); prerequisite/metadata
   tools are added automatically later, so you do not need to list them yourself.
+- When the user asks to fetch or search data **multiple times** in one message, or mentions **both**
+  Elasticsearch and Mongo, include all relevant RED query execute tools (`red.red_execute_elastic_search_query`,
+  `red.red_execute_mongo_query`) in selectedTools — sample prerequisites are added automatically.
 - If no tool is relevant (the user is just chatting or asking a general question), return an empty list.
 
 ## Output format
