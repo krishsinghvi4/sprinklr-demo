@@ -43,8 +43,10 @@ When the user asks for **multiple fetches** in one message (multiple filters, mu
 - **Do not** call sample again before a second execute when scope args are unchanged — only the `query` filter differs.
 - **Do** call sample again when scope args change (different collection, index, `serverType`, etc.) or when switching backend (Mongo vs Elasticsearch).
 
-**Repeat execute:**
+**Repeat execute — one sub-request per execute call:**
 - Call the matching **execute** tool once per sub-request (each distinct filter or fetch the user asked for).
+- **Never combine** multiple user-requested items into a single execute `query` when they asked for separate results (e.g. "A and B" → two execute calls, not one `terms` filter with both values).
+- Applies to Elasticsearch and Mongo: if the user names two channels, two entity types, two collections, or two filters, run **separate** execute calls — one filter value (or one logical fetch) per call.
 - Keep calling tools across agentic iterations until every sub-request is done; only then reply with the combined answer.
 - If a required arg is missing for one sub-request, ask for it (text only).
 
@@ -142,23 +144,46 @@ Use only when the backend is **Elasticsearch** (user provided an index name or E
 - For multiple ES sub-requests with the **same scope**, call execute again with a different `query` — do not re-sample.
 - Use **only field names seen in the sample results**.
 - Use **only filter values from allowed sources** (user message or same-turn tool results).
-- If the user asked for LinkedIn, Facebook, or any channel/platform filter, build the execute query using the **exact dotted path** from the sample (e.g. `audience.channelTypes`), not a shortened or guessed name.
-If user asks for paid initiative , advariant or adset , then the server type is mostly AD_ENTITY ,  and we can get paid initiative , advariant or adset from entityType field. Always get paid initiative , advariant or adset from entityType field .
-- For array fields such as `audience.channelTypes`, use a **`terms`** query with a JSON array value, not `term`.
+
+**AD_ENTITY — paid initiative, ad set, ad variant:**
+- When the user asks for paid initiative, ad set, or ad variant from Elasticsearch, `serverType` is usually `AD_ENTITY`.
+- **Always** filter by `entityType` in the execute `query` using the exact enum from sample hits:
+  - paid initiative → `entityType`: `PAID_INITIATIVE`
+  - ad set → `entityType`: `AD_SET`
+  - ad variant → `entityType`: `AD_VARIANT`
+- Use the exact field path for `entityType` as it appears in sample `_source` (often `entityType` at the root).
+- If the user asks for more than one of these (e.g. ad set and paid initiative), make **separate** execute calls — one `entityType` per call (see **Multi-part requests**).
+
+**Channel / platform filters (e.g. audience):**
+- If the user asked for one channel or platform (e.g. LinkedIn), filter using the **exact dotted path** from the sample (e.g. `audience.channelTypes`) with a **single** value in `term` or `terms` with a one-element array.
+- If the user asked for **multiple** channels or platforms in one message (e.g. "LinkedIn and Facebook audience"), make **separate** execute calls — one channel per call. **Do not** combine them in one query (wrong: `terms` on `audience.channelTypes` with `["LINKEDIN","FACEBOOK"]` in a single execute).
+- For array fields such as `audience.channelTypes`, use **`terms`** with a JSON array when filtering one multi-value field — but still **one user-requested value per execute call** when they asked for separate fetches.
 - **Never append `.keyword`** to a field name unless that exact path (including `.keyword`) appears in the sample `_source` hits.
 - Read dotted field paths directly from sample `_source` documents — copy those paths exactly into the execute query.
 
-**Worked example:**
+**Worked examples:**
+
+**Single channel (one execute):**
 
 > "Fetch 6 most recent LinkedIn audience from elasticsearch, SEARCH searchtype, AUDIENCE_CONTAINER, index name audience_container_190*"
 
 1. **Sample:** `red_sample_elasticsearch_query` with `partnerId: 190`, `serverType: "AUDIENCE_CONTAINER"`, `searchType: "SEARCH"`, `indexName: "audience_container_190*"` — no `query`.
 2. Read field paths from sample `_source` hits (e.g. `audience.channelTypes`).
 3. **Execute:** `red_execute_elastic_search_query` with same scope args plus `query` JSON string:
-   - Filter LinkedIn using exact dotted path from sample (e.g. `terms` on `audience.channelTypes` with `["LINKEDIN"]` — exact enum from sample hits)
+   - Filter LinkedIn using exact dotted path from sample (e.g. `terms` on `audience.channelTypes` with `["LINKEDIN"]` only — exact enum from sample hits)
    - `sort` on a timestamp field seen in sample (e.g. `createdAt` desc)
    - `size: 6`
    - Top-level `"query"` key wrapping filter body (see format below)
+
+**Multiple channels or items (separate execute per item):**
+
+> "Fetch most recent LinkedIn and Facebook audience from elasticsearch, partner id 190"
+
+1. **Sample once** for the ES scope (`AUDIENCE_CONTAINER`, `audience_container_190*`, etc.).
+2. **Execute #1:** filter `audience.channelTypes` (or path from sample) for **LinkedIn only** — `size: 1` or as user asked.
+3. **Execute #2:** same scope args, new `query` filtering **Facebook only** — do not merge both channels into one execute.
+
+Same rule for Mongo: two collections or two filters the user named → two `red_execute_mongo_query` calls, not one combined filter.
 
 **Elasticsearch search body format:** The `query` argument is a **JSON string** (escaped), not a nested object. When parsed, it is a full Elasticsearch search body. The filter clause lives under a top-level `"query"` key — never pass a bare `"bool"`, `"term"`, or `"match_all"` at the root.
 
@@ -209,6 +234,7 @@ Use only when the backend is **Mongo** (user provided a collection name or Mongo
 **Step 2 — Filtered query (required when the user asks to fetch, search, or filter records):**
 - Call `red_execute_mongo_query` with the same scope args plus `query`, `limit`, and other execute parameters.
 - For multiple Mongo sub-requests with the **same scope**, call execute again with a different `query` — do not re-sample.
+- If the user asked for **multiple** distinct fetches in one message, use **separate** execute calls — do not combine into one `query` (see **Multi-part requests**).
 - Use **only field names seen in the sample results**.
 - Use **only filter values from allowed sources**.
 
