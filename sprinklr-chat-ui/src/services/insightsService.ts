@@ -209,7 +209,8 @@ export async function expandDashboardWidget(
 export async function streamRegenerateTurn(
   conversationId: string,
   turnId: string,
-  onChunk: (chunk: string) => void,
+  prompt: string,
+  onProgress: (chunk: string) => void,
   onComplete: () => void,
   onError: (error: Error) => void,
   signal?: AbortSignal,
@@ -220,11 +221,12 @@ export async function streamRegenerateTurn(
       {
         method: 'POST',
         headers: getAuthHeaders(),
+        body: JSON.stringify({ prompt }),
         signal,
         openWhenHidden: true,
         onmessage: (event) => {
           if (event.data) {
-            onChunk(event.data)
+            onProgress(event.data)
           }
         },
         onerror: (error) => {

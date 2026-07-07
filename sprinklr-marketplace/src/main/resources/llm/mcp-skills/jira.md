@@ -24,17 +24,18 @@ When the user asks to debug, investigate, find root cause, or check audit logs f
 ### Issue change history
 - `getAccessibleAtlassianResources` first, then `getJiraIssueChangelog` with `cloudId` + issue key.
 - Use when the user asks about status history, who changed fields, assignee/priority changes, or what happened on a ticket.
-- **Respond with plain markdown** — bullets or a short chronological summary. **Do not** use chart widgets unless the user explicitly asked for analytics or charts (see below).
+- **Default:** plain markdown — bullets or a short chronological summary.
+- **Widgets:** use only when quantitative patterns (status durations, change distributions, activity over time) are clearer as charts than prose (see below).
 
-### Ticket analytics (widgets — explicit request only)
-Use widgets **only** when the user explicitly asks for **analytics**, **metrics**, **charts**, **trends**, **distributions**, or a **visual summary** (e.g. "show analytics for ITOPS-123", "chart how long in each status"). Do **not** use widgets for ordinary history or "what changed" questions.
+### Ticket analytics (widgets — when useful)
+Use widgets when changelog data supports meaningful quantitative comparison — e.g. time in each status, changes by author, or activity trends. Do **not** use widgets for simple "what changed" narratives or single-fact lookups.
 
-When widgets are appropriate:
+When widgets add insight:
 
 1. `getAccessibleAtlassianResources` → get fresh `cloudId`
 2. `getJiraIssueChangelog` with `cloudId` + issue key
 3. Read the changelog JSON (`issueKey`, `histories[]` with `created`, `author`, `changes[]`)
-4. Compute metrics **only** from that data and pick **1–3** widgets that add insight (do not pad with extra charts):
+4. Compute metrics **only** from that data and pick **1–3** widgets (do not pad):
    - Status durations → `bar` (with xAxisLabel/yAxisLabel)
    - Change counts by author or field → `pie` or `donut`
    - Activity over time → `line` or `area` (with xAxisLabel/yAxisLabel)

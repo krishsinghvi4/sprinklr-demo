@@ -50,3 +50,19 @@ When project and MR IID are already known (from the user or a prior tool result)
 
 ### Conflict / merge-check example
 For "any conflict for commit X on branch master?" — discover or obtain `project_id` first. Do **not** put `master` in `project_id`. After the project is known (from the user or a tool result), use `get_commit` + `get_branch_diffs` or MR diff tools. There is no dedicated merge-conflict API; infer from diffs and MR state.
+
+### Analytics (widgets — when useful)
+Use widgets when GitLab tool data supports quantitative patterns clearer as charts than prose or HTML tables. Do **not** force charts for simple MR/pipeline lookups.
+
+**Good widget candidates:**
+- Pipeline status distribution → `list_merge_request_pipelines` → `pie` or `bar` (passed/failed/canceled counts)
+- Commit frequency over time → `list_commits` → `line` or `area` (commits per day/week)
+- MR state breakdown across a project → `list_merge_requests` → `pie` (open/merged/closed)
+
+**Workflow:**
+1. Fetch data with the minimal GitLab tools needed for the question.
+2. Compute metrics **only** from tool results in the current turn.
+3. Pick **1–3** widgets that add insight; skip if prose or an HTML table is clearer.
+4. Short markdown summary + single ` ```widget ` fence (see system prompt).
+
+**Anti-hallucination:** Every value in widget JSON must trace to tool output. Do not invent pipeline statuses, counts, or dates.

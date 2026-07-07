@@ -28,6 +28,7 @@ import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryPreferencesToolDescriptionAugmenter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCachePreflightSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +70,7 @@ public class ChatOrchestrator implements ChatUseCase {
     private final PendingWorkflowPort pendingWorkflowPort;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
     private final RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport;
+    private final RedQueryPreferencesToolDescriptionAugmenter redQueryPreferencesToolDescriptionAugmenter;
 
     public ChatOrchestrator(
             ChatHistoryPort chatHistoryPort,
@@ -81,7 +83,8 @@ public class ChatOrchestrator implements ChatUseCase {
             ToolSelectionService toolSelectionService,
             PendingWorkflowPort pendingWorkflowPort,
             McpCatalogToolSelectionSupport catalogToolSelectionSupport,
-            RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport
+            RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport,
+            RedQueryPreferencesToolDescriptionAugmenter redQueryPreferencesToolDescriptionAugmenter
     ) {
         this.chatHistoryPort = chatHistoryPort;
         this.llmPort = llmPort;
@@ -94,6 +97,7 @@ public class ChatOrchestrator implements ChatUseCase {
         this.pendingWorkflowPort = pendingWorkflowPort;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
         this.redSampleQueryCachePreflightSupport = redSampleQueryCachePreflightSupport;
+        this.redQueryPreferencesToolDescriptionAugmenter = redQueryPreferencesToolDescriptionAugmenter;
     }
 
     /**
@@ -140,7 +144,9 @@ public class ChatOrchestrator implements ChatUseCase {
             String currentTurnUserMessageId = userMessage.id();
             List<String> currentTurnToolMessageIds = new ArrayList<>();
 
-            List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(request.userId());
+            List<McpTool> userTools = redQueryPreferencesToolDescriptionAugmenter.augment(
+                    request.userId(),
+                    mcpRegistryPort.findActiveToolsForUser(request.userId()));
 
             // Stage 1+2: scope the tool set for this turn (router pick + deterministic dependency expansion).
             // When the feature is off, fall back to sending every active tool (legacy behavior).

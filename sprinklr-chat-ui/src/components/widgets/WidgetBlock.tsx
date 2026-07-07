@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import Markdown from 'react-markdown'
 import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
+import MixedMarkdownContent from '../MixedMarkdownContent'
 import WidgetRenderer from './WidgetRenderer'
 import { parseWidgetPayload } from '../../utils/parseWidgetPayload'
 import type { WidgetSpec } from '../../types/widgets'
@@ -48,7 +48,7 @@ export default function WidgetBlock({
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className={mode === 'chat' ? 'grid grid-cols-1 gap-4' : 'grid grid-cols-1 md:grid-cols-2 gap-4'}>
         {block.widgets.map((widget) => (
           <WidgetCard
             key={widget.id}
@@ -127,7 +127,7 @@ function WidgetCard({ widget, extendedInsight, onExpand }: WidgetCardProps) {
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+    <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm min-w-0 overflow-hidden">
       <h4 className="font-semibold text-gray-900 text-sm">{widget.title}</h4>
       {widget.description && (
         <p className="text-xs text-gray-500 mt-0.5">{widget.description}</p>
@@ -148,9 +148,10 @@ function WidgetCard({ widget, extendedInsight, onExpand }: WidgetCardProps) {
             {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
           {expanded && insight && (
-            <div className="mt-2 prose prose-sm max-w-none text-gray-700">
-              <Markdown>{insight}</Markdown>
-            </div>
+            <MixedMarkdownContent
+              content={insight}
+              className="mt-2 text-gray-700"
+            />
           )}
         </div>
       )}

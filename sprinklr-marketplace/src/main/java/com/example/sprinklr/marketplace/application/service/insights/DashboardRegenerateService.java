@@ -28,10 +28,14 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.time.Instant;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryPreferencesToolDescriptionAugmenter;
+
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicReference;
@@ -42,10 +46,14 @@ public class DashboardRegenerateService {
     private static final Logger log = LoggerFactory.getLogger(DashboardRegenerateService.class);
     private static final String TOOL_LIMIT_MESSAGE =
             "Tool call limit reached for this request. Please try a simpler question.";
-    private static final String REGEN_CONTEXT = """
-            Dashboard regeneration: call getAccessibleAtlassianResources then getJiraIssueChangelog with fresh data.
-            Respond with at most 2 sentences of summary plus exactly one ```widget``` fence containing 4–6 visual widgets.
-            Every bar/line/area widget must include xAxisLabel and yAxisLabel in data. Do not use table widgets.""";
+    private static final String REGEN_CONTEXT_BASE = """
+            Dashboard regeneration: re-run the user's prompt with fresh MCP tool data and produce \
+            dashboard analytics.
+            Follow system prompt widget rules. When tool data contains quantitative patterns \
+            (changelog events, status durations, distributions, trends, comparisons), emit 1–3 \
+            ```widget``` charts — this is a saved dashboard insight, not a casual chat reply.
+            If the data truly cannot support any meaningful chart, respond with prose only \
+            (no widget fence).""";
 
     private final LlmPort llmPort;
     private final McpServerPort mcpServerPort;
@@ -54,6 +62,7 @@ public class DashboardRegenerateService {
     private final McpInvocationPreflightPort mcpInvocationPreflightPort;
     private final InsightsDashboardService insightsDashboardService;
     private final ToolSelectionService toolSelectionService;
+    private final RedQueryPreferencesToolDescriptionAugmenter redQueryPreferencesToolDescriptionAugmenter;
 
     public DashboardRegenerateService(
             LlmPort llmPort,
@@ -62,7 +71,8 @@ public class DashboardRegenerateService {
             McpProperties mcpProperties,
             McpInvocationPreflightPort mcpInvocationPreflightPort,
             InsightsDashboardService insightsDashboardService,
-            ToolSelectionService toolSelectionService
+            ToolSelectionService toolSelectionService,
+            RedQueryPreferencesToolDescriptionAugmenter redQueryPreferencesToolDescriptionAugmenter
     ) {
         this.llmPort = llmPort;
         this.mcpServerPort = mcpServerPort;
@@ -71,14 +81,16 @@ public class DashboardRegenerateService {
         this.mcpInvocationPreflightPort = mcpInvocationPreflightPort;
         this.insightsDashboardService = insightsDashboardService;
         this.toolSelectionService = toolSelectionService;
+        this.redQueryPreferencesToolDescriptionAugmenter = redQueryPreferencesToolDescriptionAugmenter;
     }
 
     public void streamRegenerate(
             String userId,
             DashboardTurn existingTurn,
+            String promptOverride,
             Flow.Subscriber<String> responseSubscriber
     ) {
-        Mono.fromRunnable(() -> runRegenerateLoop(userId, existingTurn, responseSubscriber))
+        Mono.fromRunnable(() -> runRegenerateLoop(userId, existingTurn, promptOverride, responseSubscriber))
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         unused -> {},
@@ -89,6 +101,7 @@ public class DashboardRegenerateService {
     private void runRegenerateLoop(
             String userId,
             DashboardTurn existingTurn,
+            String promptOverride,
             Flow.Subscriber<String> responseSubscriber
     ) {
         try {
@@ -102,65 +115,77 @@ public class DashboardRegenerateService {
                 }
             });
 
+            String prompt = resolvePrompt(existingTurn.prompt(), promptOverride);
+
             List<Message> history = new ArrayList<>();
             String userMessageId = newId();
             Message userMessage = new Message(
                     userMessageId,
                     "dashboard-regen",
                     MessageRole.USER,
-                    existingTurn.prompt(),
+                    prompt,
                     List.of(),
                     List.of(),
                     Instant.now()
             );
             history.add(userMessage);
 
-            List<McpTool> toolsForTurn = resolveToolsForRegenerate(userId, existingTurn.prompt(), history);
+            List<McpTool> toolsForTurn = resolveToolsForRegenerate(userId, prompt, history);
             log.info("[DashboardRegenerate] turnId={} scopedTools={}", existingTurn.id(), toolsForTurn.size());
+            String regenContext = buildRegenContext(existingTurn);
 
             int iteration = 0;
             int totalToolCalls = 0;
-            AtomicReference<String> lastChangelogSnapshot = new AtomicReference<>(existingTurn.toolResultSnapshot());
+            AtomicReference<String> lastToolSnapshot = new AtomicReference<>(existingTurn.toolResultSnapshot());
 
             while (iteration < mcpProperties.getMaxAgenticIterations()) {
+                if (iteration > 0) {
+                    emitProgress(responseSubscriber, "Generating analytics…\n");
+                }
                 LlmResponse llmResponse = llmPort.complete(new LlmRequest(
-                        existingTurn.prompt(),
+                        prompt,
                         history,
                         toolsForTurn,
                         userMessageId,
                         userId,
                         "dashboard-regen-" + existingTurn.id(),
-                        REGEN_CONTEXT
+                        regenContext
                 ));
 
                 if (llmResponse.toolCalls().isEmpty()) {
                     String content = llmResponse.content() != null ? llmResponse.content() : "";
-                    emitFinal(responseSubscriber, content);
-                    persistRegeneratedTurn(userId, existingTurn, content, lastChangelogSnapshot.get());
+                    persistRegeneratedTurn(userId, existingTurn, prompt, content, lastToolSnapshot.get());
                     responseSubscriber.onComplete();
                     return;
                 }
 
                 if (totalToolCalls + llmResponse.toolCalls().size() > mcpProperties.getMaxToolCallsPerTurn()) {
-                    emitFinal(responseSubscriber, TOOL_LIMIT_MESSAGE);
                     responseSubscriber.onComplete();
                     return;
                 }
 
-                executeToolBatch(userId, history, llmResponse, responseSubscriber, lastChangelogSnapshot, existingTurn.prompt());
+                executeToolBatch(userId, history, llmResponse, lastToolSnapshot, userMessageId, responseSubscriber);
                 totalToolCalls += llmResponse.toolCalls().size();
                 iteration++;
             }
 
-            emitFinal(responseSubscriber, TOOL_LIMIT_MESSAGE);
             responseSubscriber.onComplete();
         } catch (Exception exception) {
             signalError(responseSubscriber, exception);
         }
     }
 
+    private static String resolvePrompt(String existingPrompt, String promptOverride) {
+        if (promptOverride != null && !promptOverride.isBlank()) {
+            return promptOverride.trim();
+        }
+        return existingPrompt;
+    }
+
     private List<McpTool> resolveToolsForRegenerate(String userId, String prompt, List<Message> history) {
-        List<McpTool> userTools = mcpRegistryPort.findActiveToolsForUser(userId);
+        List<McpTool> userTools = redQueryPreferencesToolDescriptionAugmenter.augment(
+                userId,
+                mcpRegistryPort.findActiveToolsForUser(userId));
         if (userTools.isEmpty()) {
             return List.of();
         }
@@ -176,28 +201,33 @@ public class DashboardRegenerateService {
                 log.warn("[DashboardRegenerate] Tool selection failed: {}", exception.getMessage());
             }
         }
-        List<McpTool> jiraTools = userTools.stream()
-                .filter(tool -> isJiraRelatedTool(tool))
-                .toList();
-        if (!jiraTools.isEmpty()) {
-            return jiraTools;
-        }
         return userTools;
     }
 
-    private static boolean isJiraRelatedTool(McpTool tool) {
-        String serverId = tool.serverId() != null ? tool.serverId().toLowerCase(Locale.ROOT) : "";
-        String name = tool.name() != null ? tool.name().toLowerCase(Locale.ROOT) : "";
-        return serverId.contains("jira") || name.contains("jira");
+    private static String buildRegenContext(DashboardTurn existingTurn) {
+        StringBuilder context = new StringBuilder(REGEN_CONTEXT_BASE);
+        if (existingTurn.widgets() != null && !existingTurn.widgets().isEmpty()) {
+            context.append("\nThis turn previously had analytics widgets — regenerate charts when ")
+                    .append("the fresh tool data supports them.");
+        }
+        return context.toString();
+    }
+
+    private static void emitProgress(Flow.Subscriber<String> subscriber, String message) {
+        try {
+            subscriber.onNext(message);
+        } catch (Exception exception) {
+            log.debug("[DashboardRegenerate] Progress emit failed: {}", exception.getMessage());
+        }
     }
 
     private void executeToolBatch(
             String userId,
             List<Message> history,
             LlmResponse llmResponse,
-            Flow.Subscriber<String> responseSubscriber,
-            AtomicReference<String> lastChangelogSnapshot,
-            String promptContext
+            AtomicReference<String> lastToolSnapshot,
+            String userMessageId,
+            Flow.Subscriber<String> responseSubscriber
     ) {
         Message assistantToolCallMessage = new Message(
                 newId(),
@@ -211,14 +241,18 @@ public class DashboardRegenerateService {
         history.add(assistantToolCallMessage);
 
         List<ToolResult> toolResults = new ArrayList<>();
+        StringBuilder inBatchToolResults = new StringBuilder();
+        String basePreflightContext = buildConversationContextForPreflight(history, userMessageId);
         for (ToolCall toolCall : llmResponse.toolCalls()) {
             emitProgress(responseSubscriber, "Running " + toolCall.name() + "…\n");
             McpInvocation invocation = toInvocation(userId, toolCall);
-            McpInvocationResult result = invokeWithPreflight(invocation, promptContext);
+            McpInvocationResult result = invokeWithPreflight(invocation, basePreflightContext, inBatchToolResults.toString());
             toolResults.add(toToolResult(result));
-            if (result.success() && result.content() != null
-                    && toolCall.name().toLowerCase().contains("changelog")) {
-                lastChangelogSnapshot.set(result.content());
+            if (result.success() && result.content() != null && !result.content().isBlank()) {
+                appendPreflightToolResult(inBatchToolResults, invocation.toolName(), result.content());
+            }
+            if (result.success() && result.content() != null && !result.content().isBlank()) {
+                lastToolSnapshot.set(result.content());
             }
         }
 
@@ -237,24 +271,38 @@ public class DashboardRegenerateService {
     private void persistRegeneratedTurn(
             String userId,
             DashboardTurn existingTurn,
+            String prompt,
             String assistantContent,
             String toolResultSnapshot
     ) {
         List<WidgetSpec> widgets = WidgetBlockParser.parseFromContent(assistantContent)
                 .map(block -> block.widgets())
-                .orElse(existingTurn.widgets());
+                .orElse(List.of());
 
         insightsDashboardService.updateTurnAfterRegenerate(
                 userId,
                 existingTurn,
+                prompt,
                 assistantContent,
                 widgets,
                 toolResultSnapshot
         );
     }
 
-    private McpInvocationResult invokeWithPreflight(McpInvocation invocation, String conversationContext) {
-        var validation = mcpInvocationPreflightPort.validate(invocation, conversationContext);
+    private McpInvocationResult invokeWithPreflight(
+            McpInvocation invocation,
+            String conversationContext,
+            String inBatchToolResults
+    ) {
+        String fullContext = conversationContext;
+        if (inBatchToolResults != null && !inBatchToolResults.isBlank()) {
+            fullContext = conversationContext
+                    + "\n"
+                    + UserPromptValueMatcher.TOOL_RESULTS_THIS_BATCH_MARKER
+                    + inBatchToolResults
+                    + "]";
+        }
+        var validation = mcpInvocationPreflightPort.validate(invocation, fullContext);
         if (!validation.allowed()) {
             String message = "Tool '" + invocation.toolName() + "' blocked. " + validation.blockMessage();
             return new McpInvocationResult(invocation.toolCallId(), false, null, message);
@@ -280,14 +328,6 @@ public class DashboardRegenerateService {
         return new ToolResult(result.toolCallId(), content);
     }
 
-    private void emitProgress(Flow.Subscriber<String> subscriber, String text) {
-        subscriber.onNext(text);
-    }
-
-    private void emitFinal(Flow.Subscriber<String> subscriber, String text) {
-        subscriber.onNext(text);
-    }
-
     private void signalError(Flow.Subscriber<String> subscriber, Throwable error) {
         try {
             subscriber.onNext(LlmErrorFormatter.toUserMessage(error));
@@ -299,5 +339,70 @@ public class DashboardRegenerateService {
 
     private static String newId() {
         return "msg-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+    }
+
+    private String buildConversationContextForPreflight(List<Message> history, String currentTurnUserMessageId) {
+        StringBuilder context = new StringBuilder();
+        StringBuilder toolResultsThisTurn = new StringBuilder();
+        Set<String> calledToolNames = new LinkedHashSet<>();
+        boolean inCurrentTurn = currentTurnUserMessageId == null || currentTurnUserMessageId.isBlank();
+        for (Message message : history) {
+            if (!inCurrentTurn && currentTurnUserMessageId.equals(message.id())) {
+                inCurrentTurn = true;
+            }
+            if (inCurrentTurn) {
+                for (ToolCall toolCall : message.toolCalls()) {
+                    calledToolNames.add(toolCall.name());
+                }
+                if (message.role() == MessageRole.TOOL) {
+                    for (ToolResult toolResult : message.toolResults()) {
+                        appendPreflightToolResult(toolResultsThisTurn, null, toolResult.content());
+                    }
+                }
+            }
+            if (message.role() != MessageRole.USER && message.role() != MessageRole.ASSISTANT) {
+                continue;
+            }
+            String content = message.content();
+            if (content == null || content.isBlank()) {
+                continue;
+            }
+            if (!context.isEmpty()) {
+                context.append('\n');
+            }
+            context.append(content);
+        }
+        if (!calledToolNames.isEmpty()) {
+            context.append("\n[tools-called-this-turn: ")
+                    .append(String.join(", ", calledToolNames))
+                    .append(']');
+        }
+        if (!toolResultsThisTurn.isEmpty()) {
+            context.append('\n')
+                    .append(UserPromptValueMatcher.TOOL_RESULTS_THIS_TURN_MARKER)
+                    .append(toolResultsThisTurn)
+                    .append(']');
+        }
+        return context.toString();
+    }
+
+    private static final int PREFLIGHT_TOOL_RESULT_MAX_CHARS = 4_000;
+
+    private static void appendPreflightToolResult(StringBuilder buffer, String toolName, String content) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        if (!buffer.isEmpty()) {
+            buffer.append('\n');
+        }
+        if (toolName != null && !toolName.isBlank()) {
+            buffer.append(toolName).append(" -> ");
+        }
+        String collapsed = content.strip();
+        if (collapsed.length() <= PREFLIGHT_TOOL_RESULT_MAX_CHARS) {
+            buffer.append(collapsed);
+            return;
+        }
+        buffer.append(collapsed, 0, PREFLIGHT_TOOL_RESULT_MAX_CHARS).append("…(truncated)");
     }
 }

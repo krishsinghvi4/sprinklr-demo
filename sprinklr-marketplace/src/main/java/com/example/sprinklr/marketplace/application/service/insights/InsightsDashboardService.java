@@ -3,6 +3,7 @@ package com.example.sprinklr.marketplace.application.service.insights;
 import com.example.sprinklr.marketplace.domain.model.insights.DashboardConversation;
 import com.example.sprinklr.marketplace.domain.model.insights.DashboardTurn;
 import com.example.sprinklr.marketplace.domain.model.insights.WidgetSpec;
+import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.InsightsDashboardPort;
 import org.springframework.stereotype.Service;
 
@@ -15,11 +16,19 @@ import java.util.UUID;
 public class InsightsDashboardService {
 
     private static final int PREVIEW_MAX = 80;
+    public static final String NO_ANALYTICS_MESSAGE =
+            "No analytics could be generated for this prompt. Try refining the question in chat "
+                    + "or saving a turn that includes charts.";
 
     private final InsightsDashboardPort insightsDashboardPort;
+    private final ChatHistoryPort chatHistoryPort;
 
-    public InsightsDashboardService(InsightsDashboardPort insightsDashboardPort) {
+    public InsightsDashboardService(
+            InsightsDashboardPort insightsDashboardPort,
+            ChatHistoryPort chatHistoryPort
+    ) {
         this.insightsDashboardPort = insightsDashboardPort;
+        this.chatHistoryPort = chatHistoryPort;
     }
 
     public List<DashboardConversation> listConversations(String userId) {
@@ -61,6 +70,7 @@ public class InsightsDashboardService {
         String turnId = newId("dash-turn");
         WidgetBlockParser.NormalizedTurnContent normalized = WidgetBlockParser.normalizeTurnContent(
                 request.assistantContent(), request.widgets());
+        String toolSnapshot = resolveToolResultSnapshot(request);
         DashboardTurn turn = new DashboardTurn(
                 turnId,
                 conversation.id(),
@@ -70,7 +80,7 @@ public class InsightsDashboardService {
                 normalized.narrative(),
                 normalized.assistantContent(),
                 normalized.widgets(),
-                request.toolResultSnapshot(),
+                toolSnapshot,
                 java.util.Map.of(),
                 1,
                 null,
@@ -133,18 +143,24 @@ public class InsightsDashboardService {
     public Optional<DashboardTurn> updateTurnAfterRegenerate(
             String userId,
             DashboardTurn existing,
+            String prompt,
             String assistantContent,
             List<WidgetSpec> widgets,
             String toolResultSnapshot
     ) {
-        WidgetBlockParser.NormalizedTurnContent normalized = WidgetBlockParser.normalizeTurnContent(
-                assistantContent, widgets);
+        List<WidgetSpec> resolvedWidgets = widgets != null ? widgets : List.of();
+        boolean hasWidgets = !resolvedWidgets.isEmpty();
+
+        WidgetBlockParser.NormalizedTurnContent normalized = hasWidgets
+                ? WidgetBlockParser.normalizeTurnContent(assistantContent, resolvedWidgets)
+                : buildNoAnalyticsContent(assistantContent);
+
         DashboardTurn updated = new DashboardTurn(
                 existing.id(),
                 existing.dashboardConversationId(),
                 existing.userId(),
                 existing.sourceChatMessageId(),
-                existing.prompt(),
+                prompt,
                 normalized.narrative(),
                 normalized.assistantContent(),
                 normalized.widgets(),
@@ -152,14 +168,24 @@ public class InsightsDashboardService {
                 java.util.Map.of(),
                 existing.version() + 1,
                 existing.id(),
-                Instant.now()
+                existing.createdAt()
         );
         insightsDashboardPort.saveTurn(updated);
         String preview = normalized.narrative().isBlank()
-                ? truncatePreview(existing.prompt())
+                ? truncatePreview(prompt)
                 : normalized.narrative();
         insightsDashboardPort.touchConversation(existing.dashboardConversationId(), preview);
         return Optional.of(updated);
+    }
+
+    private static WidgetBlockParser.NormalizedTurnContent buildNoAnalyticsContent(String assistantContent) {
+        String prose = WidgetBlockParser.extractNarrative(assistantContent);
+        String narrative = prose.isBlank() ? NO_ANALYTICS_MESSAGE : prose;
+        return new WidgetBlockParser.NormalizedTurnContent(
+                narrative,
+                narrative,
+                List.of()
+        );
     }
 
     public void deleteTurn(String userId, String dashboardConversationId, String turnId) {
@@ -201,6 +227,20 @@ public class InsightsDashboardService {
                     );
                     return insightsDashboardPort.saveTurn(updated);
                 });
+    }
+
+    private String resolveToolResultSnapshot(SaveTurnRequest request) {
+        if (request.toolResultSnapshot() != null && !request.toolResultSnapshot().isBlank()) {
+            return request.toolResultSnapshot();
+        }
+        if (request.sourceChatMessageId() == null || request.sourceChatMessageId().isBlank()) {
+            return null;
+        }
+        return chatHistoryPort
+                .collectToolResultSnapshotForAssistantMessage(
+                        request.sourceConversationId(),
+                        request.sourceChatMessageId())
+                .orElse(null);
     }
 
     private void decrementTurnCount(String userId, String dashboardConversationId) {

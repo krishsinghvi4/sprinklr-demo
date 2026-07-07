@@ -9,7 +9,6 @@ import {
   fetchDashboardConversation,
   fetchDashboardTurn,
   streamRegenerateTurn,
-  updateTurnPrompt,
   type DashboardConversationDetail,
   type DashboardTurnDetail,
 } from '../services/insightsService'
@@ -60,24 +59,26 @@ export default function InsightsConversationPage() {
   const handleRegenerate = async (turn: DashboardTurnDetail, prompt: string) => {
     if (!dashboardConversationId || regeneratingTurnId) return
 
-    setError(null)
-    setRegenStatus(null)
-
     const trimmedPrompt = prompt.trim()
-    if (trimmedPrompt && trimmedPrompt !== turn.prompt) {
-      await updateTurnPrompt(dashboardConversationId, turn.id, trimmedPrompt)
-    }
+    if (!trimmedPrompt) return
+
+    setError(null)
 
     abortRef.current?.abort()
     const abortController = new AbortController()
     abortRef.current = abortController
     setRegeneratingTurnId(turn.id)
+    setRegenStatus('Starting…')
 
     await streamRegenerateTurn(
       dashboardConversationId,
       turn.id,
+      trimmedPrompt,
       (chunk) => {
-        setRegenStatus((prev) => (prev ?? '') + chunk)
+        const line = chunk.trim()
+        if (line) {
+          setRegenStatus(line)
+        }
       },
       async () => {
         setRegeneratingTurnId(null)
@@ -200,7 +201,7 @@ function TurnInsightBlock({
             rows={2}
             disabled={isRegenerating}
             className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-200 focus:border-blue-500 disabled:bg-gray-50"
-            placeholder="Analytics prompt…"
+            placeholder="Prompt…"
           />
           <div className="flex items-center gap-2 shrink-0 pt-0.5">
             {turn.version > 1 && (
@@ -225,15 +226,20 @@ function TurnInsightBlock({
               type="button"
               onClick={onDelete}
               disabled={isRegenerating}
-              className="p-1.5 text-gray-400 hover:text-red-600 rounded disabled:opacity-50"
+              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 text-red-700 border border-red-200 rounded-md hover:bg-red-50 disabled:opacity-50"
               title="Delete"
             >
-              <Trash2 className="w-4 h-4" />
+              <Trash2 className="w-3 h-3" />
+              Delete
             </button>
           </div>
         </div>
 
-        {turn.narrative && (
+        {turn.narrative && turn.widgets.length === 0 && (
+          <p className="text-sm text-gray-600 mt-3">{turn.narrative}</p>
+        )}
+
+        {turn.narrative && turn.widgets.length > 0 && (
           <p className="text-sm text-gray-600 mt-3 line-clamp-3">{turn.narrative}</p>
         )}
 
@@ -245,9 +251,9 @@ function TurnInsightBlock({
         </p>
 
         {isRegenerating && (
-          <div className="flex items-start gap-2 text-xs text-gray-500 mt-3">
-            <Loader className="w-3 h-3 animate-spin mt-0.5 shrink-0" />
-            <span className="whitespace-pre-wrap">{regenStatus || 'Regenerating analytics…'}</span>
+          <div className="flex items-center gap-2 text-xs text-gray-500 mt-3">
+            <Loader className="w-3 h-3 animate-spin shrink-0" />
+            <span>{regenStatus?.trim() || 'Regenerating analytics…'}</span>
           </div>
         )}
       </header>
@@ -256,6 +262,8 @@ function TurnInsightBlock({
         items={galleryItems}
         extendedInsights={extendedInsights}
         onExpandWidget={onExpandWidget}
+        sourceConversationId={sourceConversationId}
+        emptyMessage={turn.narrative || undefined}
       />
     </section>
   )

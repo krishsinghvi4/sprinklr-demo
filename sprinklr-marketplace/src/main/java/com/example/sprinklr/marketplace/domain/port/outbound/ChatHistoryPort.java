@@ -36,4 +36,13 @@ public interface ChatHistoryPort {
     void touchConversation(String conversationId, String preview);
 
     void deleteConversation(String conversationId, String userId);
+
+    /**
+     * Collects tool result payloads from the chat turn that produced {@code assistantMessageId},
+     * for grounding dashboard extended insights. Returns empty if the message is unknown.
+     */
+    Optional<String> collectToolResultSnapshotForAssistantMessage(
+            String conversationId,
+            String assistantMessageId
+    );
 }

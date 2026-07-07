@@ -19,6 +19,13 @@ the main assistant decides the exact calls — so pick the PRIMARY tools the req
 - When the user asks to fetch or search data **multiple times** in one message, or mentions **both**
   Elasticsearch and Mongo, include all relevant RED query execute tools (`red.red_execute_elastic_search_query`,
   `red.red_execute_mongo_query`) in selectedTools — sample prerequisites are added automatically.
+- **RED Elasticsearch vs Mongo:** RED Elasticsearch tools (`red_*elasticsearch*`) include the user's
+  **Elasticsearch-only serverTypes** in their description — select these when the user mentions an index name,
+  elasticsearch, or an ES serverType from that list (e.g. `AUDIENCE_CONTAINER`). RED Mongo tools (`red_*mongo*`)
+  include the user's **Mongo-only serverTypes and collections** in their description — select these when the
+  user mentions a collection name or mongo/mongodb. Do not select both ES and Mongo execute tools unless the user
+  explicitly asks for both backends in one message. Selecting execute is enough — matching sample tools are added
+  automatically by dependency expansion.
 - If no tool is relevant (the user is just chatting or asking a general question), return an empty list.
 
 ## Output format

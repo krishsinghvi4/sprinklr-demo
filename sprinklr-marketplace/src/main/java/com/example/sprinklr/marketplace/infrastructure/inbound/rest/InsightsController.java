@@ -14,6 +14,7 @@ import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.Dashboar
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ExpandDashboardWidgetResponse;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ExpandWidgetRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.ExpandWidgetResponse;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.RegenerateDashboardTurnRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.SaveDashboardTurnRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.SaveDashboardTurnResponse;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.SavedMessagesResponse;
@@ -174,20 +175,23 @@ public class InsightsController {
     }
 
     @PostMapping(value = "/conversations/{id}/turns/{turnId}/regenerate", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter regenerateTurn(@PathVariable String id, @PathVariable String turnId) {
+    public SseEmitter regenerateTurn(
+            @PathVariable String id,
+            @PathVariable String turnId,
+            @RequestBody(required = false) RegenerateDashboardTurnRequest request
+    ) {
         String userId = authenticatedUserResolver.requireUserId();
         insightsDashboardService.getConversation(userId, id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dashboard conversation not found"));
         DashboardTurn turn = insightsDashboardService.getTurn(userId, turnId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Dashboard turn not found"));
 
+        String promptOverride = request != null ? request.prompt() : null;
+
         SseEmitter emitter = new SseEmitter(SSE_TIMEOUT_MS);
         Flow.Subscriber<String> subscriber = new Flow.Subscriber<>() {
-            private Flow.Subscription subscription;
-
             @Override
             public void onSubscribe(Flow.Subscription subscription) {
-                this.subscription = subscription;
                 subscription.request(Long.MAX_VALUE);
             }
 
@@ -196,7 +200,6 @@ public class InsightsController {
                 try {
                     emitter.send(SseEmitter.event().data(item));
                 } catch (IOException exception) {
-                    subscription.cancel();
                     emitter.completeWithError(exception);
                 }
             }
@@ -217,7 +220,7 @@ public class InsightsController {
             }
         };
 
-        dashboardRegenerateService.streamRegenerate(userId, turn, subscriber);
+        dashboardRegenerateService.streamRegenerate(userId, turn, promptOverride, subscriber);
         return emitter;
     }
 

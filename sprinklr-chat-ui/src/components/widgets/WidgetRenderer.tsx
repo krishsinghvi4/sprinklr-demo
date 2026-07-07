@@ -89,7 +89,8 @@ function BarChartWidget({ widget }: { widget: WidgetSpec }) {
   }))
   const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <div className="w-full min-w-0 overflow-hidden">
+      <ResponsiveContainer width="100%" height={260}>
       <BarChart data={data} margin={margins}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis dataKey="label" tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.xAxisLabel, 'x')} />
@@ -97,7 +98,8 @@ function BarChartWidget({ widget }: { widget: WidgetSpec }) {
         <Tooltip />
         <Bar dataKey="value" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} />
       </BarChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -112,7 +114,8 @@ function LineChartWidget({ widget }: { widget: WidgetSpec }) {
   }))
   const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <div className="w-full min-w-0 overflow-hidden">
+      <ResponsiveContainer width="100%" height={260}>
       <LineChart data={data} margin={margins}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis dataKey="label" tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.xAxisLabel, 'x')} />
@@ -120,7 +123,8 @@ function LineChartWidget({ widget }: { widget: WidgetSpec }) {
         <Tooltip />
         <Line type="monotone" dataKey="value" stroke={CHART_COLORS[0]} strokeWidth={2} dot={{ r: 4 }} />
       </LineChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -135,7 +139,8 @@ function AreaChartWidget({ widget }: { widget: WidgetSpec }) {
   }))
   const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <div className="w-full min-w-0 overflow-hidden">
+      <ResponsiveContainer width="100%" height={260}>
       <AreaChart data={data} margin={margins}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
         <XAxis dataKey="label" tick={{ fontSize: 12 }} label={axisLabelProps(parsed.data.xAxisLabel, 'x')} />
@@ -143,7 +148,8 @@ function AreaChartWidget({ widget }: { widget: WidgetSpec }) {
         <Tooltip />
         <Area type="monotone" dataKey="value" stroke={CHART_COLORS[0]} fill={CHART_COLORS[0]} fillOpacity={0.2} />
       </AreaChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   )
 }
 
@@ -152,29 +158,50 @@ function PieChartWidget({ widget, donut }: { widget: WidgetSpec; donut?: boolean
   if (!parsed.success) {
     return <FallbackWidget widget={widget} />
   }
+
+  const sliceCount = parsed.data.slices.length
+  const manySlices = sliceCount > 5
+  const chartHeight = manySlices ? 300 : 260
+
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <PieChart>
-        <Pie
-          data={parsed.data.slices}
-          dataKey="value"
-          nameKey="label"
-          cx="50%"
-          cy="50%"
-          innerRadius={donut ? 50 : 0}
-          outerRadius={90}
-          label={({ name, percent }: { name?: string; percent?: number }) =>
-            `${name ?? ''} (${((percent ?? 0) * 100).toFixed(0)}%)`
+    <div className="w-full min-w-0 overflow-hidden">
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <PieChart
+          margin={
+            manySlices
+              ? { top: 8, right: 100, bottom: 8, left: 8 }
+              : { top: 8, right: 8, bottom: 24, left: 8 }
           }
         >
-          {parsed.data.slices.map((_, index) => (
-            <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-          ))}
-        </Pie>
-        <Tooltip />
-        <Legend />
-      </PieChart>
-    </ResponsiveContainer>
+          <Pie
+            data={parsed.data.slices}
+            dataKey="value"
+            nameKey="label"
+            cx={manySlices ? '40%' : '50%'}
+            cy="50%"
+            innerRadius={donut ? 50 : 0}
+            outerRadius={manySlices ? 72 : 90}
+            label={
+              manySlices
+                ? false
+                : ({ name, percent }: { name?: string; percent?: number }) =>
+                    `${name ?? ''} (${((percent ?? 0) * 100).toFixed(0)}%)`
+            }
+          >
+            {parsed.data.slices.map((_, index) => (
+              <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+            ))}
+          </Pie>
+          <Tooltip />
+          <Legend
+            layout={manySlices ? 'vertical' : 'horizontal'}
+            align={manySlices ? 'right' : 'center'}
+            verticalAlign={manySlices ? 'middle' : 'bottom'}
+            wrapperStyle={{ fontSize: 11, lineHeight: '14px', maxWidth: manySlices ? 96 : undefined }}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
   )
 }
 

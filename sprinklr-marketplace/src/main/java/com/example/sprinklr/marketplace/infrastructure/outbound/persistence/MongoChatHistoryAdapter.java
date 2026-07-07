@@ -17,6 +17,7 @@ import java.util.Optional;
 public class MongoChatHistoryAdapter implements ChatHistoryPort {
 
     private static final int PREVIEW_MAX_LENGTH = 80;
+    private static final int TOOL_SNAPSHOT_MAX_CHARS = 12_000;
     static final String TOOL_RESULT_TRUNCATED_STUB = "[Tool result truncated after summarization]";
 
     private final ConversationRepository conversationRepository;
@@ -311,6 +312,63 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
         }
         messageRepository.deleteByConversationId(conversationId).block();
         conversationRepository.deleteByIdAndUserId(conversationId, userId).block();
+    }
+
+    @Override
+    public Optional<String> collectToolResultSnapshotForAssistantMessage(
+            String conversationId,
+            String assistantMessageId
+    ) {
+        if (conversationId == null || conversationId.isBlank()
+                || assistantMessageId == null || assistantMessageId.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            MessageDocument assistant = messageRepository.findById(assistantMessageId).block();
+            if (assistant == null || !conversationId.equals(assistant.conversationId())) {
+                return Optional.empty();
+            }
+
+            Instant turnStart = messageRepository
+                    .findByConversationIdAndRoleOrderByCreatedAtDesc(conversationId, MessageRole.USER)
+                    .filter(user -> user.createdAt().isBefore(assistant.createdAt()))
+                    .next()
+                    .map(MessageDocument::createdAt)
+                    .blockOptional()
+                    .orElse(assistant.createdAt());
+
+            List<MessageDocument> turnMessages = messageRepository
+                    .findByConversationIdAndCreatedAtGreaterThanEqualOrderByCreatedAtAsc(conversationId, turnStart)
+                    .filter(doc -> !doc.createdAt().isAfter(assistant.createdAt()))
+                    .collectList()
+                    .blockOptional()
+                    .orElse(List.of());
+
+            StringBuilder snapshot = new StringBuilder();
+            for (MessageDocument doc : turnMessages) {
+                if (doc.role() != MessageRole.TOOL || doc.toolResults() == null) {
+                    continue;
+                }
+                for (MessageDocument.ToolResultDocument result : doc.toolResults()) {
+                    if (result.content() == null || result.content().isBlank()
+                            || TOOL_RESULT_TRUNCATED_STUB.equals(result.content())) {
+                        continue;
+                    }
+                    if (snapshot.length() > 0) {
+                        snapshot.append("\n\n---\n\n");
+                    }
+                    snapshot.append(result.content());
+                    if (snapshot.length() >= TOOL_SNAPSHOT_MAX_CHARS) {
+                        return Optional.of(snapshot.substring(0, TOOL_SNAPSHOT_MAX_CHARS) + "\n…(truncated)");
+                    }
+                }
+            }
+            return snapshot.isEmpty() ? Optional.empty() : Optional.of(snapshot.toString());
+        } catch (Exception exception) {
+            System.err.println("[MongoDB] Error collecting tool snapshot for message "
+                    + assistantMessageId + ": " + exception.getMessage());
+            return Optional.empty();
+        }
     }
 
     private static String truncatePreview(String text) {

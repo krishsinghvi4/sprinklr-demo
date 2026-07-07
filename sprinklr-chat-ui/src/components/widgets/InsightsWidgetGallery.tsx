@@ -1,6 +1,7 @@
+import { Link } from 'react-router-dom'
 import { useState } from 'react'
-import Markdown from 'react-markdown'
 import { ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
+import MixedMarkdownContent from '../MixedMarkdownContent'
 import WidgetRenderer from './WidgetRenderer'
 import type { WidgetSpec } from '../../types/widgets'
 
@@ -14,6 +15,8 @@ export interface InsightsWidgetGalleryProps {
   items: GalleryWidget[]
   extendedInsights?: Record<string, string>
   onExpandWidget?: (item: GalleryWidget) => Promise<string | null>
+  sourceConversationId?: string
+  emptyMessage?: string
 }
 
 function gridSpanClass(type: WidgetSpec['type']): string {
@@ -30,13 +33,29 @@ export default function InsightsWidgetGallery({
   items,
   extendedInsights = {},
   onExpandWidget,
+  sourceConversationId,
+  emptyMessage,
 }: InsightsWidgetGalleryProps) {
   const kpiItems = items.filter((item) => item.widget.type === 'kpi')
   const chartItems = items.filter((item) => item.widget.type !== 'kpi')
 
   if (items.length === 0) {
     return (
-      <p className="text-gray-500 text-center py-8 text-sm">No widgets saved yet</p>
+      <div className="bg-white rounded-xl border border-gray-200 p-8 text-center shadow-sm">
+        <p className="text-sm font-medium text-gray-700">No analytics for this prompt</p>
+        <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+          {emptyMessage ??
+            'Try asking a question in chat that benefits from trends, distributions, or comparisons — then save the result here.'}
+        </p>
+        {sourceConversationId && (
+          <Link
+            to={`/chat/${sourceConversationId}`}
+            className="inline-block mt-4 text-sm text-blue-600 hover:text-blue-800 underline"
+          >
+            Go to chat
+          </Link>
+        )}
+      </div>
     )
   }
 
@@ -109,7 +128,7 @@ function GalleryWidgetCard({ item, extendedInsight, onExpand }: GalleryWidgetCar
   }
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm h-full">
+    <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm h-full min-w-0 overflow-hidden">
       <div className="min-w-0">
         <h4 className="font-semibold text-gray-900 text-sm">{widget.title}</h4>
         {widget.description && (
@@ -132,9 +151,10 @@ function GalleryWidgetCard({ item, extendedInsight, onExpand }: GalleryWidgetCar
             {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
           {expanded && insight && (
-            <div className="mt-2 prose prose-sm max-w-none text-gray-700">
-              <Markdown>{insight}</Markdown>
-            </div>
+            <MixedMarkdownContent
+              content={insight}
+              className="mt-2 text-gray-700"
+            />
           )}
         </div>
       )}

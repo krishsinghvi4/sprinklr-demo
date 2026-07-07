@@ -66,7 +66,7 @@ export default function InsightsDashboardPage() {
             <BarChart3 className="w-16 h-16 mx-auto text-gray-300 mb-4" />
             <p className="text-gray-600 text-lg">No saved analytics yet</p>
             <p className="text-gray-500 text-sm mt-2">
-              Ask for ticket analytics in chat, then click &quot;Save to Dashboard&quot;
+              Ask questions in chat that benefit from charts or metrics, then click &quot;Save to Dashboard&quot;
             </p>
             <Link to="/" className="inline-block mt-4 text-blue-600 hover:text-blue-800 text-sm">
               Go to Chats
