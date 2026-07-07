@@ -137,12 +137,19 @@ Use only when the backend is **Elasticsearch** (user provided an index name or E
 - Do **not** pass a `query` parameter — the tool returns up to 5 sample documents with an internal empty query (size 5).
 - Call sample **only once** at the start of each ES scope chain — not again before a second execute with the same scope (see **Multi-part requests**).
 - Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
-- Read field names from the returned documents. **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
+- A **Filter field paths** block is appended automatically from **this** sample's JSON. The schema differs per `serverType`/index — never assume field names from examples, prior turns, or a different serverType.
+- Read field names from that appended path list (and the sample documents). **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
+
+**Field path rules (all serverTypes):**
+- Use **only** dotted paths listed in the appended **Filter field paths** section for execute filters.
+- Dot-join each nesting level (`parent.child`). For arrays of objects, use `parent.arrayField.leaf` — never `[0]` (e.g. `audience.filterGroups.segmentId`, not `filterGroups[0].segmentId`).
+- Never use Elasticsearch hit metadata (`_id`, `_index`) for business filters unless that exact path appears in the appended list.
+- When the user asks for an ID or segment, pick the matching path from the **id / segment** subsection of the index — do not default to `_id`.
 
 **Step 2 — Filtered query (required when the user asks to fetch, search, or filter records):**
 - Call `red_execute_elastic_search_query` with the same scope args plus a `query` filter.
 - For multiple ES sub-requests with the **same scope**, call execute again with a different `query` — do not re-sample.
-- Use **only field names seen in the sample results**.
+- Use **only** field paths from the appended **Filter field paths** list — do not unnecessarily append `.keyword`.
 - Use **only filter values from allowed sources** (user message or same-turn tool results).
 
 **AD_ENTITY — paid initiative, ad set, ad variant:**
@@ -229,13 +236,14 @@ Use only when the backend is **Mongo** (user provided a collection name or Mongo
 - Do **not** pass a `query` or `limit` parameter — the tool uses an internal empty filter `{}` and returns up to 5 documents.
 - Call sample **only once** at the start of each Mongo scope chain — not again before a second execute with the same scope (see **Multi-part requests**).
 - Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
-- Read field names from the returned documents. **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
+- A **Filter field paths** block is appended automatically from **this** sample's documents. The schema differs per collection/serverType — never assume field names from examples or prior turns.
+- Read field names from that appended path list. **Do not treat sample rows as the user's answer** — they are unfiltered schema probes.
 
 **Step 2 — Filtered query (required when the user asks to fetch, search, or filter records):**
 - Call `red_execute_mongo_query` with the same scope args plus `query`, `limit`, and other execute parameters.
 - For multiple Mongo sub-requests with the **same scope**, call execute again with a different `query` — do not re-sample.
 - If the user asked for **multiple** distinct fetches in one message, use **separate** execute calls — do not combine into one `query` (see **Multi-part requests**).
-- Use **only field names seen in the sample results**.
+- Use **only** dotted field paths from the appended **Filter field paths** list.
 - Use **only filter values from allowed sources**.
 
 ### Common operations
@@ -248,7 +256,7 @@ Use only when the backend is **Mongo** (user provided a collection name or Mongo
 
 ### Parameter rules
 - Never invent IDs, client names, environment values, field names, or filter values.
-- Field names for filters must come from sample tool results in the current turn — do not guess schema.
+- Field names for filters must come from the appended **Filter field paths** block in sample tool results this turn — do not guess schema.
 - Prefer the most specific tool for the request; do not broaden to unrelated lookup tools when allowed sources already supply the needed identifiers.
 - Confirm Elasticsearch vs Mongo using **Choosing Elasticsearch vs Mongo** before any sample/execute call — backend accuracy is critical.
 

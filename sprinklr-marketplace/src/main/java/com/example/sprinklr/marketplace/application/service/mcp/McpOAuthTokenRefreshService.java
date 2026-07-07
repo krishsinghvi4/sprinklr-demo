@@ -1,19 +1,20 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthClient;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthToken;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
-import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
+import java.time.Instant;
+import java.util.Map;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
-import java.util.Map;
+import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthClient;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthToken;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
 
 /**
  * Refreshes OAuth access tokens at runtime and persists updated credentials.

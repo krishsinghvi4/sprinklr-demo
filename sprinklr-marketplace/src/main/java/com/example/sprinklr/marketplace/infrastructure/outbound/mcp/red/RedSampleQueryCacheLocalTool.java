@@ -62,13 +62,13 @@ public class RedSampleQueryCacheLocalTool implements McpLocalToolExtension {
         var cached = cachePort.find(userId, connectionId, bareToolName, context.argumentsJson());
         if (cached.isPresent()) {
             log.info("[RedSampleCache] Serving cached sample connectionId={} tool={}", connectionId, bareToolName);
-            return cached.get();
+            return RedSampleFieldPathIndex.appendIndex(cached.get());
         }
 
         log.info("[RedSampleCache] Cache miss — calling RED MCP connectionId={} tool={}", connectionId, bareToolName);
         String content = callRemoteSample(context, bareToolName);
         cachePort.save(userId, connectionId, bareToolName, context.argumentsJson(), content);
-        return content;
+        return RedSampleFieldPathIndex.appendIndex(content);
     }
 
     private String callRemoteSample(McpLocalToolInvocationContext context, String bareToolName) {

@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -83,7 +85,7 @@ class RedSampleQueryCacheLocalToolTest {
     @Test
     void returnsCachedContentWithoutCallingMcp() throws Exception {
         when(cachePort.find(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(Optional.of("cached-sample-content"));
+                .thenReturn(Optional.of("{\"hits\":{\"hits\":[]}}"));
 
         String result = localTool.invoke(
                 redEntry,
@@ -91,8 +93,27 @@ class RedSampleQueryCacheLocalToolTest {
                 context
         );
 
-        assertEquals("cached-sample-content", result);
+        assertEquals("{\"hits\":{\"hits\":[]}}", result);
         verify(mcpClient, never()).callTool(anyString(), any(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    private static final String SAMPLE_JSON =
+            "{\"hits\":{\"hits\":[{\"_id\":\"x\",\"_source\":{\"entityType\":\"AD_SET\",\"accountId\":1}}]}}";
+
+    @Test
+    void appendsFieldPathIndexOnCacheHit() {
+        when(cachePort.find(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Optional.of(SAMPLE_JSON));
+
+        String result = localTool.invoke(
+                redEntry,
+                RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL,
+                context
+        );
+
+        assertTrue(result.contains("### Filter field paths"));
+        assertTrue(result.contains("entityType (string)"));
+        assertTrue(result.startsWith(SAMPLE_JSON));
     }
 
     @Test
@@ -103,7 +124,7 @@ class RedSampleQueryCacheLocalToolTest {
         ObjectNode resultNode = OBJECT_MAPPER.createObjectNode();
         ArrayNode content = OBJECT_MAPPER.createArrayNode();
         ObjectNode textItem = OBJECT_MAPPER.createObjectNode();
-        textItem.put("text", "fresh-sample-content");
+        textItem.put("text", SAMPLE_JSON);
         content.add(textItem);
         resultNode.set("content", content);
 
@@ -122,7 +143,9 @@ class RedSampleQueryCacheLocalToolTest {
                 context
         );
 
-        assertEquals("fresh-sample-content", result);
+        assertTrue(result.startsWith(SAMPLE_JSON));
+        assertTrue(result.contains("### Filter field paths"));
+        assertTrue(result.contains("entityType (string)"));
 
         ArgumentCaptor<String> savedContent = ArgumentCaptor.forClass(String.class);
         verify(cachePort).save(
@@ -132,6 +155,7 @@ class RedSampleQueryCacheLocalToolTest {
                 anyString(),
                 savedContent.capture()
         );
-        assertEquals("fresh-sample-content", savedContent.getValue());
+        assertEquals(SAMPLE_JSON, savedContent.getValue());
+        assertFalse(savedContent.getValue().contains("### Filter field paths"));
     }
 }

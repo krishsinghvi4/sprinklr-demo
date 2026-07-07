@@ -1,0 +1,6 @@
+{"sessionId":"7804ba","hypothesisId":"H1","location":"RedSampleQueryCacheLocalTool.invoke","message":"sample returned","data":{"cacheHit":false,"rawLen":2,"indexedLen":2,"hasPathIndex":false},"timestamp":1783418760843}
+{"sessionId":"7804ba","hypothesisId":"H1","location":"RedSampleQueryCacheLocalTool.invoke","message":"sample returned","data":{"cacheHit":false,"rawLen":33832,"indexedLen":40460,"hasPathIndex":true},"timestamp":1783418773097}
+{"sessionId":"7804ba","hypothesisId":"H1","location":"RedSampleQueryCacheLocalTool.invoke","message":"sample returned","data":{"cacheHit":false,"rawLen":59,"indexedLen":59,"hasPathIndex":false},"timestamp":1783420260374}
+{"sessionId":"7804ba","hypothesisId":"H1","location":"RedSampleQueryCacheLocalTool.invoke","message":"sample returned","data":{"cacheHit":false,"rawLen":3215,"indexedLen":4233,"hasPathIndex":true},"timestamp":1783420288685}
+{"sessionId":"7804ba","hypothesisId":"H1","location":"RedSampleQueryCacheLocalTool.invoke","message":"sample returned","data":{"cacheHit":false,"rawLen":2,"indexedLen":2,"hasPathIndex":false},"timestamp":1783421238928}
+{"sessionId":"7804ba","hypothesisId":"H1","location":"RedSampleQueryCacheLocalTool.invoke","message":"sample returned","data":{"cacheHit":false,"rawLen":22951,"indexedLen":29237,"hasPathIndex":true},"timestamp":1783421283671}
