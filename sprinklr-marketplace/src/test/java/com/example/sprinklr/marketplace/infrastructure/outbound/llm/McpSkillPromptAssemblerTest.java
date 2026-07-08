@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -85,6 +86,39 @@ class McpSkillPromptAssemblerTest {
         assertTrue(result.contains("#### Jira → RED audit log investigation"));
         assertTrue(result.contains("Phase 1 — Jira context"));
         assertTrue(result.contains("### RED"));
+    }
+
+    @Test
+    void assembleForPrefixesIncludesOnlyRequestedPrefixSkills() {
+        String result = assembler.assembleForPrefixes(
+                "Router base",
+                Set.of("gitlab"));
+
+        assertTrue(result.contains("Router base"));
+        assertTrue(result.contains("## Workflow guidance for routing"));
+        assertTrue(result.contains("### GitLab"));
+        assertTrue(result.contains("project_id"));
+        assertFalse(result.contains("### Jira"));
+        assertFalse(result.contains("Connected MCP guidance"));
+    }
+
+    @Test
+    void assembleForPrefixesIncludesCrossWorkflowWhenBothPrefixesProvided() {
+        String result = assembler.assembleForPrefixes(
+                "Router base",
+                Set.of("jira", "red"));
+
+        assertTrue(result.contains("### Cross-server workflows"));
+        assertTrue(result.contains("#### Jira → RED audit log investigation"));
+        assertTrue(result.contains("### Jira"));
+        assertTrue(result.contains("### RED"));
+    }
+
+    @Test
+    void hasGuidanceForPrefixesReturnsTrueForKnownPrefix() {
+        assertTrue(assembler.hasGuidanceForPrefixes(Set.of("gitlab")));
+        assertFalse(assembler.hasGuidanceForPrefixes(Set.of("unknown")));
+        assertFalse(assembler.hasGuidanceForPrefixes(Set.of()));
     }
 
     private static McpTool redTool(String name) {

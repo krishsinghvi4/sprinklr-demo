@@ -39,13 +39,39 @@ public class McpSkillPromptAssembler {
      * Appends skill sections for prefixes present in {@code activeTools} to {@code basePrompt}.
      */
     public String assemble(String basePrompt, List<McpTool> activeTools) {
-        Set<String> prefixes = extractPrefixes(activeTools);
-        if (prefixes.isEmpty()) {
+        return assembleForPrefixes(basePrompt, extractPrefixes(activeTools), "## Connected MCP guidance");
+    }
+
+    /**
+     * Appends skill sections for the given server prefixes to {@code basePrompt}.
+     * Used by the tool router refinement pass to inject workflow guidance without loading all skills.
+     */
+    public String assembleForPrefixes(String basePrompt, Set<String> prefixes) {
+        return assembleForPrefixes(basePrompt, prefixes, "## Workflow guidance for routing");
+    }
+
+    /**
+     * Returns true when at least one per-server or cross-workflow skill exists for {@code prefixes}.
+     */
+    public boolean hasGuidanceForPrefixes(Set<String> prefixes) {
+        if (prefixes == null || prefixes.isEmpty()) {
+            return false;
+        }
+        for (String prefix : prefixes) {
+            if (skillPromptLoader.findByServerIdPrefix(prefix).isPresent()) {
+                return true;
+            }
+        }
+        return !crossWorkflowSkillLoader.findMatching(prefixes).isEmpty();
+    }
+
+    private String assembleForPrefixes(String basePrompt, Set<String> prefixes, String sectionHeading) {
+        if (prefixes == null || prefixes.isEmpty()) {
             return basePrompt;
         }
 
         StringBuilder assembled = new StringBuilder(basePrompt.trim());
-        assembled.append("\n\n## Connected MCP guidance");
+        assembled.append("\n\n").append(sectionHeading);
 
         for (String prefix : prefixes) {
             skillPromptLoader.findByServerIdPrefix(prefix).ifPresent(skillText -> {

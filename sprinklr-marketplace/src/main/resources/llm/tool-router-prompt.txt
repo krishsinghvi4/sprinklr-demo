@@ -28,6 +28,13 @@ the main assistant decides the exact calls — so pick the PRIMARY tools the req
   automatically by dependency expansion.
 - If no tool is relevant (the user is just chatting or asking a general question), return an empty list.
 
+## Workflow guidance (refinement pass)
+When workflow guidance sections are provided below the catalog:
+- Use them to map user intent to the correct **primary/leaf** tools for this request.
+- Ignore agent-only instructions (widgets, "respond with text only", HTML formatting).
+- Prerequisites are added automatically downstream — do not list them.
+- On a refinement pass you may **add** tools beyond the initial selection; keep correct picks unless clearly wrong.
+
 ## Output format
 Return ONLY a single JSON object, no prose, no markdown fences:
 

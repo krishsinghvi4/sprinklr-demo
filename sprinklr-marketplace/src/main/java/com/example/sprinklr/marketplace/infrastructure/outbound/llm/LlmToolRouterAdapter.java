@@ -7,6 +7,7 @@ import com.example.sprinklr.marketplace.domain.model.RouterOutcome;
 import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
 import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraRedAuditToolSelectionSupport;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -21,8 +22,12 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * Chat-time "stage 1" tool router. Runs a single cheap, text-only LLM call over a compact catalog
- * (tool names + descriptions only — never schemas) and returns the primary tools relevant to the turn.
+ * Chat-time "stage 1" tool router. Runs a two-pass LLM flow over a compact catalog
+ * (tool names + descriptions only — never schemas):
+ * <ol>
+ *   <li>Pass 1: catalog only — initial primary tool picks.</li>
+ *   <li>Pass 2: prefix-scoped workflow skills from {@code llm/mcp-skills/} — refine and add primaries.</li>
+ * </ol>
  * <p>
  * Designed to fail soft: LLM or parse failures yield {@link RouterOutcome#FAILED} so the caller can fall
  * back to all tools. A valid empty selection yields {@link RouterOutcome#NO_TOOLS_NEEDED}.
@@ -35,10 +40,19 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
 
     private final LlmService llmService;
     private final LlmSystemPromptLoader promptLoader;
+    private final McpSkillPromptAssembler skillPromptAssembler;
+    private final JiraRedAuditToolSelectionSupport jiraRedAuditToolSelectionSupport;
 
-    public LlmToolRouterAdapter(LlmService llmService, LlmSystemPromptLoader promptLoader) {
+    public LlmToolRouterAdapter(
+            LlmService llmService,
+            LlmSystemPromptLoader promptLoader,
+            McpSkillPromptAssembler skillPromptAssembler,
+            JiraRedAuditToolSelectionSupport jiraRedAuditToolSelectionSupport
+    ) {
         this.llmService = llmService;
         this.promptLoader = promptLoader;
+        this.skillPromptAssembler = skillPromptAssembler;
+        this.jiraRedAuditToolSelectionSupport = jiraRedAuditToolSelectionSupport;
     }
 
     @Override
@@ -55,24 +69,126 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
         Set<String> validNames = new LinkedHashSet<>();
         availableTools.forEach(tool -> validNames.add(tool.name()));
 
-        String systemPrompt = promptLoader.getToolRouterPrompt()
-                + "\n\n## Available tools (name: description)\n" + buildCompactCatalog(availableTools)
+        String baseRouterPrompt = promptLoader.getToolRouterPrompt();
+        String catalogSection = "\n\n## Available tools (name: description)\n"
+                + buildCompactCatalog(availableTools)
                 + "\n\nSelect at most " + maxPrimaryTools + " primary tools.";
-        List<Message> request = List.of(syntheticUserMessage(buildUserBlock(userPrompt, recentHistory)));
+        String pass1SystemPrompt = baseRouterPrompt + catalogSection;
+        String userBlock = buildUserBlock(userPrompt, recentHistory);
 
         try {
             long startMs = System.currentTimeMillis();
-            LlmCompletionResult result = llmService.complete(
-                    new LlmCompletionCommand(request, List.of(), null, false, systemPrompt));
-            ToolRouterResult parsed = parseSelection(result.content(), validNames);
-            log.info("[ToolRouter] outcome={} selected={} of {} tools in {}ms",
-                    parsed.outcome(), parsed.toolNames().size(), availableTools.size(),
+            ToolRouterResult pass1 = runRouterCall(pass1SystemPrompt, userBlock, validNames);
+            log.info("[ToolRouter] pass1 outcome={} selected={} of {} tools in {}ms",
+                    pass1.outcome(), pass1.toolNames().size(), availableTools.size(),
                     System.currentTimeMillis() - startMs);
-            return parsed;
+
+            if (pass1.outcome() != RouterOutcome.TOOLS_SELECTED || pass1.toolNames().isEmpty()) {
+                return pass1;
+            }
+
+            Set<String> skillPrefixes = resolveSkillPrefixes(pass1.toolNames(), userPrompt, availableTools);
+            if (!skillPromptAssembler.hasGuidanceForPrefixes(skillPrefixes)) {
+                log.info("[ToolRouter] No workflow skills for prefixes {} — skipping pass2", skillPrefixes);
+                return pass1;
+            }
+
+            String pass2SystemPrompt = skillPromptAssembler.assembleForPrefixes(baseRouterPrompt, skillPrefixes)
+                    + catalogSection;
+
+            String refinementUserBlock = userBlock + "\n\nInitial tool selection from pass 1:\n"
+                    + formatToolList(pass1.toolNames())
+                    + "\nReview the workflow guidance. Add any additional PRIMARY tools needed for this request.\n"
+                    + "Keep correct tools from the initial selection; replace only if clearly wrong.";
+
+            long pass2StartMs = System.currentTimeMillis();
+            ToolRouterResult pass2 = runRouterCall(pass2SystemPrompt, refinementUserBlock, validNames);
+            log.info("[ToolRouter] pass2 outcome={} selected={} prefixes={} in {}ms",
+                    pass2.outcome(), pass2.toolNames().size(), skillPrefixes,
+                    System.currentTimeMillis() - pass2StartMs);
+
+            if (pass2.outcome() != RouterOutcome.TOOLS_SELECTED || pass2.toolNames().isEmpty()) {
+                log.info("[ToolRouter] pass2 failed or empty — using pass1 selection");
+                return pass1;
+            }
+
+            List<String> merged = mergeSelections(pass1.toolNames(), pass2.toolNames(), maxPrimaryTools);
+            log.info("[ToolRouter] merged pass1={} pass2={} final={}", pass1.toolNames(), pass2.toolNames(), merged);
+            return ToolRouterResult.selected(merged);
         } catch (Exception e) {
             log.warn("[ToolRouter] Routing failed — caller will fall back to all tools: {}", e.getMessage());
             return ToolRouterResult.failed();
         }
+    }
+
+    private ToolRouterResult runRouterCall(String systemPrompt, String userBlock, Set<String> validNames) {
+        List<Message> request = List.of(syntheticUserMessage(userBlock));
+        LlmCompletionResult result = llmService.complete(
+                new LlmCompletionCommand(request, List.of(), null, false, systemPrompt));
+        return parseSelection(result.content(), validNames);
+    }
+
+    private Set<String> resolveSkillPrefixes(
+            List<String> pass1ToolNames,
+            String userPrompt,
+            List<McpTool> availableTools
+    ) {
+        Set<String> prefixes = extractPrefixes(pass1ToolNames);
+        if (jiraRedAuditToolSelectionSupport.matchesAuditInvestigationIntent(userPrompt)) {
+            if (hasToolsWithPrefix(availableTools, "jira")) {
+                prefixes.add("jira");
+            }
+            if (hasToolsWithPrefix(availableTools, "red")) {
+                prefixes.add("red");
+            }
+        }
+        return prefixes;
+    }
+
+    private static boolean hasToolsWithPrefix(List<McpTool> tools, String prefix) {
+        String dottedPrefix = prefix + ".";
+        return tools.stream().anyMatch(tool -> tool.name().startsWith(dottedPrefix));
+    }
+
+    private static Set<String> extractPrefixes(List<String> toolNames) {
+        Set<String> prefixes = new LinkedHashSet<>();
+        if (toolNames == null) {
+            return prefixes;
+        }
+        for (String toolName : toolNames) {
+            int separator = toolName.indexOf('.');
+            if (separator > 0) {
+                prefixes.add(toolName.substring(0, separator));
+            }
+        }
+        return prefixes;
+    }
+
+    private static List<String> mergeSelections(List<String> pass1, List<String> pass2, int maxPrimaryTools) {
+        Set<String> seen = new LinkedHashSet<>();
+        List<String> merged = new ArrayList<>();
+        for (String name : pass1) {
+            if (seen.add(name)) {
+                merged.add(name);
+            }
+        }
+        for (String name : pass2) {
+            if (seen.add(name)) {
+                merged.add(name);
+            }
+        }
+        if (maxPrimaryTools > 0 && merged.size() > maxPrimaryTools) {
+            return new ArrayList<>(merged.subList(0, maxPrimaryTools));
+        }
+        return merged;
+    }
+
+    private static String formatToolList(List<String> toolNames) {
+        StringBuilder builder = new StringBuilder();
+        for (String name : toolNames) {
+            builder.append("- ").append(name).append('\n');
+        }
+        return builder.toString();
     }
 
     private ToolRouterResult parseSelection(String content, Set<String> validNames) {
