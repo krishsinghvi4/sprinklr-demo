@@ -50,6 +50,7 @@ public class SprinklrLlmRouterAdapter implements LlmPort {
         String systemPrompt = skillPromptAssembler.assemble(
                 systemPromptLoader.getSystemPrompt(),
                 request.tools());
+        systemPrompt = LlmCurrentDateContext.append(systemPrompt);
         if (request.additionalContext() != null && !request.additionalContext().isBlank()) {
             // Continuation context: prior-turn tool results reused so the agent need not re-fetch them.
             systemPrompt = systemPrompt + "\n\n## Continuation context\n" + request.additionalContext();
