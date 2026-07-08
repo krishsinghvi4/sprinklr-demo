@@ -1,19 +1,24 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 
+import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RedSampleQueryCacheKeyBuilderTest {
 
     private RedSampleQueryCacheKeyBuilder builder;
+    private McpProperties properties;
 
     @BeforeEach
     void setUp() {
-        builder = new RedSampleQueryCacheKeyBuilder();
+        properties = new McpProperties();
+        properties.getRed().getSampleQueryCache().setVersion("2");
+        builder = new RedSampleQueryCacheKeyBuilder(properties);
     }
 
     @Test
@@ -108,5 +113,63 @@ class RedSampleQueryCacheKeyBuilderTest {
                 "user-2", "conn-1", RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL, args);
 
         assertNotEquals(userOne.id(), userTwo.id());
+    }
+
+    @Test
+    void differentCollectionsCollideWhenCollectionNameMissingFromArgs() {
+        String withoutCollection = """
+                {"partnerId":190,"serverType":"PAID","queryType":"general","env":"prod"}
+                """;
+        String withPaidInitiative = """
+                {"partnerId":190,"serverType":"PAID","queryType":"general","env":"prod","collectionName":"paidInitiative"}
+                """;
+        String withAdSet = """
+                {"partnerId":190,"serverType":"PAID","queryType":"general","env":"prod","collectionName":"adSet"}
+                """;
+
+        RedSampleQueryCacheKey missingCollectionKey = builder.build(
+                "user-1", "conn-1", RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, withoutCollection);
+        RedSampleQueryCacheKey paidInitiativeKey = builder.build(
+                "user-1", "conn-1", RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, withPaidInitiative);
+        RedSampleQueryCacheKey adSetKey = builder.build(
+                "user-1", "conn-1", RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, withAdSet);
+
+        assertEquals(missingCollectionKey.id(), builder.build(
+                "user-1", "conn-1", RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, withoutCollection).id());
+        assertNotEquals(paidInitiativeKey.id(), adSetKey.id());
+        assertFalse(builder.isCompleteScopeForCache(
+                RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, missingCollectionKey.scopeArgsJson()));
+        assertTrue(builder.isCompleteScopeForCache(
+                RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, paidInitiativeKey.scopeArgsJson()));
+    }
+
+    @Test
+    void mongoCompleteScopeRequiresCollectionNameQueryTypeAndServerType() {
+        String complete = """
+                {"partnerId":190,"serverType":"PAID","queryType":"general","collectionName":"paidInitiative","env":"prod"}
+                """;
+        RedSampleQueryCacheKey key = builder.build(
+                "user-1", "conn-1", RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, complete);
+        assertTrue(builder.isCompleteScopeForCache(
+                RedSampleQueryCacheKeyBuilder.MONGO_SAMPLE_TOOL, key.scopeArgsJson()));
+    }
+
+    @Test
+    void differentCacheVersionsProduceDifferentKeys() {
+        String args = """
+                {"partnerId":190,"serverType":"AUDIENCE_CONTAINER","searchType":"SEARCH","indexName":"audience_container_190*"}
+                """;
+
+        McpProperties versionOne = new McpProperties();
+        versionOne.getRed().getSampleQueryCache().setVersion("1");
+        McpProperties versionTwo = new McpProperties();
+        versionTwo.getRed().getSampleQueryCache().setVersion("2");
+
+        RedSampleQueryCacheKey v1Key = new RedSampleQueryCacheKeyBuilder(versionOne).build(
+                "user-1", "conn-1", RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL, args);
+        RedSampleQueryCacheKey v2Key = new RedSampleQueryCacheKeyBuilder(versionTwo).build(
+                "user-1", "conn-1", RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL, args);
+
+        assertNotEquals(v1Key.id(), v2Key.id());
     }
 }

@@ -134,7 +134,7 @@ Use only when the backend is **Elasticsearch** (user provided an index name or E
 
 **Step 1 — Sample (once per scope, before any execute for that scope):**
 - Call `red_sample_elasticsearch_query` with scope args above plus optional `env`, `preference`, `host`, `queryExecutorLongQuery`.
-- Do **not** pass a `query` parameter — the tool returns up to 5 sample documents with an internal empty query (size 5).
+- Do **not** pass a `query` parameter — the tool returns up to 2 sample documents with an internal empty query (configurable server-side, default 2).
 - Call sample **only once** at the start of each ES scope chain — not again before a second execute with the same scope (see **Multi-part requests**).
 - Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
 - A **Filter field paths** block is appended automatically from **this** sample's JSON. The schema differs per `serverType`/index — never assume field names from examples, prior turns, or a different serverType.
@@ -233,7 +233,7 @@ Use only when the backend is **Mongo** (user provided a collection name or Mongo
 
 **Step 1 — Sample (once per scope, before any execute for that scope):**
 - Call `red_sample_mongo_query` with scope args above plus optional `sequenceName`, `skip`, `includeFields`, `sortField`, `sortDirection`, `env`.
-- Do **not** pass a `query` or `limit` parameter — the tool uses an internal empty filter `{}` and returns up to 5 documents.
+- Do **not** pass a `query` or `limit` parameter — the tool uses an internal empty filter `{}` and returns up to 2 documents (configurable server-side, default 2).
 - Call sample **only once** at the start of each Mongo scope chain — not again before a second execute with the same scope (see **Multi-part requests**).
 - Identical scope args may return a **cached** sample from a recent call (within the configured TTL, typically 24h) instead of hitting RED again — still read field paths from the returned content whether cached or fresh.
 - A **Filter field paths** block is appended automatically from **this** sample's documents. The schema differs per collection/serverType — never assume field names from examples or prior turns.

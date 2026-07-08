@@ -29,7 +29,6 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorForm
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryPreferencesToolDescriptionAugmenter;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCachePreflightSupport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -69,7 +68,6 @@ public class ChatOrchestrator implements ChatUseCase {
     private final ToolSelectionService toolSelectionService;
     private final PendingWorkflowPort pendingWorkflowPort;
     private final McpCatalogToolSelectionSupport catalogToolSelectionSupport;
-    private final RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport;
     private final RedQueryPreferencesToolDescriptionAugmenter redQueryPreferencesToolDescriptionAugmenter;
 
     public ChatOrchestrator(
@@ -83,7 +81,6 @@ public class ChatOrchestrator implements ChatUseCase {
             ToolSelectionService toolSelectionService,
             PendingWorkflowPort pendingWorkflowPort,
             McpCatalogToolSelectionSupport catalogToolSelectionSupport,
-            RedSampleQueryCachePreflightSupport redSampleQueryCachePreflightSupport,
             RedQueryPreferencesToolDescriptionAugmenter redQueryPreferencesToolDescriptionAugmenter
     ) {
         this.chatHistoryPort = chatHistoryPort;
@@ -96,7 +93,6 @@ public class ChatOrchestrator implements ChatUseCase {
         this.toolSelectionService = toolSelectionService;
         this.pendingWorkflowPort = pendingWorkflowPort;
         this.catalogToolSelectionSupport = catalogToolSelectionSupport;
-        this.redSampleQueryCachePreflightSupport = redSampleQueryCachePreflightSupport;
         this.redQueryPreferencesToolDescriptionAugmenter = redQueryPreferencesToolDescriptionAugmenter;
     }
 
@@ -451,15 +447,8 @@ public class ChatOrchestrator implements ChatUseCase {
         List<McpInvocationResult> invocationResults = new ArrayList<>();
         StringBuilder inBatchToolResults = new StringBuilder();
         String basePreflightContext = buildConversationContextForPreflight(history, currentTurnUserMessageId);
-        Set<String> calledToolNamesThisTurn = toolNamesCalledThisTurn(history, currentTurnUserMessageId);
         for (int i = 0; i < invocations.size(); i++) {
             McpInvocation invocation = invocations.get(i);
-            redSampleQueryCachePreflightSupport.findCachedSampleForExecute(invocation, calledToolNamesThisTurn)
-                    .ifPresent(hit -> appendPreflightToolResult(
-                            inBatchToolResults,
-                            hit.sampleToolLabel() + " (cached)",
-                            hit.resultContent()
-                    ));
             streamingSession.emitProgress("Running " + invocation.toolName() + "…\n");
             long toolStartMs = System.currentTimeMillis();
             McpInvocationResult result = invokeWithPreflight(

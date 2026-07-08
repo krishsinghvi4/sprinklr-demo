@@ -57,7 +57,16 @@ public class McpProperties {
 
     @Data
     public static class Red {
+        private SampleQuery sampleQuery = new SampleQuery();
         private SampleQueryCache sampleQueryCache = new SampleQueryCache();
+
+        @Data
+        public static class SampleQuery {
+            /** Max sample documents shown to the LLM in the raw JSON appendix (default 2). */
+            private int documentLimit = 2;
+            /** Docs fetched from RED for schema discovery; only documentLimit are shown to the LLM (default 5). */
+            private int schemaDiscoveryLimit = 5;
+        }
 
         @Data
         public static class SampleQueryCache {
@@ -65,6 +74,8 @@ public class McpProperties {
             private boolean enabled = true;
             /** Cache entry lifetime in hours (default 24 = 1 day). */
             private int ttlHours = 24;
+            /** Bump to invalidate all cached entries after schema-affecting code changes (default "1"). */
+            private String version = "1";
         }
     }
 }

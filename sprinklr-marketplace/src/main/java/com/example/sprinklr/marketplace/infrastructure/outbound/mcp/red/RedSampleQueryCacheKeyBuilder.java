@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 
+import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -25,6 +26,12 @@ public class RedSampleQueryCacheKeyBuilder {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
+    private final McpProperties mcpProperties;
+
+    public RedSampleQueryCacheKeyBuilder(McpProperties mcpProperties) {
+        this.mcpProperties = mcpProperties;
+    }
+
     private static final List<String> ES_SCOPE_FIELDS = List.of(
             "partnerId",
             "serverType",
@@ -48,6 +55,20 @@ public class RedSampleQueryCacheKeyBuilder {
             "sortField",
             "sortDirection",
             "env"
+    );
+
+    private static final List<String> ES_REQUIRED_SCOPE_FIELDS = List.of(
+            "partnerId",
+            "serverType",
+            "searchType",
+            "indexName"
+    );
+
+    private static final List<String> MONGO_REQUIRED_SCOPE_FIELDS = List.of(
+            "partnerId",
+            "collectionName",
+            "queryType",
+            "serverType"
     );
 
     public boolean isSampleTool(String bareToolName) {
@@ -78,8 +99,51 @@ public class RedSampleQueryCacheKeyBuilder {
             throw new IllegalArgumentException("Unsupported RED tool for sample cache: " + bareToolName);
         }
         String scopeArgsJson = canonicalScopeArgsJson(sampleToolName, argumentsJson);
-        String id = hash(userId, connectionId, sampleToolName, scopeArgsJson);
+        String id = hash(cacheVersion(), userId, connectionId, sampleToolName, scopeArgsJson);
         return new RedSampleQueryCacheKey(id, scopeArgsJson);
+    }
+
+    private String cacheVersion() {
+        if (mcpProperties.getRed() == null || mcpProperties.getRed().getSampleQueryCache() == null) {
+            return "1";
+        }
+        String version = mcpProperties.getRed().getSampleQueryCache().getVersion();
+        return version == null || version.isBlank() ? "1" : version;
+    }
+
+    /**
+     * Returns true when the canonical scope includes all fields required to distinguish cache entries.
+     * Incomplete scopes (e.g. missing {@code collectionName}) must not be cached or served from cache.
+     */
+    public boolean isCompleteScopeForCache(String sampleToolName, String scopeArgsJson) {
+        if (sampleToolName == null || scopeArgsJson == null || scopeArgsJson.isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode scope = OBJECT_MAPPER.readTree(scopeArgsJson);
+            List<String> required = ES_SAMPLE_TOOL.equals(sampleToolName)
+                    ? ES_REQUIRED_SCOPE_FIELDS
+                    : MONGO_REQUIRED_SCOPE_FIELDS;
+            for (String field : required) {
+                if (!hasNonBlankScopeValue(scope, field)) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception exception) {
+            return false;
+        }
+    }
+
+    private static boolean hasNonBlankScopeValue(JsonNode scope, String field) {
+        JsonNode value = scope.path(field);
+        if (value.isMissingNode() || value.isNull()) {
+            return false;
+        }
+        if (value.isTextual()) {
+            return !value.asText("").isBlank();
+        }
+        return true;
     }
 
     private String resolveSampleToolName(String bareToolName) {
@@ -115,8 +179,14 @@ public class RedSampleQueryCacheKeyBuilder {
         }
     }
 
-    private static String hash(String userId, String connectionId, String toolName, String scopeArgsJson) {
-        String material = userId + "|" + connectionId + "|" + toolName + "|" + scopeArgsJson;
+    private static String hash(
+            String cacheVersion,
+            String userId,
+            String connectionId,
+            String toolName,
+            String scopeArgsJson
+    ) {
+        String material = cacheVersion + "|" + userId + "|" + connectionId + "|" + toolName + "|" + scopeArgsJson;
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             byte[] hashed = digest.digest(material.getBytes(StandardCharsets.UTF_8));

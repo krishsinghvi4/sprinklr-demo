@@ -2,6 +2,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
 import com.example.sprinklr.marketplace.domain.port.outbound.RedSampleQueryCachePort;
 import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleFieldPathIndex;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCacheKey;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCacheKeyBuilder;
 import org.slf4j.Logger;
@@ -40,16 +41,28 @@ public class MongoRedSampleQueryCacheAdapter implements RedSampleQueryCachePort 
             return Optional.empty();
         }
         RedSampleQueryCacheKey key = keyBuilder.build(userId, connectionId, toolName, argumentsJson);
-        return repository.findById(key.id())
-                .filter(document -> userId.equals(document.userId()))
-                .filter(document -> connectionId.equals(document.connectionId()))
-                .filter(document -> document.expiresAt() != null && document.expiresAt().isAfter(Instant.now()))
-                .map(RedSampleQueryCacheDocument::resultContent)
-                .map(content -> {
-                    log.info("[RedSampleCache] Hit userId={} connectionId={} tool={} key={}",
-                            userId, connectionId, toolName, key.id());
-                    return content;
-                });
+        if (!keyBuilder.isCompleteScopeForCache(toolName, key.scopeArgsJson())) {
+            return Optional.empty();
+        }
+        Optional<RedSampleQueryCacheDocument> document = repository.findById(key.id());
+        if (document.isEmpty()) {
+            return Optional.empty();
+        }
+        RedSampleQueryCacheDocument cached = document.get();
+        if (!userId.equals(cached.userId()) || !connectionId.equals(cached.connectionId())) {
+            return Optional.empty();
+        }
+        if (cached.expiresAt() == null || !cached.expiresAt().isAfter(Instant.now())) {
+            return Optional.empty();
+        }
+        if (!RedSampleFieldPathIndex.hasFilterablePaths(cached.resultContent())) {
+            log.info("[RedSampleCache] Deleting stale entry without filterable paths key={}", key.id());
+            repository.deleteById(key.id());
+            return Optional.empty();
+        }
+        log.info("[RedSampleCache] Hit userId={} connectionId={} tool={} key={}",
+                userId, connectionId, toolName, key.id());
+        return Optional.of(cached.resultContent());
     }
 
     @Override
@@ -67,6 +80,12 @@ public class MongoRedSampleQueryCacheAdapter implements RedSampleQueryCachePort 
             return;
         }
         RedSampleQueryCacheKey key = keyBuilder.build(userId, connectionId, toolName, argumentsJson);
+        if (!keyBuilder.isCompleteScopeForCache(toolName, key.scopeArgsJson())) {
+            return;
+        }
+        if (!RedSampleFieldPathIndex.hasFilterablePaths(resultContent)) {
+            return;
+        }
         Instant expiresAt = Instant.now().plus(cacheTtlHours(), ChronoUnit.HOURS);
         repository.save(new RedSampleQueryCacheDocument(
                 key.id(),
@@ -79,6 +98,22 @@ public class MongoRedSampleQueryCacheAdapter implements RedSampleQueryCachePort 
         ));
         log.info("[RedSampleCache] Saved userId={} connectionId={} tool={} key={} expiresAt={} resultLen={}",
                 userId, connectionId, toolName, key.id(), expiresAt, resultContent.length());
+    }
+
+    @Override
+    public void delete(String userId, String connectionId, String toolName, String argumentsJson) {
+        if (!isEnabled() || !keyBuilder.isSampleTool(toolName)) {
+            return;
+        }
+        RedSampleQueryCacheKey key = keyBuilder.build(userId, connectionId, toolName, argumentsJson);
+        if (!keyBuilder.isCompleteScopeForCache(toolName, key.scopeArgsJson())) {
+            return;
+        }
+        if (repository.existsById(key.id())) {
+            repository.deleteById(key.id());
+            log.info("[RedSampleCache] Deleted userId={} connectionId={} tool={} key={}",
+                    userId, connectionId, toolName, key.id());
+        }
     }
 
     private boolean isEnabled() {

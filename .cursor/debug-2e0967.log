@@ -1,2 +1,0 @@
-{"sessionId":"2e0967","location":"ChatConversationService:delete:start","message":"delete conversation","data":{"conversationId":"conv-rujzx9lf8","found":true},"timestamp":1782973134677,"hypothesisId":"E-H"}
-{"sessionId":"2e0967","location":"ChatConversationService:delete:done","message":"delete conversation","data":{"conversationId":"conv-rujzx9lf8","stillExists":false},"timestamp":1782973134732,"hypothesisId":"E-H"}

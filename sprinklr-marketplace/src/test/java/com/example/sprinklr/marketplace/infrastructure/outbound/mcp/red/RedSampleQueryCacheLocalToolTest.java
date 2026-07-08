@@ -3,7 +3,9 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFixtures;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.port.outbound.RedSampleQueryCachePort;
+import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolInvocationContext;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +25,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -48,10 +51,12 @@ class RedSampleQueryCacheLocalToolTest {
 
     @BeforeEach
     void setUp() {
+        McpProperties properties = new McpProperties();
         localTool = new RedSampleQueryCacheLocalTool(
                 cachePort,
-                new RedSampleQueryCacheKeyBuilder(),
-                mcpClient
+                new RedSampleQueryCacheKeyBuilder(properties),
+                mcpClient,
+                properties
         );
         redEntry = McpCatalogTestFixtures.redEntry();
         McpConnectionDocument connection = new McpConnectionDocument(
@@ -82,26 +87,45 @@ class RedSampleQueryCacheLocalToolTest {
         );
     }
 
-    @Test
-    void returnsCachedContentWithoutCallingMcp() throws Exception {
-        when(cachePort.find(anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(Optional.of("{\"hits\":{\"hits\":[]}}"));
-
-        String result = localTool.invoke(
-                redEntry,
-                RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL,
-                context
-        );
-
-        assertEquals("{\"hits\":{\"hits\":[]}}", result);
-        verify(mcpClient, never()).callTool(anyString(), any(), anyString(), anyString(), anyString(), anyString());
-    }
-
     private static final String SAMPLE_JSON =
             "{\"hits\":{\"hits\":[{\"_id\":\"x\",\"_source\":{\"entityType\":\"AD_SET\",\"accountId\":1}}]}}";
 
     @Test
-    void appendsFieldPathIndexOnCacheHit() {
+    void reFetchesWhenCachedContentHasNoSchema() throws Exception {
+        when(cachePort.find(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Optional.of("{\"hits\":{\"hits\":[]}}"));
+
+        ObjectNode resultNode = OBJECT_MAPPER.createObjectNode();
+        ArrayNode content = OBJECT_MAPPER.createArrayNode();
+        ObjectNode textItem = OBJECT_MAPPER.createObjectNode();
+        textItem.put("text", SAMPLE_JSON);
+        content.add(textItem);
+        resultNode.set("content", content);
+
+        when(mcpClient.callTool(
+                eq("http://127.0.0.1:3344/mcp"),
+                any(),
+                eq("session-1"),
+                eq("2025-03-26"),
+                eq(RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL),
+                anyString()
+        )).thenReturn(resultNode);
+
+        String result = localTool.invoke(redEntry, RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL, context);
+
+        verify(cachePort).delete(
+                eq("user-1"),
+                eq("conn-1"),
+                eq(RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL),
+                anyString()
+        );
+        verify(mcpClient).callTool(anyString(), any(), anyString(), anyString(), anyString(), anyString());
+        assertTrue(result.startsWith("### Filter field paths"));
+        assertTrue(result.contains("entityType (string)"));
+    }
+
+    @Test
+    void prependsFieldPathIndexOnCacheHit() {
         when(cachePort.find(anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(Optional.of(SAMPLE_JSON));
 
@@ -111,9 +135,10 @@ class RedSampleQueryCacheLocalToolTest {
                 context
         );
 
-        assertTrue(result.contains("### Filter field paths"));
+        assertTrue(result.startsWith("### Filter field paths"));
         assertTrue(result.contains("entityType (string)"));
-        assertTrue(result.startsWith(SAMPLE_JSON));
+        assertTrue(result.contains(SAMPLE_JSON));
+        verify(mcpClient, never()).callTool(anyString(), any(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -143,9 +168,10 @@ class RedSampleQueryCacheLocalToolTest {
                 context
         );
 
-        assertTrue(result.startsWith(SAMPLE_JSON));
+        assertTrue(result.startsWith("### Filter field paths"));
         assertTrue(result.contains("### Filter field paths"));
         assertTrue(result.contains("entityType (string)"));
+        assertTrue(result.contains(SAMPLE_JSON));
 
         ArgumentCaptor<String> savedContent = ArgumentCaptor.forClass(String.class);
         verify(cachePort).save(
@@ -157,5 +183,55 @@ class RedSampleQueryCacheLocalToolTest {
         );
         assertEquals(SAMPLE_JSON, savedContent.getValue());
         assertFalse(savedContent.getValue().contains("### Filter field paths"));
+    }
+
+    @Test
+    void throwsWhenRemoteSampleReturnsEmptySchema() throws Exception {
+        when(cachePort.find(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Optional.empty());
+
+        ObjectNode resultNode = OBJECT_MAPPER.createObjectNode();
+        ArrayNode content = OBJECT_MAPPER.createArrayNode();
+        ObjectNode textItem = OBJECT_MAPPER.createObjectNode();
+        textItem.put("text", "{\"hits\":{\"hits\":[]}}");
+        content.add(textItem);
+        resultNode.set("content", content);
+
+        when(mcpClient.callTool(anyString(), any(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(resultNode);
+
+        assertThrows(
+                McpInvocationException.class,
+                () -> localTool.invoke(redEntry, RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL, context)
+        );
+        verify(cachePort, never()).save(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void cacheHitExtractsPathsFromFullContentButDisplaysTrimmedDocuments() {
+        String fullSample = """
+                {"hits":{"hits":[
+                  {"_source":{"entityType":"AD_SET","createdTime":1}},
+                  {"_source":{"entityType":"CAMPAIGN","adDeliveryType":"STANDARD"}},
+                  {"_source":{"entityType":"AD","onlyInThird":true}}
+                ]}}
+                """;
+
+        when(cachePort.find(anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(Optional.of(fullSample));
+
+        String result = localTool.invoke(
+                redEntry,
+                RedSampleQueryCacheKeyBuilder.ES_SAMPLE_TOOL,
+                context
+        );
+
+        assertTrue(result.contains("createdTime (number)"));
+        assertTrue(result.contains("adDeliveryType (string)"));
+        assertTrue(result.contains("onlyInThird (boolean)"));
+        assertTrue(result.contains("\"entityType\":\"AD_SET\""));
+        assertTrue(result.contains("\"entityType\":\"CAMPAIGN\""));
+        assertFalse(result.contains("\"onlyInThird\":true"));
+        verify(mcpClient, never()).callTool(anyString(), any(), anyString(), anyString(), anyString(), anyString());
     }
 }

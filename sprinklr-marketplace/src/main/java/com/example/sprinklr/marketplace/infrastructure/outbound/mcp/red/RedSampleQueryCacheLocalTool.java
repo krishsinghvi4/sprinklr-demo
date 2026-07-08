@@ -3,6 +3,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.McpTool;
 import com.example.sprinklr.marketplace.domain.port.outbound.RedSampleQueryCachePort;
+import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolExtension;
@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Caches full RED sample query results and serves them on subsequent identical scope-arg calls.
@@ -24,19 +26,25 @@ public class RedSampleQueryCacheLocalTool implements McpLocalToolExtension {
     private static final Logger log = LoggerFactory.getLogger(RedSampleQueryCacheLocalTool.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final String RED_PREFIX = "red";
+    private static final String EMPTY_SCHEMA_MESSAGE =
+            "Sample returned no filterable fields for this scope — verify partnerId, serverType, "
+                    + "indexName/collectionName, and env.";
 
     private final RedSampleQueryCachePort cachePort;
     private final RedSampleQueryCacheKeyBuilder keyBuilder;
     private final StreamableHttpMcpClient mcpClient;
+    private final McpProperties mcpProperties;
 
     public RedSampleQueryCacheLocalTool(
             RedSampleQueryCachePort cachePort,
             RedSampleQueryCacheKeyBuilder keyBuilder,
-            StreamableHttpMcpClient mcpClient
+            StreamableHttpMcpClient mcpClient,
+            McpProperties mcpProperties
     ) {
         this.cachePort = cachePort;
         this.keyBuilder = keyBuilder;
         this.mcpClient = mcpClient;
+        this.mcpProperties = mcpProperties;
     }
 
     @Override
@@ -58,20 +66,97 @@ public class RedSampleQueryCacheLocalTool implements McpLocalToolExtension {
     public String invoke(McpCatalogEntry entry, String bareToolName, McpLocalToolInvocationContext context) {
         String userId = context.connection().userId();
         String connectionId = context.connection().id();
+        int documentLimit = documentLimit();
+        int schemaDiscoveryLimit = schemaDiscoveryLimit();
 
-        var cached = cachePort.find(userId, connectionId, bareToolName, context.argumentsJson());
+        Optional<String> cached = cachePort.find(userId, connectionId, bareToolName, context.argumentsJson());
         if (cached.isPresent()) {
-            log.info("[RedSampleCache] Serving cached sample connectionId={} tool={}", connectionId, bareToolName);
-            return RedSampleFieldPathIndex.appendIndex(cached.get());
+            String schemaContent = cached.get();
+            String displayContent = RedSampleResponseTrimmer.trimToLimit(schemaContent, documentLimit);
+            if (RedSampleFieldPathIndex.hasFilterablePaths(schemaContent)) {
+                log.info("[RedSampleCache] Serving cached sample connectionId={} tool={}", connectionId, bareToolName);
+                return prepareForLlm(
+                        schemaContent,
+                        displayContent,
+                        schemaDiscoveryLimit,
+                        true,
+                        connectionId,
+                        bareToolName
+                );
+            }
+            log.warn("[RedSampleCache] Stale cached sample without filterable paths — re-fetching connectionId={} tool={}",
+                    connectionId, bareToolName);
+            cachePort.delete(userId, connectionId, bareToolName, context.argumentsJson());
         }
 
         log.info("[RedSampleCache] Cache miss — calling RED MCP connectionId={} tool={}", connectionId, bareToolName);
-        String content = callRemoteSample(context, bareToolName);
+        String enrichedArgs = RedSampleQueryArgsEnricher.enrich(
+                bareToolName,
+                context.argumentsJson(),
+                schemaDiscoveryLimit
+        );
+        String content = callRemoteSample(context, bareToolName, enrichedArgs);
+        String displayContent = RedSampleResponseTrimmer.trimToLimit(content, documentLimit);
+        RedSampleSchemaIndex indexed = indexOrThrow(content, displayContent, schemaDiscoveryLimit);
         cachePort.save(userId, connectionId, bareToolName, context.argumentsJson(), content);
-        return RedSampleFieldPathIndex.appendIndex(content);
+        log.info("[RedSampleCache] Returning indexed sample connectionId={} tool={} cacheHit={} pathCount={}",
+                connectionId, bareToolName, false, indexed.paths().size());
+        return indexed.indexedContent();
     }
 
-    private String callRemoteSample(McpLocalToolInvocationContext context, String bareToolName) {
+    private String prepareForLlm(
+            String schemaContent,
+            String displayContent,
+            int schemaDiscoveryLimit,
+            boolean cacheHit,
+            String connectionId,
+            String bareToolName
+    ) {
+        RedSampleSchemaIndex indexed = indexOrThrow(schemaContent, displayContent, schemaDiscoveryLimit);
+        log.info("[RedSampleCache] Returning indexed sample connectionId={} tool={} cacheHit={} pathCount={}",
+                connectionId, bareToolName, cacheHit, indexed.paths().size());
+        return indexed.indexedContent();
+    }
+
+    private RedSampleSchemaIndex indexOrThrow(
+            String schemaContent,
+            String displayContent,
+            int schemaDiscoveryLimit
+    ) {
+        int documentsReturned = RedSampleResponseTrimmer.countDocuments(schemaContent);
+        RedSampleSchemaIndex indexed = RedSampleFieldPathIndex.indexForLlm(
+                schemaContent,
+                displayContent,
+                schemaDiscoveryLimit,
+                documentsReturned
+        );
+        if (indexed.paths().isEmpty()) {
+            throw new McpInvocationException(EMPTY_SCHEMA_MESSAGE, "empty_schema");
+        }
+        return indexed;
+    }
+
+    private int documentLimit() {
+        if (mcpProperties.getRed() == null || mcpProperties.getRed().getSampleQuery() == null) {
+            return 2;
+        }
+        int configured = mcpProperties.getRed().getSampleQuery().getDocumentLimit();
+        return configured > 0 ? configured : 2;
+    }
+
+    private int schemaDiscoveryLimit() {
+        if (mcpProperties.getRed() == null || mcpProperties.getRed().getSampleQuery() == null) {
+            return 5;
+        }
+        int configured = mcpProperties.getRed().getSampleQuery().getSchemaDiscoveryLimit();
+        return configured > 0 ? configured : 5;
+    }
+
+    private String callRemoteSample(
+            McpLocalToolInvocationContext context,
+            String bareToolName,
+            String argumentsJson
+    ) {
         if (context.session() == null
                 || context.session().sessionId() == null
                 || context.session().sessionId().isBlank()) {
@@ -89,7 +174,7 @@ public class RedSampleQueryCacheLocalTool implements McpLocalToolExtension {
                     context.session().sessionId(),
                     context.session().protocolVersion(),
                     bareToolName,
-                    context.argumentsJson()
+                    argumentsJson
             );
         } catch (Exception exception) {
             throw new McpInvocationException(

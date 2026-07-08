@@ -16,4 +16,6 @@ public interface RedSampleQueryCachePort {
             String argumentsJson,
             String resultContent
     );
+
+    void delete(String userId, String connectionId, String toolName, String argumentsJson);
 }
