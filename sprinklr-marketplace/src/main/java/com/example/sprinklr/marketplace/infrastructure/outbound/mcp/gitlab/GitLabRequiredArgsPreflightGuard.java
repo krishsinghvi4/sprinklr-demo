@@ -1,10 +1,10 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.gitlab;
 
-import com.example.sprinklr.marketplace.domain.model.McpInvocation;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpInvocationPreflightPort.PreflightResult;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.McpInvocationPreflightStrategy;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

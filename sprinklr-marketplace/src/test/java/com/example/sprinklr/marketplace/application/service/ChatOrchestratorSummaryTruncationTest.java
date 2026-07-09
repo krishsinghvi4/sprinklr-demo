@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.application.service;
 
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

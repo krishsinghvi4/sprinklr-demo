@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

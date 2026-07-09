@@ -2,7 +2,8 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
 
 import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFixtures;
 import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRefreshService;
-import com.example.sprinklr.marketplace.domain.model.McpInvocation;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
@@ -13,8 +14,8 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.Compo
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolResultPostProcessor;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.CompositeMcpLocalToolExtension;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationPreparer;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.Test;
@@ -187,7 +188,7 @@ class HttpMcpClientAdapterSessionRecoveryTest {
             StreamableHttpMcpClient mcpClient,
             McpOAuthTokenRefreshService oauthTokenRefreshService,
             McpConnectionDocument connection,
-            com.example.sprinklr.marketplace.domain.model.McpCatalogEntry catalogEntry
+            McpCatalogEntry catalogEntry
     ) {
     }
 }

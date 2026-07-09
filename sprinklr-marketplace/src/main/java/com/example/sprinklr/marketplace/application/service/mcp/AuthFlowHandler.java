@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectMethod;
 
 /**
  * Handles a specific connect authentication flow (OAuth redirect or credential form).

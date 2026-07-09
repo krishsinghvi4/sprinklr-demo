@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
 
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpDiscoveryPort;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpDiscoveryPort;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

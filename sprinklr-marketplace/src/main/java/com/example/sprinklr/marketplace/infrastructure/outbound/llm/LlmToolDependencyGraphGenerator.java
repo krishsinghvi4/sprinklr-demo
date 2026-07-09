@@ -1,12 +1,12 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
 import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.model.Message;
-import com.example.sprinklr.marketplace.domain.model.MessageRole;
-import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
+import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolDependencyGraphPort;
-import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
+import com.example.sprinklr.marketplace.infrastructure.config.LLM.LlmSystemPromptLoader;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

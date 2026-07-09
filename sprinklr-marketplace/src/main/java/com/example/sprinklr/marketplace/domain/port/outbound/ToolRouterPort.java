@@ -1,8 +1,9 @@
 package com.example.sprinklr.marketplace.domain.port.outbound;
 
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.model.Message;
-import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
+import com.example.sprinklr.marketplace.domain.model.LLM.RouterOutcome;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolRouterResult;
 
 import java.util.List;
 
@@ -20,7 +21,7 @@ public interface ToolRouterPort {
      * @param recentHistory    a short slice of recent conversation turns for context
      * @param availableTools   the user's connected tools (only name + description are used)
      * @param maxPrimaryTools  soft cap on how many primary tools the router should pick
-     * @return selection result with an explicit outcome; {@link com.example.sprinklr.marketplace.domain.model.RouterOutcome#FAILED}
+     * @return selection result with an explicit outcome; {@link RouterOutcome#FAILED}
      *         signals the caller to fall back to all tools
      */
     ToolRouterResult selectTools(

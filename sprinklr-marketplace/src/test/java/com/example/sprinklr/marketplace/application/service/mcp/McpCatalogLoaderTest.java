@@ -1,8 +1,8 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
-import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
-import com.example.sprinklr.marketplace.domain.model.McpCredentialHeaderMode;
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectMethod;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCredentialHeaderMode;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;

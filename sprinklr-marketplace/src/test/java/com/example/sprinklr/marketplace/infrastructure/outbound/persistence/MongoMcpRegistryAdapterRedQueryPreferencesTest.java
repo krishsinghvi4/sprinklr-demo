@@ -1,7 +1,14 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectionStatus;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.adapters.MongoMcpRegistryAdapter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.MongoServerTypeConfigDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.RedQueryPreferencesDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -74,11 +81,11 @@ class MongoMcpRegistryAdapterRedQueryPreferencesTest {
         when(repository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         adapter.saveConnection(
-                new com.example.sprinklr.marketplace.domain.model.McpUserConnection(
+                new McpUserConnection(
                         "conn-red",
                         "user-1",
                         "red-mcp",
-                        com.example.sprinklr.marketplace.domain.model.McpConnectionStatus.CONNECTED,
+                        McpConnectionStatus.CONNECTED,
                         "session",
                         "2025-03-26",
                         List.of(),

@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.domain.port.inbound;
 
-import com.example.sprinklr.marketplace.domain.model.ChatRequest;
+import com.example.sprinklr.marketplace.domain.model.chat.ChatRequest;
 
 import java.util.concurrent.Flow;
 

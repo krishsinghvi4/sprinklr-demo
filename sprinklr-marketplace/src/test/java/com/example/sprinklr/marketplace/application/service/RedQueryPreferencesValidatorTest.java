@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.application.service;
 
-import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.RedQueryPreferencesRequest;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MCP.RedQueryPreferencesRequest;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

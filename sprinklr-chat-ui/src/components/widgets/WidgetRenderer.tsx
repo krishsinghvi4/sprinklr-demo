@@ -78,15 +78,19 @@ function KpiCards({ widget }: { widget: WidgetSpec }) {
   )
 }
 
+function chartValues(data: { labels: string[]; values: number[] }) {
+  return data.labels.map((label, i) => ({
+    label,
+    value: data.values[i] ?? 0,
+  }))
+}
+
 function BarChartWidget({ widget }: { widget: WidgetSpec }) {
   const parsed = ChartDataSchema.safeParse(widget.data)
-  if (!parsed.success) {
+  if (!parsed.success || parsed.data.values.length === 0) {
     return <FallbackWidget widget={widget} />
   }
-  const data = parsed.data.labels.map((label, i) => ({
-    label,
-    value: parsed.data.values[i] ?? 0,
-  }))
+  const data = chartValues(parsed.data)
   const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
     <div className="w-full min-w-0 overflow-hidden">
@@ -105,13 +109,10 @@ function BarChartWidget({ widget }: { widget: WidgetSpec }) {
 
 function LineChartWidget({ widget }: { widget: WidgetSpec }) {
   const parsed = ChartDataSchema.safeParse(widget.data)
-  if (!parsed.success) {
+  if (!parsed.success || parsed.data.values.length === 0) {
     return <FallbackWidget widget={widget} />
   }
-  const data = parsed.data.labels.map((label, i) => ({
-    label,
-    value: parsed.data.values[i] ?? 0,
-  }))
+  const data = chartValues(parsed.data)
   const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
     <div className="w-full min-w-0 overflow-hidden">
@@ -130,13 +131,10 @@ function LineChartWidget({ widget }: { widget: WidgetSpec }) {
 
 function AreaChartWidget({ widget }: { widget: WidgetSpec }) {
   const parsed = ChartDataSchema.safeParse(widget.data)
-  if (!parsed.success) {
+  if (!parsed.success || parsed.data.values.length === 0) {
     return <FallbackWidget widget={widget} />
   }
-  const data = parsed.data.labels.map((label, i) => ({
-    label,
-    value: parsed.data.values[i] ?? 0,
-  }))
+  const data = chartValues(parsed.data)
   const margins = chartMargins(Boolean(parsed.data.yAxisLabel))
   return (
     <div className="w-full min-w-0 overflow-hidden">

@@ -2,11 +2,12 @@ package com.example.sprinklr.marketplace.application.service;
 
 import com.example.sprinklr.marketplace.application.service.mcp.AuthFlowRouter;
 import com.example.sprinklr.marketplace.application.service.mcp.CredentialAuthFlowHandler;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpConnectionStatus;
-import com.example.sprinklr.marketplace.domain.model.McpUserConnection;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectionStatus;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCredentialField;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpRegistryPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -154,7 +155,7 @@ public class McpMarketplaceService {
             String description,
             String authType,
             String connectMethod,
-            List<com.example.sprinklr.marketplace.domain.model.McpCredentialField> credentialFields,
+            List<McpCredentialField> credentialFields,
             boolean connected
     ) {}
 

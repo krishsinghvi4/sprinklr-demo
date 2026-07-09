@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.infrastructure.config.LlmProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.LLM.LlmProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.ChatCompletionRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

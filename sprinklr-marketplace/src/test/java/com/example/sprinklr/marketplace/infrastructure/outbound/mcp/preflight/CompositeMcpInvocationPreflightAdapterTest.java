@@ -1,8 +1,8 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight;
 
-import com.example.sprinklr.marketplace.domain.model.McpInvocation;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpInvocationPreflightPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpInvocationPreflightPort.PreflightResult;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

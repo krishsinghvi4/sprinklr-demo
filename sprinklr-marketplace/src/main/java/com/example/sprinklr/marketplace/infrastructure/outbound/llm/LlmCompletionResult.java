@@ -1,11 +1,12 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.LlmTokenUsage;
-import com.example.sprinklr.marketplace.domain.model.ToolCall;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmResponse;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmTokenUsage;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolCall;
 
 import java.util.List;
 
-/** Parsed outcome of a single non-streaming router call, before mapping to domain {@link com.example.sprinklr.marketplace.domain.model.LlmResponse}. */
+/** Parsed outcome of a single non-streaming router call, before mapping to domain {@link LlmResponse}. */
 public record LlmCompletionResult(
         String content,
         List<ToolCall> toolCalls,

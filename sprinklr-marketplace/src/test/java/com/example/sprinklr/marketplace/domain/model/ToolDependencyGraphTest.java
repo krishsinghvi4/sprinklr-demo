@@ -1,5 +1,6 @@
 package com.example.sprinklr.marketplace.domain.model;
 
+import com.example.sprinklr.marketplace.domain.model.tool.ToolDependencyGraph;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

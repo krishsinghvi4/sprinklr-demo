@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.gitlab;
 
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

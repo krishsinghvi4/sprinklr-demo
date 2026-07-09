@@ -6,8 +6,8 @@ import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

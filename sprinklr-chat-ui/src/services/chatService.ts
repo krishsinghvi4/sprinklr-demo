@@ -16,6 +16,15 @@ function getAuthHeaders(): Record<string, string> {
   return headers
 }
 
+function handleUnauthorized(status: number): boolean {
+  if (status === 401) {
+    localStorage.removeItem('chat_token')
+    window.location.href = '/login'
+    return true
+  }
+  return false
+}
+
 export async function streamChat(
   request: ChatRequest,
   onChunk: (chunk: string) => void,
@@ -45,6 +54,9 @@ export async function streamChat(
       },
       onopen: async (response) => {
         if (!response.ok) {
+          if (handleUnauthorized(response.status)) {
+            throw new Error('Session expired')
+          }
           const message = `Chat request failed (HTTP ${response.status})`
           onError(new Error(message))
           throw new Error(message)
@@ -72,6 +84,9 @@ export async function fetchConversations(): Promise<ConversationSummary[]> {
     })
 
     if (!response.ok) {
+      if (handleUnauthorized(response.status)) {
+        return []
+      }
       console.warn(`Failed to fetch conversations: HTTP ${response.status}`)
       return []
     }
@@ -97,6 +112,9 @@ export async function deleteConversation(conversationId: string): Promise<boolea
         headers: getAuthHeaders(),
       }
     )
+    if (handleUnauthorized(response.status)) {
+      return false
+    }
     return response.ok
   } catch (error) {
     console.warn('Error deleting conversation:', error)
@@ -116,6 +134,9 @@ export async function fetchChatHistory(conversationId: string, limit: number = 5
     )
 
     if (!response.ok) {
+      if (handleUnauthorized(response.status)) {
+        return []
+      }
       console.warn(`Failed to fetch chat history: HTTP ${response.status}, treating as new conversation`)
       return []
     }

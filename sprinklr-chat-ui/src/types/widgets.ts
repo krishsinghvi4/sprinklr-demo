@@ -10,26 +10,37 @@ export const KpiDataSchema = z.object({
   ),
 })
 
-export const ChartDataSchema = z.object({
-  labels: z.array(z.string()),
-  values: z.array(z.number()),
-  xAxisLabel: z.string().optional(),
-  yAxisLabel: z.string().optional(),
-  series: z
-    .array(
-      z.object({
-        name: z.string(),
-        values: z.array(z.number()),
-      }),
-    )
-    .optional(),
-})
+export const ChartDataSchema = z
+  .object({
+    labels: z.array(z.string()),
+    values: z.array(z.coerce.number()).optional(),
+    xAxisLabel: z.string().optional(),
+    yAxisLabel: z.string().optional(),
+    series: z
+      .array(
+        z.object({
+          name: z.string(),
+          values: z.array(z.coerce.number()),
+        }),
+      )
+      .optional(),
+  })
+  .transform((data) => {
+    if (data.values != null && data.values.length > 0) {
+      return { ...data, values: data.values }
+    }
+    const firstSeries = data.series?.[0]
+    if (firstSeries?.values != null && firstSeries.values.length > 0) {
+      return { ...data, values: firstSeries.values }
+    }
+    return { ...data, values: [] as number[] }
+  })
 
 export const PieDataSchema = z.object({
   slices: z.array(
     z.object({
       label: z.string(),
-      value: z.number(),
+      value: z.coerce.number(),
     }),
   ),
 })

@@ -1,13 +1,13 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 
 import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFixtures;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.port.outbound.RedSampleQueryCachePort;
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolInvocationContext;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;

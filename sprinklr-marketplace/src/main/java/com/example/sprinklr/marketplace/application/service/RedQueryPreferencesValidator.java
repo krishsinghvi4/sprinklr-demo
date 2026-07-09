@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.application.service;
 
 import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
-import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.RedQueryPreferencesRequest;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MCP.RedQueryPreferencesRequest;
 
 import java.util.HashSet;
 import java.util.List;

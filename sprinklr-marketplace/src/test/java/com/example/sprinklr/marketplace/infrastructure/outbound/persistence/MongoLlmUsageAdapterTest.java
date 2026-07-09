@@ -1,7 +1,10 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
-import com.example.sprinklr.marketplace.domain.model.LlmUsageEvent;
-import com.example.sprinklr.marketplace.domain.model.LlmUsageSummary;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmUsageEvent;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmUsageSummary;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.adapters.MongoLlmUsageAdapter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.LlmUsageEventDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.LlmUsageEventRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

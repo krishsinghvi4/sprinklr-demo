@@ -1,9 +1,9 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpTool;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;

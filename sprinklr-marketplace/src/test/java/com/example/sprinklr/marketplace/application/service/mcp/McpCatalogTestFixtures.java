@@ -1,14 +1,14 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
-import com.example.sprinklr.marketplace.domain.model.McpAuthConfig;
-import com.example.sprinklr.marketplace.domain.model.McpAuthKind;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
-import com.example.sprinklr.marketplace.domain.model.McpConnectProbeConfig;
-import com.example.sprinklr.marketplace.domain.model.McpCredentialAuthConfig;
-import com.example.sprinklr.marketplace.domain.model.McpCredentialHeaderMode;
-import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
-import com.example.sprinklr.marketplace.domain.model.McpToolSelectionConfig;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpAuthConfig;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpAuthKind;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectMethod;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectProbeConfig;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCredentialAuthConfig;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCredentialHeaderMode;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpOAuthCatalogConfig;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpToolSelectionConfig;
 
 import java.util.List;
 import java.util.Map;

@@ -1,9 +1,10 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.Message;
-import com.example.sprinklr.marketplace.domain.model.MessageRole;
-import com.example.sprinklr.marketplace.domain.model.ToolResult;
-import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmRequest;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
+import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolResult;
+import com.example.sprinklr.marketplace.infrastructure.config.LLM.LlmSystemPromptLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiMessage;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiToolCall;
 import org.springframework.stereotype.Component;
@@ -21,7 +22,7 @@ import java.util.List;
  *   <li><b>Turn-scoped:</b> prior turns conversational; current turn full agentic when tools are active.</li>
  * </ul>
  * The latest user prompt is already the last entry in {@code history} — we never duplicate
- * {@link com.example.sprinklr.marketplace.domain.model.LlmRequest#prompt()} here.
+ * {@link LlmRequest#prompt()} here.
  */
 @Component
 public class LlmMessageMapper {

@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.domain.port.outbound;
 
-import com.example.sprinklr.marketplace.domain.model.Conversation;
-import com.example.sprinklr.marketplace.domain.model.Message;
+import com.example.sprinklr.marketplace.domain.model.chat.Conversation;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
 
 import java.util.List;
 import java.util.Optional;

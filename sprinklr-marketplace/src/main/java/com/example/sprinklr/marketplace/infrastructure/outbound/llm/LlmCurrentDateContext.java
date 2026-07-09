@@ -30,6 +30,9 @@ public final class LlmCurrentDateContext {
                 + "30 days ago epoch milliseconds: " + thirtyDaysAgoMs + "\n"
                 + "For relative date filters (e.g. \"last month\", \"past 30 days\", \"last week\"), "
                 + "compute Mongo/Elasticsearch $gte/$lte cutoffs from today's date above. "
-                + "Do not guess years or reuse stale example dates from prior turns.";
+                + "Do not guess years or reuse stale example dates from prior turns.\n"
+                + "When formatting epoch milliseconds for the user (tables, prose, summaries), "
+                + "convert each value to its true calendar date from the epoch — never assume the year is 2024. "
+                + "Ignore createdTime on sample/schema-probe rows when answering; only use execute tool results.";
     }
 }

@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.McpTool;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiTool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;

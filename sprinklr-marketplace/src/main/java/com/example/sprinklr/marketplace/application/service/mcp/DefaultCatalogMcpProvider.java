@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
 import org.springframework.stereotype.Component;
 

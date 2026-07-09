@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpToolArgumentNormalizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

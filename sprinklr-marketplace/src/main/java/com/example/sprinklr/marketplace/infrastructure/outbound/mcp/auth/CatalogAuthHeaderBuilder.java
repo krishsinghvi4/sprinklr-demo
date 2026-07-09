@@ -1,9 +1,8 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth;
 
-import com.example.sprinklr.marketplace.domain.model.McpAuthConfig;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpCredentialAuthConfig;
-import com.example.sprinklr.marketplace.domain.model.McpCredentialHeaderMode;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpAuthConfig;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCredentialAuthConfig;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;

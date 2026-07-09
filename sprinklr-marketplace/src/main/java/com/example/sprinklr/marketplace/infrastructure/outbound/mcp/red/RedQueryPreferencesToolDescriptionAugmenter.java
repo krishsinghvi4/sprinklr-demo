@@ -1,8 +1,8 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 
-import com.example.sprinklr.marketplace.domain.model.McpTool;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
 import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpRegistryPort;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;

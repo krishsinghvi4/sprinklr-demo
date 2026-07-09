@@ -1,10 +1,10 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth;
 
 import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFixtures;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpDcrClientDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpDcrClientRepository;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpOAuthCatalogConfig;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpDcrClientDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpDcrClientRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

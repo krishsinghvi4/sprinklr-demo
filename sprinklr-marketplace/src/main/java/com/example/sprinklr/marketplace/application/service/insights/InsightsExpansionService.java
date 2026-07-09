@@ -1,11 +1,11 @@
 package com.example.sprinklr.marketplace.application.service.insights;
 
-import com.example.sprinklr.marketplace.domain.model.LlmRequest;
-import com.example.sprinklr.marketplace.domain.model.LlmResponse;
-import com.example.sprinklr.marketplace.domain.model.Message;
-import com.example.sprinklr.marketplace.domain.model.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmRequest;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmResponse;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
+import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
 import com.example.sprinklr.marketplace.domain.model.insights.WidgetSpec;
-import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.LLM.LlmPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 

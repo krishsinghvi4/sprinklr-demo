@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red;
 
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;

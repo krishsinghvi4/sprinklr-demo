@@ -1,15 +1,13 @@
 package com.example.sprinklr.marketplace.application.service.tool;
 
 import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.model.Message;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
 import com.example.sprinklr.marketplace.domain.model.PendingWorkflowState;
-import com.example.sprinklr.marketplace.domain.model.RouterOutcome;
-import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
-import com.example.sprinklr.marketplace.domain.model.ToolRouterResult;
-import com.example.sprinklr.marketplace.domain.model.ToolSelectionResult;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolRouterResult;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolSelectionResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolRouterPort;
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraLocalToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.JiraRedAuditToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;

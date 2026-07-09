@@ -1,13 +1,13 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpOAuthException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthConfigResolver;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth.McpOAuthToken;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpOAuthStateDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpOAuthStateRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpOAuthStateDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpOAuthStateRepository;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

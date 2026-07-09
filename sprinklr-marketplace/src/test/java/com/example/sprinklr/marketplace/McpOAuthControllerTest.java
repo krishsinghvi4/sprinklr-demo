@@ -1,8 +1,8 @@
 package com.example.sprinklr.marketplace;
 
 import com.example.sprinklr.marketplace.application.service.McpOAuthService;
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
-import com.example.sprinklr.marketplace.infrastructure.inbound.rest.McpOAuthController;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.controllers.McpOAuthController;
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
 import org.junit.jupiter.api.Test;
 

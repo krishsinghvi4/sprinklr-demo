@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.domain.port.outbound;
 
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolDependencyGraph;
 
 import java.util.List;
 

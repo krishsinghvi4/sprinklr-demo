@@ -1,10 +1,10 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.Message;
-import com.example.sprinklr.marketplace.domain.model.MessageRole;
-import com.example.sprinklr.marketplace.domain.model.ToolCall;
-import com.example.sprinklr.marketplace.domain.model.ToolResult;
-import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
+import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolCall;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolResult;
+import com.example.sprinklr.marketplace.infrastructure.config.LLM.LlmSystemPromptLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

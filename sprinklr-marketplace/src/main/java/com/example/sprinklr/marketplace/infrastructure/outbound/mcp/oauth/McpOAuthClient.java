@@ -1,9 +1,9 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpOAuthCatalogConfig;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpDcrClientDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpDcrClientDocument;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;

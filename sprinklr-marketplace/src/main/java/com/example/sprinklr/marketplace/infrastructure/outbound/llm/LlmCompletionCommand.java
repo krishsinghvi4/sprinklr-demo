@@ -1,14 +1,15 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.model.Message;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmRequest;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
 
 import java.util.List;
 
 /**
  * Input to {@link LlmService#complete(LlmCompletionCommand)}.
  * <p>
- * Keeps HTTP/service-layer types separate from the domain {@link com.example.sprinklr.marketplace.domain.model.LlmRequest}
+ * Keeps HTTP/service-layer types separate from the domain {@link LlmRequest}
  * so the service can evolve (e.g. add tracing IDs) without changing the domain port.
  */
 public record LlmCompletionCommand(

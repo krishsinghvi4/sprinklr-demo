@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
 
 /**
  * Optional per-server tool result post-processing after a successful MCP tools/call.

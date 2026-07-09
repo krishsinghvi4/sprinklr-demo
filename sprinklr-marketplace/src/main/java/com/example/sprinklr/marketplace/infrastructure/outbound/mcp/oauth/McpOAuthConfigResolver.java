@@ -1,8 +1,8 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.oauth;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpOAuthCatalogConfig;
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpOAuthCatalogConfig;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import org.springframework.stereotype.Component;
 
 /**

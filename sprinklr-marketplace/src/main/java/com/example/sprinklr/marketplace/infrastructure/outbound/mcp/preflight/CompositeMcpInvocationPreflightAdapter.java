@@ -1,8 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight;
 
-import com.example.sprinklr.marketplace.domain.model.McpInvocation;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpInvocationPreflightPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;

@@ -1,13 +1,13 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
 import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpDiscoveryPort;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpDiscoveryPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpRegistryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolDependencyGraphPort;
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect.CompositeMcpConnectValidationAdapter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;

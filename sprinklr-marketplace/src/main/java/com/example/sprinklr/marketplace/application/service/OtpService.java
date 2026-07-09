@@ -1,8 +1,8 @@
 package com.example.sprinklr.marketplace.application.service;
 
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpEntry;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpPurpose;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.OtpEntry;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.otp.OtpPurpose;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.OtpRepository;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;

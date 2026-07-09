@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.LlmTokenUsage;
-import com.example.sprinklr.marketplace.domain.model.ToolCall;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmTokenUsage;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolCall;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.ChatCompletionResponse;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiToolCall;
 import com.fasterxml.jackson.databind.DeserializationFeature;

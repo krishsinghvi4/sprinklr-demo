@@ -1,9 +1,9 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp;
 
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpInvocation;
-import com.example.sprinklr.marketplace.domain.model.McpInvocationResult;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpServerPort;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocationResult;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpServerPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
@@ -12,8 +12,8 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpIn
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationPreparer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.CompositeMcpLocalToolExtension;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolInvocationContext;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
@@ -264,7 +264,12 @@ public class HttpMcpClientAdapter implements McpServerPort {
                         attempt, MAX_TRANSIENT_TOOL_ATTEMPTS, connection.id(), toolName, lastDetail);
 
                 if (attempt == 1) {
-                    activeSession = invocationPreparer.reinitializeSession(connection, catalogEntry, authHeaders);
+                    activeSession = tryReinitializeSession(
+                            connection,
+                            catalogEntry,
+                            authHeaders,
+                            activeSession
+                    );
                 }
                 sleepBeforeTransientRetry(attempt);
             }
@@ -298,7 +303,12 @@ public class HttpMcpClientAdapter implements McpServerPort {
                     attempt, MAX_TRANSIENT_TOOL_ATTEMPTS, connection.id(), toolName);
 
             if (attempt == 1) {
-                activeSession = invocationPreparer.reinitializeSession(connection, catalogEntry, authHeaders);
+                activeSession = tryReinitializeSession(
+                        connection,
+                        catalogEntry,
+                        authHeaders,
+                        activeSession
+                );
             }
             sleepBeforeTransientRetry(attempt);
 
@@ -336,6 +346,21 @@ public class HttpMcpClientAdapter implements McpServerPort {
         }
     }
 
+    private StreamableHttpMcpClient.McpSession tryReinitializeSession(
+            McpConnectionDocument connection,
+            McpCatalogEntry catalogEntry,
+            Map<String, String> authHeaders,
+            StreamableHttpMcpClient.McpSession fallbackSession
+    ) {
+        try {
+            return invocationPreparer.reinitializeSession(connection, catalogEntry, authHeaders);
+        } catch (RuntimeException exception) {
+            log.warn("[MCP] Session reinitialize failed connectionId={} detail={}",
+                    connection.id(), exception.getMessage());
+            return fallbackSession;
+        }
+    }
+
     static boolean isRecoverableTransportError(String detail) {
         if (detail == null || detail.isBlank()) {
             return false;
@@ -348,6 +373,8 @@ public class HttpMcpClientAdapter implements McpServerPort {
                 || lower.contains("socket hang up")
                 || lower.contains("connection reset")
                 || lower.contains("connection refused")
+                || lower.contains("prematurely closed")
+                || lower.contains("broken pipe")
                 || lower.contains("server not initialized")
                 || lower.contains("session expired")
                 || lower.contains("invalid session")

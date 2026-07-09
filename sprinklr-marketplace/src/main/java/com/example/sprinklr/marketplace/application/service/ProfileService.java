@@ -1,10 +1,10 @@
 package com.example.sprinklr.marketplace.application.service;
 
-import com.example.sprinklr.marketplace.domain.model.LlmUsagePeriodSummary;
-import com.example.sprinklr.marketplace.domain.model.LlmUsageSummary;
-import com.example.sprinklr.marketplace.domain.port.outbound.LlmUsagePort;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.User;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.UserRepository;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmUsagePeriodSummary;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmUsageSummary;
+import com.example.sprinklr.marketplace.domain.port.outbound.LLM.LlmUsagePort;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.User;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.UserRepository;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;

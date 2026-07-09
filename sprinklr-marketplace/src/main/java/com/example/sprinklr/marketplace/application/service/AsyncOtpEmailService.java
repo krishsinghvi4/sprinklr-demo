@@ -1,6 +1,6 @@
 package com.example.sprinklr.marketplace.application.service;
 
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpPurpose;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.otp.OtpPurpose;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 

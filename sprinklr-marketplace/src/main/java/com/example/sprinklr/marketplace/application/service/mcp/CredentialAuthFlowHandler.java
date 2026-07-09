@@ -1,8 +1,8 @@
 package com.example.sprinklr.marketplace.application.service.mcp;
 
 import com.example.sprinklr.marketplace.application.service.McpMarketplaceService;
-import com.example.sprinklr.marketplace.domain.model.McpCatalogEntry;
-import com.example.sprinklr.marketplace.domain.model.McpConnectMethod;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectMethod;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;

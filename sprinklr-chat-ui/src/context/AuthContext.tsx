@@ -21,11 +21,24 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
-function decodeJwtPayload(token: string): { sub: string; email: string } {
+interface JwtPayload {
+  sub: string
+  email: string
+  exp?: number
+}
+
+function decodeJwtPayload(token: string): JwtPayload {
   const base64Url = token.split('.')[1]
   const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/')
   const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
   return JSON.parse(atob(padded))
+}
+
+function isTokenExpired(exp?: number): boolean {
+  if (exp == null) {
+    return false
+  }
+  return exp * 1000 < Date.now()
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -38,8 +51,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       try {
         const payload = decodeJwtPayload(token)
-        setUser({ userId: payload.sub, email: payload.email })
-        setIsAuthenticated(true)
+        if (isTokenExpired(payload.exp)) {
+          localStorage.removeItem('chat_token')
+        } else {
+          setUser({ userId: payload.sub, email: payload.email })
+          setIsAuthenticated(true)
+        }
       } catch {
         localStorage.removeItem('chat_token')
       }
@@ -48,8 +65,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = (token: string) => {
-    localStorage.setItem('chat_token', token)
     const payload = decodeJwtPayload(token)
+    if (isTokenExpired(payload.exp)) {
+      localStorage.removeItem('chat_token')
+      window.location.href = '/login'
+      return
+    }
+    localStorage.setItem('chat_token', token)
     setUser({ userId: payload.sub, email: payload.email })
     setIsAuthenticated(true)
   }

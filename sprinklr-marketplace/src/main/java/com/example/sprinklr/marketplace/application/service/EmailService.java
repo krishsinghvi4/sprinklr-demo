@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.application.service;
 
 import com.example.sprinklr.marketplace.infrastructure.outbound.email.GraphMailClient;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.OtpPurpose;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.otp.OtpPurpose;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;

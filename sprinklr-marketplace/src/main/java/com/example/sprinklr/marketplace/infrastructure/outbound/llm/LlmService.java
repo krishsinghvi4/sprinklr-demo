@@ -1,9 +1,10 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.LlmUsageEvent;
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.domain.port.outbound.LlmUsagePort;
-import com.example.sprinklr.marketplace.infrastructure.config.LlmProperties;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmUsageEvent;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.domain.port.outbound.LLM.LlmPort;
+import com.example.sprinklr.marketplace.domain.port.outbound.LLM.LlmUsagePort;
+import com.example.sprinklr.marketplace.infrastructure.config.LLM.LlmProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.ChatCompletionRequest;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiMessage;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.dto.LlmApiTool;
@@ -22,7 +23,7 @@ import java.util.Map;
 /**
  * Internal orchestration layer for LLM chat-completion calls.
  * <p>
- * Industry pattern: the domain {@link com.example.sprinklr.marketplace.domain.port.outbound.LlmPort}
+ * Industry pattern: the domain {@link LlmPort}
  * adapter stays thin; this service owns request assembly, HTTP invocation, parsing, logging, and
  * resilience. Adding streaming ({@code streamSummary}) or swapping router endpoints later
  * changes this class and {@link ChatCompletionClient}, not {@link com.example.sprinklr.marketplace.application.service.ChatOrchestrator}.

@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local;
 
 import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFixtures;
-import com.example.sprinklr.marketplace.domain.model.McpTool;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueChangelogLocalTool;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;

@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.McpTool;
-import com.example.sprinklr.marketplace.infrastructure.config.LlmSystemPromptLoader;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
+import com.example.sprinklr.marketplace.infrastructure.config.LLM.LlmSystemPromptLoader;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;

@@ -1,7 +1,10 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCacheKeyBuilder;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.adapters.MongoRedSampleQueryCacheAdapter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.RedSampleQueryCacheDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.RedSampleQueryCacheRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

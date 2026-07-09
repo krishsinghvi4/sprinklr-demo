@@ -1,11 +1,11 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight;
 
 import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
-import com.example.sprinklr.marketplace.domain.model.McpInvocation;
-import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpInvocationPreflightPort.PreflightResult;
-import com.example.sprinklr.marketplace.domain.port.outbound.McpRegistryPort;
-import com.example.sprinklr.marketplace.infrastructure.config.McpProperties;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpInvocationPreflightPort.PreflightResult;
+import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpRegistryPort;
+import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedSampleQueryCacheKeyBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,8 +1,11 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
 import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
-import com.example.sprinklr.marketplace.domain.model.ToolDependencyGraph;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolDependencyGraph;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.adapters.MongoMcpRegistryAdapter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.EdgeDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.ToolDependencyGraphDocument;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;

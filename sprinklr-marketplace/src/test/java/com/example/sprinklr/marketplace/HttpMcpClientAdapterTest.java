@@ -1,7 +1,7 @@
 package com.example.sprinklr.marketplace;
 
 import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFixtures;
-import com.example.sprinklr.marketplace.domain.model.McpInvocation;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.HttpMcpClientAdapter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.McpCircuitBreakerFactory;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
@@ -9,8 +9,8 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.Compo
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.McpInvocationPreparer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.CompositeMcpLocalToolExtension;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolExtension;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionDocument;
-import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.McpConnectionRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import org.junit.jupiter.api.Test;

@@ -1,7 +1,11 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.persistence;
 
-import com.example.sprinklr.marketplace.domain.model.Message;
-import com.example.sprinklr.marketplace.domain.model.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
+import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.adapters.MongoChatHistoryAdapter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.MessageDocument;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.ConversationRepository;
+import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.MongoMessageRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
@@ -9,7 +13,6 @@ import reactor.core.publisher.Mono;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;

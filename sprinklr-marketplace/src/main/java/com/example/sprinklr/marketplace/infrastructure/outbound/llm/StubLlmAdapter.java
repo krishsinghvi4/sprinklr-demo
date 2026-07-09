@@ -1,11 +1,11 @@
 package com.example.sprinklr.marketplace.infrastructure.outbound.llm;
 
-import com.example.sprinklr.marketplace.domain.model.LlmRequest;
-import com.example.sprinklr.marketplace.domain.model.LlmResponse;
-import com.example.sprinklr.marketplace.domain.model.Message;
-import com.example.sprinklr.marketplace.domain.model.MessageRole;
-import com.example.sprinklr.marketplace.domain.model.ToolCall;
-import com.example.sprinklr.marketplace.domain.port.outbound.LlmPort;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmRequest;
+import com.example.sprinklr.marketplace.domain.model.LLM.LlmResponse;
+import com.example.sprinklr.marketplace.domain.model.chat.Message;
+import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.tool.ToolCall;
+import com.example.sprinklr.marketplace.domain.port.outbound.LLM.LlmPort;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
