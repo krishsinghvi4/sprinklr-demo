@@ -12,6 +12,11 @@ public interface MongoMessageRepository extends ReactiveMongoRepository<MessageD
     // Fetches history backwards (newest first) so we can efficiently limit it
     Flux<MessageDocument> findByConversationIdOrderByCreatedAtDesc(String conversationId);
 
+    Flux<MessageDocument> findByConversationIdAndCreatedAtBeforeOrderByCreatedAtDesc(
+            String conversationId,
+            Instant before
+    );
+
     Flux<MessageDocument> findByConversationIdAndRoleOrderByCreatedAtDesc(
             String conversationId,
             MessageRole role

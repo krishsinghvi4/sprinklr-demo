@@ -77,11 +77,11 @@ class ToolSelectionServiceTest {
 
     @Test
     void expandsPrerequisitesBeforeTheSelectedTool() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
 
         ToolSelectionResult result = service.selectTools(
-                "create a story in ITOPS", List.of(), allTools, List.of(jiraGraph), Optional.empty());
+                "create a story in ITOPS", List.of(), allTools, List.of(jiraGraph), Optional.empty(), "user-1");
 
         assertEquals(
                 List.of(
@@ -94,11 +94,11 @@ class ToolSelectionServiceTest {
 
     @Test
     void sendsZeroToolsForConversationalPromptWhenRouterFindsNothing() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.noToolsNeeded());
 
         ToolSelectionResult result = service.selectTools(
-                "hello there", List.of(), allTools, List.of(jiraGraph), Optional.empty());
+                "hello there", List.of(), allTools, List.of(jiraGraph), Optional.empty(), "user-1");
 
         assertEquals(0, result.scopedTools().size());
         assertFalse(result.hasContinuationContext());
@@ -106,11 +106,11 @@ class ToolSelectionServiceTest {
 
     @Test
     void fallsBackToAllToolsWhenRouterFails() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.failed());
 
         ToolSelectionResult result = service.selectTools(
-                "hello there", List.of(), allTools, List.of(jiraGraph), Optional.empty());
+                "hello there", List.of(), allTools, List.of(jiraGraph), Optional.empty(), "user-1");
 
         assertEquals(allTools.size(), result.scopedTools().size());
     }
@@ -118,11 +118,11 @@ class ToolSelectionServiceTest {
     @Test
     void capsScopedToolsToConfiguredMax() {
         properties.getToolSelection().setMaxTools(2);
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
 
         ToolSelectionResult result = service.selectTools(
-                "create", List.of(), allTools, List.of(jiraGraph), Optional.empty());
+                "create", List.of(), allTools, List.of(jiraGraph), Optional.empty(), "user-1");
 
         assertEquals(
                 List.of("jira.getAccessibleAtlassianResources", "jira.getJiraProjectIssueTypesMetadata"),
@@ -131,7 +131,7 @@ class ToolSelectionServiceTest {
 
     @Test
     void continuationSkipsNonRerunnablePrerequisitesAndInjectsContext() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
         PendingWorkflowState continuation = new PendingWorkflowState(
                 "conv-1",
@@ -144,7 +144,7 @@ class ToolSelectionServiceTest {
         );
 
         ToolSelectionResult result = service.selectTools(
-                "summary: fix login", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation));
+                "summary: fix login", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation), "user-1");
 
         assertEquals(
                 List.of(
@@ -157,7 +157,7 @@ class ToolSelectionServiceTest {
 
     @Test
     void ignoresContinuationWhenAwaitingGoalsDoNotMatchCurrentPrimary() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("jira.searchJiraIssuesUsingJql")));
         PendingWorkflowState createContinuation = new PendingWorkflowState(
                 "conv-1",
@@ -170,7 +170,7 @@ class ToolSelectionServiceTest {
 
         ToolSelectionResult result = service.selectTools(
                 "fetch pratham kundan tickets", List.of(), allTools, List.of(jiraGraph),
-                Optional.of(createContinuation));
+                Optional.of(createContinuation), "user-1");
 
         assertFalse(result.hasContinuationContext());
         assertEquals(
@@ -180,7 +180,7 @@ class ToolSelectionServiceTest {
 
     @Test
     void ignoresContinuationFromUnrelatedServer() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("jira.createJiraIssue")));
         PendingWorkflowState gitlabContinuation = new PendingWorkflowState(
                 "conv-1", "user-1", List.of("gitlab"),
@@ -189,7 +189,7 @@ class ToolSelectionServiceTest {
                 Instant.now().plusSeconds(3600));
 
         ToolSelectionResult result = service.selectTools(
-                "create", List.of(), allTools, List.of(jiraGraph), Optional.of(gitlabContinuation));
+                "create", List.of(), allTools, List.of(jiraGraph), Optional.of(gitlabContinuation), "user-1");
 
         assertFalse(result.hasContinuationContext());
         assertEquals(
@@ -204,7 +204,7 @@ class ToolSelectionServiceTest {
     void expandsRedSampleToolBeforeMongoExecuteFromDependencyGraph() {
         McpTool sampleMongo = tool("red.red_sample_mongo_query");
         McpTool executeMongo = tool("red.red_execute_mongo_query");
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("red.red_execute_mongo_query")));
 
         ToolDependencyGraph redGraph = new ToolDependencyGraph(
@@ -219,7 +219,7 @@ class ToolSelectionServiceTest {
                 List.of(),
                 List.of(sampleMongo, executeMongo),
                 List.of(redGraph),
-                Optional.empty());
+                Optional.empty(), "user-1");
 
         assertEquals(
                 List.of("red.red_sample_mongo_query", "red.red_execute_mongo_query"),
@@ -228,7 +228,7 @@ class ToolSelectionServiceTest {
 
     @Test
     void resumesAwaitingGoalsWhenRouterReturnsNoToolsForFollowUp() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.noToolsNeeded());
         PendingWorkflowState continuation = new PendingWorkflowState(
                 "conv-1",
@@ -241,7 +241,7 @@ class ToolSelectionServiceTest {
         );
 
         ToolSelectionResult result = service.selectTools(
-                "PAID", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation));
+                "PAID", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation), "user-1");
 
         assertEquals(
                 List.of(
@@ -255,7 +255,7 @@ class ToolSelectionServiceTest {
 
     @Test
     void marksContinuationDiscardedWhenRouterPicksUnrelatedPrimary() {
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("jira.searchJiraIssuesUsingJql")));
         PendingWorkflowState continuation = new PendingWorkflowState(
                 "conv-1",
@@ -268,7 +268,7 @@ class ToolSelectionServiceTest {
         );
 
         ToolSelectionResult result = service.selectTools(
-                "search jira tickets", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation));
+                "search jira tickets", List.of(), allTools, List.of(jiraGraph), Optional.of(continuation), "user-1");
 
         assertTrue(result.continuationDiscarded());
         assertFalse(result.hasContinuationContext());
@@ -279,7 +279,7 @@ class ToolSelectionServiceTest {
         McpTool changelog = tool("jira.getJiraIssueChangelog");
         List<McpTool> tools = List.of(getResources, changelog);
 
-        when(router.selectTools(any(), anyList(), anyList(), anyInt()))
+        when(router.selectTools(any(), anyList(), anyList(), anyInt(), any()))
                 .thenReturn(ToolRouterResult.selected(List.of("jira.getJiraIssueChangelog")));
 
         ToolSelectionResult result = service.selectTools(
@@ -287,7 +287,7 @@ class ToolSelectionServiceTest {
                 List.of(),
                 tools,
                 List.of(),
-                Optional.empty());
+                Optional.empty(), "user-1");
 
         assertEquals(
                 List.of("jira.getAccessibleAtlassianResources", "jira.getJiraIssueChangelog"),

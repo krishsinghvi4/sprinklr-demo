@@ -18,6 +18,19 @@ export interface ConversationSummary {
   updatedAt: string
 }
 
+export interface ConversationListResult {
+  conversations: ConversationSummary[]
+  page: number
+  pageSize: number
+  hasMore: boolean
+  totalCount: number
+}
+
+export interface ChatHistoryResult {
+  messages: Message[]
+  hasMore: boolean
+}
+
 export interface ApiResponse {
   event: string
   data: string

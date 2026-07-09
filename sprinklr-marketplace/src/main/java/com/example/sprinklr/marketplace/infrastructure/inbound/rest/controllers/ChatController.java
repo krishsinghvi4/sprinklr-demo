@@ -5,6 +5,7 @@ import com.example.sprinklr.marketplace.domain.model.chat.ChatRequest;
 import com.example.sprinklr.marketplace.domain.model.chat.Conversation;
 import com.example.sprinklr.marketplace.domain.model.chat.Message;
 import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.chat.PagedResult;
 import com.example.sprinklr.marketplace.domain.port.inbound.ChatUseCase;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.Chat.ChatApiRequest;
@@ -27,6 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.Flow;
 
@@ -36,6 +38,8 @@ public class ChatController {
 
     private static final long SSE_TIMEOUT_MS = 120_000L;
     private static final int PREVIEW_MAX_LENGTH = 80;
+    private static final int DEFAULT_CONVERSATION_PAGE_SIZE = 20;
+    private static final int DEFAULT_MESSAGE_PAGE_SIZE = 30;
 
     private final ChatUseCase chatUseCase;
     private final ChatHistoryPort chatHistoryPort;
@@ -55,29 +59,43 @@ public class ChatController {
     }
 
     @GetMapping(value = "/conversations", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ConversationListResponse listConversations() {
+    public ConversationListResponse listConversations(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "" + DEFAULT_CONVERSATION_PAGE_SIZE) int size) {
         String userId = authenticatedUserResolver.requireUserId();
-        List<ConversationSummaryDto> conversations = chatHistoryPort.findConversationsByUserId(userId).stream()
-                .map(conversation -> toSummaryDto(conversation))
+        int pageSize = Math.min(Math.max(1, size), 100);
+        PagedResult<Conversation> paged = chatHistoryPort.findConversationsByUserIdPaged(userId, page, pageSize);
+        List<ConversationSummaryDto> conversations = paged.items().stream()
+                .map(this::toSummaryDto)
                 .toList();
-        return new ConversationListResponse(conversations);
+        return new ConversationListResponse(
+                conversations,
+                paged.page(),
+                paged.pageSize(),
+                paged.hasMore(),
+                paged.totalCount()
+        );
     }
 
     @GetMapping(value = "/history", produces = MediaType.APPLICATION_JSON_VALUE)
     public ChatHistoryResponse getChatHistory(
             @RequestParam String conversationId,
-            @RequestParam(defaultValue = "50") int limit) {
+            @RequestParam(defaultValue = "" + DEFAULT_MESSAGE_PAGE_SIZE) int limit,
+            @RequestParam(required = false) String before) {
         String userId = authenticatedUserResolver.requireUserId();
         if (chatHistoryPort.findConversationByIdAndUserId(conversationId, userId).isEmpty()) {
-            return ChatHistoryResponse.fromMessages(List.of());
+            return ChatHistoryResponse.fromMessages(List.of(), false);
         }
 
-        List<Message> messages = chatHistoryPort.findRecentMessages(conversationId, limit);
+        int pageSize = Math.min(Math.max(1, limit), 100);
+        Instant beforeInstant = parseBeforeCursor(before);
+        List<Message> messages = chatHistoryPort.findMessagesBefore(conversationId, pageSize, beforeInstant);
         List<Message> displayMessages = messages.stream()
                 .filter(message -> message.role() == MessageRole.USER || message.role() == MessageRole.ASSISTANT)
                 .filter(message -> message.content() != null && !message.content().isBlank())
                 .toList();
-        return ChatHistoryResponse.fromMessages(displayMessages);
+        boolean hasMore = messages.size() == pageSize;
+        return ChatHistoryResponse.fromMessages(displayMessages, hasMore);
     }
 
     @DeleteMapping(value = "/conversations/{conversationId}")
@@ -174,5 +192,16 @@ public class ChatController {
             return normalized;
         }
         return normalized.substring(0, PREVIEW_MAX_LENGTH - 3) + "...";
+    }
+
+    private Instant parseBeforeCursor(String before) {
+        if (before == null || before.isBlank()) {
+            return null;
+        }
+        try {
+            return Instant.parse(before);
+        } catch (Exception exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid before cursor; expected ISO-8601 timestamp");
+        }
     }
 }

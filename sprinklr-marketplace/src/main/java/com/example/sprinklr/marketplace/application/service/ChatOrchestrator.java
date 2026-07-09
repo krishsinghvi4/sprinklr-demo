@@ -265,7 +265,7 @@ public class ChatOrchestrator implements ChatUseCase {
             Optional<PendingWorkflowState> storedContinuation =
                     pendingWorkflowPort.find(conversationId, request.userId());
             ToolSelectionResult selection = toolSelectionService.selectTools(
-                    request.prompt(), history, userTools, graphs, storedContinuation);
+                    request.prompt(), history, userTools, graphs, storedContinuation, request.userId());
             if (selection.continuationDiscarded()) {
                 pendingWorkflowPort.delete(conversationId);
             }

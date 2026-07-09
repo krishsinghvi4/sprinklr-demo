@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -17,29 +18,36 @@ public class McpSkillPromptAssembler {
     private final LlmSystemPromptLoader systemPromptLoader;
     private final McpSkillPromptLoader skillPromptLoader;
     private final CrossWorkflowSkillLoader crossWorkflowSkillLoader;
+    private final UserMcpSkillProvider userMcpSkillProvider;
 
     public McpSkillPromptAssembler(
             LlmSystemPromptLoader systemPromptLoader,
             McpSkillPromptLoader skillPromptLoader,
-            CrossWorkflowSkillLoader crossWorkflowSkillLoader
+            CrossWorkflowSkillLoader crossWorkflowSkillLoader,
+            UserMcpSkillProvider userMcpSkillProvider
     ) {
         this.systemPromptLoader = systemPromptLoader;
         this.skillPromptLoader = skillPromptLoader;
         this.crossWorkflowSkillLoader = crossWorkflowSkillLoader;
+        this.userMcpSkillProvider = userMcpSkillProvider;
     }
 
     /**
      * Builds the system prompt: base copilot instructions plus skill guidance for connected MCP prefixes.
      */
     public String assemble(List<McpTool> activeTools) {
-        return assemble(systemPromptLoader.getSystemPrompt(), activeTools);
+        return assemble(systemPromptLoader.getSystemPrompt(), activeTools, null);
     }
 
     /**
      * Appends skill sections for prefixes present in {@code activeTools} to {@code basePrompt}.
      */
     public String assemble(String basePrompt, List<McpTool> activeTools) {
-        return assembleForPrefixes(basePrompt, extractPrefixes(activeTools), "## Connected MCP guidance");
+        return assemble(basePrompt, activeTools, null);
+    }
+
+    public String assemble(String basePrompt, List<McpTool> activeTools, String userId) {
+        return assembleForPrefixes(basePrompt, extractPrefixes(activeTools), "## Connected MCP guidance", userId);
     }
 
     /**
@@ -47,13 +55,21 @@ public class McpSkillPromptAssembler {
      * Used by the tool router refinement pass to inject workflow guidance without loading all skills.
      */
     public String assembleForPrefixes(String basePrompt, Set<String> prefixes) {
-        return assembleForPrefixes(basePrompt, prefixes, "## Workflow guidance for routing");
+        return assembleForPrefixes(basePrompt, prefixes, "## Workflow guidance for routing", null);
+    }
+
+    public String assembleForPrefixes(String basePrompt, Set<String> prefixes, String userId) {
+        return assembleForPrefixes(basePrompt, prefixes, "## Workflow guidance for routing", userId);
     }
 
     /**
      * Returns true when at least one per-server or cross-workflow skill exists for {@code prefixes}.
      */
     public boolean hasGuidanceForPrefixes(Set<String> prefixes) {
+        return hasGuidanceForPrefixes(prefixes, null);
+    }
+
+    public boolean hasGuidanceForPrefixes(Set<String> prefixes, String userId) {
         if (prefixes == null || prefixes.isEmpty()) {
             return false;
         }
@@ -61,11 +77,19 @@ public class McpSkillPromptAssembler {
             if (skillPromptLoader.findByServerIdPrefix(prefix).isPresent()) {
                 return true;
             }
+            if (userId != null && userMcpSkillProvider.findByServerIdPrefix(userId, prefix).isPresent()) {
+                return true;
+            }
         }
         return !crossWorkflowSkillLoader.findMatching(prefixes).isEmpty();
     }
 
-    private String assembleForPrefixes(String basePrompt, Set<String> prefixes, String sectionHeading) {
+    private String assembleForPrefixes(
+            String basePrompt,
+            Set<String> prefixes,
+            String sectionHeading,
+            String userId
+    ) {
         if (prefixes == null || prefixes.isEmpty()) {
             return basePrompt;
         }
@@ -73,11 +97,20 @@ public class McpSkillPromptAssembler {
         StringBuilder assembled = new StringBuilder(basePrompt.trim());
         assembled.append("\n\n").append(sectionHeading);
 
+        Map<String, String> userSkills = userId == null
+                ? Map.of()
+                : userMcpSkillProvider.findSkillsForActiveConnections(userId, List.copyOf(prefixes));
+
         for (String prefix : prefixes) {
-            skillPromptLoader.findByServerIdPrefix(prefix).ifPresent(skillText -> {
-                assembled.append("\n\n### ").append(displayNameForPrefix(prefix)).append("\n");
-                assembled.append(skillText.trim());
-            });
+            java.util.Optional<String> skillText = skillPromptLoader.findByServerIdPrefix(prefix);
+            if (skillText.isEmpty() && userSkills.containsKey(prefix)) {
+                skillText = java.util.Optional.of(userSkills.get(prefix));
+            }
+            if (skillText.isEmpty()) {
+                continue;
+            }
+            assembled.append("\n\n### ").append(displayNameForPrefix(prefix)).append("\n");
+            assembled.append(skillText.get().trim());
         }
 
         appendCrossWorkflowSkills(assembled, prefixes);

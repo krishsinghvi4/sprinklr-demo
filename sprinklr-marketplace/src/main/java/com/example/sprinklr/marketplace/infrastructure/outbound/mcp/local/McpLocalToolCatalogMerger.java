@@ -2,7 +2,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local;
 
 import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
 import org.springframework.stereotype.Component;
 
@@ -16,19 +16,19 @@ import java.util.Optional;
 @Component
 public class McpLocalToolCatalogMerger {
 
-    private final McpCatalogLoader catalogLoader;
+    private final MergedCatalogResolver catalogResolver;
     private final CompositeMcpLocalToolExtension localToolExtension;
 
     public McpLocalToolCatalogMerger(
-            McpCatalogLoader catalogLoader,
+            MergedCatalogResolver catalogResolver,
             CompositeMcpLocalToolExtension localToolExtension
     ) {
-        this.catalogLoader = catalogLoader;
+        this.catalogResolver = catalogResolver;
         this.localToolExtension = localToolExtension;
     }
 
     public List<McpTool> merge(McpConnectionDocument connection, List<McpTool> remoteTools) {
-        return catalogLoader.findById(connection.catalogServerId())
+        return catalogResolver.findById(connection.catalogServerId(), connection.userId())
                 .map(entry -> merge(entry, connection.id(), remoteTools))
                 .orElse(remoteTools);
     }
@@ -50,6 +50,6 @@ public class McpLocalToolCatalogMerger {
     }
 
     public Optional<McpCatalogEntry> catalogEntryFor(McpConnectionDocument connection) {
-        return catalogLoader.findById(connection.catalogServerId());
+        return catalogResolver.findById(connection.catalogServerId(), connection.userId());
     }
 }

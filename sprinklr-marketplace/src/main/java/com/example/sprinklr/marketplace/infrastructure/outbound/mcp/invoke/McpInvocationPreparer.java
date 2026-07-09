@@ -4,7 +4,7 @@ import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRef
 import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpInvocationException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
@@ -26,7 +26,7 @@ public class McpInvocationPreparer {
 
     private final McpConnectionRepository connectionRepository;
     private final CredentialVaultPort credentialVault;
-    private final McpCatalogLoader catalogLoader;
+    private final MergedCatalogResolver catalogResolver;
     private final CatalogAuthHeaderBuilder authHeaderBuilder;
     private final StreamableHttpMcpClient mcpClient;
     private final McpOAuthTokenRefreshService oauthTokenRefreshService;
@@ -35,7 +35,7 @@ public class McpInvocationPreparer {
     public McpInvocationPreparer(
             McpConnectionRepository connectionRepository,
             CredentialVaultPort credentialVault,
-            McpCatalogLoader catalogLoader,
+            MergedCatalogResolver catalogResolver,
             CatalogAuthHeaderBuilder authHeaderBuilder,
             StreamableHttpMcpClient mcpClient,
             McpOAuthTokenRefreshService oauthTokenRefreshService,
@@ -43,7 +43,7 @@ public class McpInvocationPreparer {
     ) {
         this.connectionRepository = connectionRepository;
         this.credentialVault = credentialVault;
-        this.catalogLoader = catalogLoader;
+        this.catalogResolver = catalogResolver;
         this.authHeaderBuilder = authHeaderBuilder;
         this.mcpClient = mcpClient;
         this.oauthTokenRefreshService = oauthTokenRefreshService;
@@ -55,7 +55,7 @@ public class McpInvocationPreparer {
             String toolName,
             String argumentsJson
     ) {
-        McpCatalogEntry catalogEntry = catalogLoader.findById(connection.catalogServerId())
+        McpCatalogEntry catalogEntry = catalogResolver.findById(connection.catalogServerId(), connection.userId())
                 .orElseThrow(() -> new McpInvocationException(
                         "MCP server configuration not found",
                         "Catalog entry missing for " + connection.catalogServerId()
@@ -83,7 +83,7 @@ public class McpInvocationPreparer {
             String argumentsJson,
             Map<String, String> credentials
     ) {
-        McpCatalogEntry catalogEntry = catalogLoader.findById(connection.catalogServerId())
+        McpCatalogEntry catalogEntry = catalogResolver.findById(connection.catalogServerId(), connection.userId())
                 .orElseThrow(() -> new McpInvocationException(
                         "MCP server configuration not found",
                         "Catalog entry missing for " + connection.catalogServerId()

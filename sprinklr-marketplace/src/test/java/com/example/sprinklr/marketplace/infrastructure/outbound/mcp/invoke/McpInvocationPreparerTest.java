@@ -5,7 +5,7 @@ import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRef
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.McpConnectionDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.McpConnectionRepository;
 import org.junit.jupiter.api.Test;
@@ -28,7 +28,7 @@ class McpInvocationPreparerTest {
     void refreshesOAuthCredentialsForOAuthCatalogEntry() {
         var repository = mock(McpConnectionRepository.class);
         var credentialVault = mock(CredentialVaultPort.class);
-        var catalogLoader = mock(McpCatalogLoader.class);
+        var catalogResolver = mock(MergedCatalogResolver.class);
         var mcpClient = mock(StreamableHttpMcpClient.class);
         var oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
 
@@ -52,14 +52,14 @@ class McpInvocationPreparerTest {
         Map<String, String> expired = Map.of("accessToken", "expired");
         Map<String, String> refreshed = Map.of("accessToken", "fresh");
 
-        when(catalogLoader.findById("atlassian-jira")).thenReturn(Optional.of(catalogEntry));
+        when(catalogResolver.findById("atlassian-jira", "user-1")).thenReturn(Optional.of(catalogEntry));
         when(credentialVault.decrypt("encrypted")).thenReturn(expired);
         when(oauthTokenRefreshService.refreshIfNeeded(connection, catalogEntry, expired)).thenReturn(refreshed);
 
         var preparer = new McpInvocationPreparer(
                 repository,
                 credentialVault,
-                catalogLoader,
+                catalogResolver,
                 new CatalogAuthHeaderBuilder(),
                 mcpClient,
                 oauthTokenRefreshService,
@@ -76,7 +76,7 @@ class McpInvocationPreparerTest {
     void skipsOAuthRefreshForCredentialCatalogEntry() {
         var repository = mock(McpConnectionRepository.class);
         var credentialVault = mock(CredentialVaultPort.class);
-        var catalogLoader = mock(McpCatalogLoader.class);
+        var catalogResolver = mock(MergedCatalogResolver.class);
         var mcpClient = mock(StreamableHttpMcpClient.class);
         var oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
 
@@ -99,13 +99,13 @@ class McpInvocationPreparerTest {
         var catalogEntry = McpCatalogTestFixtures.redEntry();
         Map<String, String> credentials = Map.of("apiToken", "red-token");
 
-        when(catalogLoader.findById("red-mcp")).thenReturn(Optional.of(catalogEntry));
+        when(catalogResolver.findById("red-mcp", "user-1")).thenReturn(Optional.of(catalogEntry));
         when(credentialVault.decrypt("encrypted")).thenReturn(credentials);
 
         var preparer = new McpInvocationPreparer(
                 repository,
                 credentialVault,
-                catalogLoader,
+                catalogResolver,
                 new CatalogAuthHeaderBuilder(),
                 mcpClient,
                 oauthTokenRefreshService,

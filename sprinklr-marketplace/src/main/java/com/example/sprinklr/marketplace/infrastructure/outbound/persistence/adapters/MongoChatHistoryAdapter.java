@@ -3,6 +3,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.persistence.ada
 import com.example.sprinklr.marketplace.domain.model.chat.Conversation;
 import com.example.sprinklr.marketplace.domain.model.chat.Message;
 import com.example.sprinklr.marketplace.domain.model.chat.MessageRole;
+import com.example.sprinklr.marketplace.domain.model.chat.PagedResult;
 import com.example.sprinklr.marketplace.domain.model.tool.ToolCall;
 import com.example.sprinklr.marketplace.domain.model.tool.ToolResult;
 import com.example.sprinklr.marketplace.domain.port.outbound.ChatHistoryPort;
@@ -10,6 +11,7 @@ import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repo
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.ConversationDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.document.MessageDocument;
 import com.example.sprinklr.marketplace.infrastructure.outbound.persistence.repository.ConversationRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -37,20 +39,35 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
 
     @Override
     public List<Message> findRecentMessages(String conversationId, int limit) {
-        System.out.println("[MongoDB] Finding recent messages for conversation: " + conversationId + " (limit: " + limit + ")");
-        
+        return findMessagesBefore(conversationId, limit, null);
+    }
+
+    @Override
+    public List<Message> findMessagesBefore(String conversationId, int limit, Instant before) {
+        System.out.println("[MongoDB] Finding messages for conversation: " + conversationId
+                + " (limit: " + limit + ", before: " + before + ")");
+
         try {
-            List<MessageDocument> documents = messageRepository
-                    .findByConversationIdOrderByCreatedAtDesc(conversationId)
-                    .take(limit)
-                    .collectList()
-                    .block(); // Safe to block here because ChatOrchestrator runs on boundedElastic
+            List<MessageDocument> documents;
+            if (before == null) {
+                documents = messageRepository
+                        .findByConversationIdOrderByCreatedAtDesc(conversationId)
+                        .take(limit)
+                        .collectList()
+                        .block();
+            } else {
+                documents = messageRepository
+                        .findByConversationIdAndCreatedAtBeforeOrderByCreatedAtDesc(conversationId, before)
+                        .take(limit)
+                        .collectList()
+                        .block();
+            }
 
             if (documents == null) {
                 System.out.println("[MongoDB] Query returned null");
                 return List.of();
             }
-            
+
             System.out.println("[MongoDB] Found " + documents.size() + " messages");
 
             if (documents.isEmpty()) {
@@ -58,13 +75,12 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
                 return List.of();
             }
 
-            // We fetched newest first, but the LLM needs chronological order (oldest first)
             Collections.reverse(documents);
 
             List<Message> result = documents.stream()
                     .map(this::toDomainMessage)
                     .toList();
-            
+
             System.out.println("[MongoDB] Converted to " + result.size() + " domain messages");
             return result;
         } catch (Exception e) {
@@ -253,18 +269,49 @@ public class MongoChatHistoryAdapter implements ChatHistoryPort {
             }
 
             return documents.stream()
-                    .map(doc -> new Conversation(
-                            doc.id(),
-                            doc.userId(),
-                            doc.title(),
-                            doc.createdAt(),
-                            doc.updatedAt()
-                    ))
+                    .map(this::toDomainConversation)
                     .toList();
         } catch (Exception e) {
             System.err.println("[MongoDB] Error finding conversations for user: " + e.getMessage());
             return List.of();
         }
+    }
+
+    @Override
+    public PagedResult<Conversation> findConversationsByUserIdPaged(String userId, int page, int size) {
+        try {
+            int safePage = Math.max(0, page);
+            int safeSize = Math.max(1, size);
+
+            Long totalCount = conversationRepository.countByUserId(userId).block();
+            long total = totalCount == null ? 0L : totalCount;
+
+            List<ConversationDocument> documents = conversationRepository
+                    .findByUserIdOrderByUpdatedAtDesc(userId, PageRequest.of(safePage, safeSize))
+                    .collectList()
+                    .block();
+
+            List<Conversation> conversations = documents == null
+                    ? List.of()
+                    : documents.stream().map(this::toDomainConversation).toList();
+
+            boolean hasMore = ((long) (safePage + 1) * safeSize) < total;
+
+            return new PagedResult<>(conversations, safePage, safeSize, total, hasMore);
+        } catch (Exception e) {
+            System.err.println("[MongoDB] Error finding paged conversations for user: " + e.getMessage());
+            return new PagedResult<>(List.of(), page, size, 0L, false);
+        }
+    }
+
+    private Conversation toDomainConversation(ConversationDocument doc) {
+        return new Conversation(
+                doc.id(),
+                doc.userId(),
+                doc.title(),
+                doc.createdAt(),
+                doc.updatedAt()
+        );
     }
 
     @Override

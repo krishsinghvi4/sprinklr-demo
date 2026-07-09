@@ -8,7 +8,7 @@ import com.example.sprinklr.marketplace.domain.model.MCP.McpCredentialField;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
 import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpRegistryPort;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -26,18 +26,18 @@ public class McpMarketplaceService {
 
     private static final Logger log = LoggerFactory.getLogger(McpMarketplaceService.class);
 
-    private final McpCatalogLoader catalogLoader;
+    private final MergedCatalogResolver catalogResolver;
     private final McpRegistryPort registryPort;
     private final CredentialAuthFlowHandler credentialAuthFlowHandler;
     private final AuthFlowRouter authFlowRouter;
 
     public McpMarketplaceService(
-            McpCatalogLoader catalogLoader,
+            MergedCatalogResolver catalogResolver,
             McpRegistryPort registryPort,
             CredentialAuthFlowHandler credentialAuthFlowHandler,
             AuthFlowRouter authFlowRouter
     ) {
-        this.catalogLoader = catalogLoader;
+        this.catalogResolver = catalogResolver;
         this.registryPort = registryPort;
         this.credentialAuthFlowHandler = credentialAuthFlowHandler;
         this.authFlowRouter = authFlowRouter;
@@ -48,8 +48,8 @@ public class McpMarketplaceService {
      */
     public MarketplaceView getMarketplaceForUser(String userId) {
         List<McpUserConnection> connections = registryPort.findByUserId(userId);
-        List<AvailableServerView> available = catalogLoader.getAll().stream()
-                .map(entry -> toAvailableServer(entry, connections))
+        List<AvailableServerView> available = catalogResolver.getAll(userId).stream()
+                .map(entry -> toAvailableServer(userId, entry, connections))
                 .toList();
         List<ConnectionView> connectionViews = connections.stream()
                 .map(this::toConnectionView)
@@ -62,7 +62,7 @@ public class McpMarketplaceService {
      * and storing the resulting connection.
      */
     public ConnectionView connect(String userId, String catalogServerId, Map<String, String> credentials) {
-        McpCatalogEntry catalogEntry = catalogLoader.findById(catalogServerId)
+        McpCatalogEntry catalogEntry = catalogResolver.findById(catalogServerId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown MCP server: " + catalogServerId));
 
         authFlowRouter.assertCredentialConnectAllowed(catalogEntry);
@@ -104,12 +104,16 @@ public class McpMarketplaceService {
     }
 
     private boolean isRedConnection(McpUserConnection connection) {
-        return catalogLoader.findById(connection.catalogServerId())
+        return catalogResolver.findById(connection.catalogServerId(), connection.userId())
                 .map(entry -> "red".equals(entry.serverIdPrefix()))
                 .orElse(false);
     }
 
-    private AvailableServerView toAvailableServer(McpCatalogEntry entry, List<McpUserConnection> connections) {
+    private AvailableServerView toAvailableServer(
+            String userId,
+            McpCatalogEntry entry,
+            List<McpUserConnection> connections
+    ) {
         boolean connected = connections.stream()
                 .anyMatch(c -> c.catalogServerId().equals(entry.id())
                         && c.status() == McpConnectionStatus.CONNECTED);
@@ -120,12 +124,13 @@ public class McpMarketplaceService {
                 entry.authType(),
                 entry.connectMethod().name(),
                 entry.credentialFields(),
-                connected
+                connected,
+                catalogResolver.isUserDefined(entry.id(), userId)
         );
     }
 
     private ConnectionView toConnectionView(McpUserConnection connection) {
-        String displayName = catalogLoader.findById(connection.catalogServerId())
+        String displayName = catalogResolver.findById(connection.catalogServerId(), connection.userId())
                 .map(McpCatalogEntry::displayName)
                 .orElse(connection.catalogServerId());
         boolean hasRedQueryPreferences = isRedConnection(connection)
@@ -156,7 +161,8 @@ public class McpMarketplaceService {
             String authType,
             String connectMethod,
             List<McpCredentialField> credentialFields,
-            boolean connected
+            boolean connected,
+            boolean userDefined
     ) {}
 
     public record ConnectionView(

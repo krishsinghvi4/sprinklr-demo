@@ -24,6 +24,37 @@ export interface AvailableServer {
   connectMethod: ConnectMethod
   credentialFields: CredentialField[]
   connected: boolean
+  userDefined?: boolean
+}
+
+export interface UserMcpConfigSummary {
+  id: string
+  displayName: string
+  description: string
+  endpointUrl: string
+  serverIdPrefix: string
+  headerMode: string
+  credentialFields: CredentialField[]
+  hasConnectProbe: boolean
+  hasSkillText: boolean
+  createdAt: string
+}
+
+export interface CreateUserMcpConfigRequest {
+  displayName: string
+  description?: string
+  endpointUrl: string
+  serverIdPrefix: string
+  tokenField: string
+  headerMode: 'BEARER' | 'PRIVATE_TOKEN' | 'CUSTOM'
+  customHeaderName?: string
+  credentialFields?: CredentialField[]
+  connectProbe?: {
+    tool: string
+    arguments?: Record<string, unknown>
+    failureMessage: string
+  }
+  skillText?: string
 }
 
 export interface McpConnection {

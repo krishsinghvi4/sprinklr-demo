@@ -8,7 +8,7 @@ import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpDiscoveryPor
 import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpRegistryPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.ToolDependencyGraphPort;
 import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect.CompositeMcpConnectValidationAdapter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +35,7 @@ import static org.mockito.Mockito.when;
 class McpConnectionOrchestratorTest {
 
     @Mock
-    private McpCatalogLoader catalogLoader;
+    private MergedCatalogResolver catalogResolver;
     @Mock
     private McpRegistryPort registryPort;
     @Mock
@@ -66,7 +66,7 @@ class McpConnectionOrchestratorTest {
     void setUp() {
         mcpProperties.getToolSelection().setGenerateGraphOnConnect(true);
         orchestrator = new McpConnectionOrchestrator(
-                catalogLoader,
+                catalogResolver,
                 registryPort,
                 discoveryPort,
                 credentialVault,
@@ -85,7 +85,7 @@ class McpConnectionOrchestratorTest {
                 new McpTool("red.red_execute_mongo_query", "Execute mongo", "connection-id", "{}"),
                 new McpTool("red.red_ping", "Ping RED", "connection-id", "{}")
         );
-        when(catalogLoader.findById("red-mcp")).thenReturn(Optional.of(McpCatalogTestFixtures.redEntry()));
+        when(catalogResolver.findById("red-mcp", "user-1")).thenReturn(Optional.of(McpCatalogTestFixtures.redEntry()));
         when(registryPort.findByUserIdAndCatalogServerId("user-1", "red-mcp")).thenReturn(Optional.empty());
         when(providerResolver.resolve(McpCatalogTestFixtures.redEntry())).thenReturn(provider);
         when(provider.buildAuthHeaders(any(), any())).thenReturn(Map.of("Authorization", "Bearer token"));
@@ -113,7 +113,7 @@ class McpConnectionOrchestratorTest {
 
     @Test
     void generatesLlmDependencyGraphWhenNoStaticGraphConfigured() {
-        when(catalogLoader.findById("gitlab-mcp")).thenReturn(Optional.of(McpCatalogTestFixtures.gitlabEntry()));
+        when(catalogResolver.findById("gitlab-mcp", "user-1")).thenReturn(Optional.of(McpCatalogTestFixtures.gitlabEntry()));
         when(registryPort.findByUserIdAndCatalogServerId("user-1", "gitlab-mcp")).thenReturn(Optional.empty());
         when(providerResolver.resolve(McpCatalogTestFixtures.gitlabEntry())).thenReturn(provider);
         when(provider.buildAuthHeaders(any(), any())).thenReturn(Map.of("PRIVATE-TOKEN", "token"));

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,7 +60,7 @@ class LlmToolRouterAdapterTest {
         CrossWorkflowSkillLoader crossWorkflowSkillLoader =
                 new CrossWorkflowSkillLoader(catalogLoader, new DefaultResourceLoader());
         McpSkillPromptAssembler skillPromptAssembler = new McpSkillPromptAssembler(
-                promptLoader, skillPromptLoader, crossWorkflowSkillLoader);
+                promptLoader, skillPromptLoader, crossWorkflowSkillLoader, mock(UserMcpSkillProvider.class));
 
         adapter = new LlmToolRouterAdapter(
                 llmService,
@@ -80,7 +81,8 @@ class LlmToolRouterAdapterTest {
                 "What is the status of my MR?",
                 List.of(),
                 gitlabTools,
-                8
+                8,
+                null
         );
 
         ArgumentCaptor<LlmCompletionCommand> captor = ArgumentCaptor.forClass(LlmCompletionCommand.class);
@@ -104,7 +106,7 @@ class LlmToolRouterAdapterTest {
         when(llmService.complete(any()))
                 .thenReturn(jsonResult("{\"selectedTools\": []}"));
 
-        ToolRouterResult result = adapter.selectTools("hello", List.of(), gitlabTools, 8);
+        ToolRouterResult result = adapter.selectTools("hello", List.of(), gitlabTools, 8, null);
 
         verify(llmService, times(1)).complete(any());
         assertEquals(RouterOutcome.NO_TOOLS_NEEDED, result.outcome());
@@ -121,7 +123,8 @@ class LlmToolRouterAdapterTest {
                 "Investigate audit logs for ITOPS-123",
                 List.of(),
                 jiraRedTools,
-                8
+                8,
+                null
         );
 
         ArgumentCaptor<LlmCompletionCommand> captor = ArgumentCaptor.forClass(LlmCompletionCommand.class);
@@ -148,7 +151,8 @@ class LlmToolRouterAdapterTest {
                 "Show my merge requests",
                 List.of(),
                 gitlabTools,
-                8
+                8,
+                null
         );
 
         verify(llmService, times(2)).complete(any());

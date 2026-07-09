@@ -7,7 +7,7 @@ import com.example.sprinklr.marketplace.domain.model.MCP.McpInvocation;
 import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.AtlassianJiraToolArgumentNormalizer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke.CompositeMcpToolArgumentNormalizer;
@@ -129,7 +129,7 @@ class HttpMcpClientAdapterSessionRecoveryTest {
     private GitLabAdapterDeps gitLabAdapterDependencies() {
         McpConnectionRepository repository = mock(McpConnectionRepository.class);
         CredentialVaultPort credentialVault = mock(CredentialVaultPort.class);
-        McpCatalogLoader catalogLoader = mock(McpCatalogLoader.class);
+        MergedCatalogResolver catalogResolver = mock(MergedCatalogResolver.class);
         StreamableHttpMcpClient mcpClient = mock(StreamableHttpMcpClient.class);
         McpOAuthTokenRefreshService oauthTokenRefreshService = mock(McpOAuthTokenRefreshService.class);
         McpCircuitBreakerFactory circuitBreakerFactory = mock(McpCircuitBreakerFactory.class);
@@ -157,14 +157,14 @@ class HttpMcpClientAdapterSessionRecoveryTest {
         when(repository.findById("conn-gitlab")).thenReturn(Optional.of(connection));
         when(circuitBreakerFactory.forConnection("conn-gitlab")).thenReturn(CircuitBreaker.ofDefaults("mcp"));
         when(credentialVault.decrypt("encrypted")).thenReturn(credentials);
-        when(catalogLoader.findById("gitlab-mcp")).thenReturn(Optional.of(catalogEntry));
+        when(catalogResolver.findById("gitlab-mcp", "user-1")).thenReturn(Optional.of(catalogEntry));
         when(mcpClient.initialize(anyString(), anyMap()))
                 .thenReturn(new StreamableHttpMcpClient.McpSession("fresh-session", "2025-03-26"));
 
         McpInvocationPreparer invocationPreparer = new McpInvocationPreparer(
                 repository,
                 credentialVault,
-                catalogLoader,
+                catalogResolver,
                 new CatalogAuthHeaderBuilder(),
                 mcpClient,
                 oauthTokenRefreshService,

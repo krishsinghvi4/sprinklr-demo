@@ -15,6 +15,7 @@ import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpConnectionException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.exceptions.McpDiscoveryException;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.connect.CompositeMcpConnectValidationAdapter;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.local.McpLocalToolCatalogMerger;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
@@ -41,7 +42,7 @@ public class McpConnectionOrchestrator {
 
     private static final Logger log = LoggerFactory.getLogger(McpConnectionOrchestrator.class);
 
-    private final McpCatalogLoader catalogLoader;
+    private final MergedCatalogResolver catalogResolver;
     private final McpRegistryPort registryPort;
     private final McpDiscoveryPort discoveryPort;
     private final CredentialVaultPort credentialVault;
@@ -52,7 +53,7 @@ public class McpConnectionOrchestrator {
     private final McpLocalToolCatalogMerger localToolCatalogMerger;
 
     public McpConnectionOrchestrator(
-            McpCatalogLoader catalogLoader,
+            MergedCatalogResolver catalogResolver,
             McpRegistryPort registryPort,
             McpDiscoveryPort discoveryPort,
             CredentialVaultPort credentialVault,
@@ -62,7 +63,7 @@ public class McpConnectionOrchestrator {
             McpProperties mcpProperties,
             McpLocalToolCatalogMerger localToolCatalogMerger
     ) {
-        this.catalogLoader = catalogLoader;
+        this.catalogResolver = catalogResolver;
         this.registryPort = registryPort;
         this.discoveryPort = discoveryPort;
         this.credentialVault = credentialVault;
@@ -78,7 +79,7 @@ public class McpConnectionOrchestrator {
             String catalogServerId,
             Map<String, String> credentials
     ) {
-        McpCatalogEntry catalogEntry = catalogLoader.findById(catalogServerId)
+        McpCatalogEntry catalogEntry = catalogResolver.findById(catalogServerId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown MCP server: " + catalogServerId));
 
         McpProvider provider = providerResolver.resolve(catalogEntry);

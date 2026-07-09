@@ -28,6 +28,7 @@ public interface ToolRouterPort {
             String userPrompt,
             List<Message> recentHistory,
             List<McpTool> availableTools,
-            int maxPrimaryTools
+            int maxPrimaryTools,
+            String userId
     );
 }

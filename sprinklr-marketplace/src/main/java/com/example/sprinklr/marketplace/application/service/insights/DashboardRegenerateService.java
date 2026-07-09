@@ -193,7 +193,7 @@ public class DashboardRegenerateService {
             try {
                 List<ToolDependencyGraph> graphs = mcpRegistryPort.findActiveDependencyGraphsForUser(userId);
                 ToolSelectionResult selection = toolSelectionService.selectTools(
-                        prompt, history, userTools, graphs, Optional.empty());
+                        prompt, history, userTools, graphs, Optional.empty(), userId);
                 if (!selection.scopedTools().isEmpty()) {
                     return selection.scopedTools();
                 }

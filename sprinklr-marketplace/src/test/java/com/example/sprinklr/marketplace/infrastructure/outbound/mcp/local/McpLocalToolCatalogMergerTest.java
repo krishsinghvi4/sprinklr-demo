@@ -4,7 +4,7 @@ import com.example.sprinklr.marketplace.application.service.mcp.McpCatalogTestFi
 import com.example.sprinklr.marketplace.domain.model.MCP.McpTool;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.atlassian.JiraIssueChangelogLocalTool;
-import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogLoader;
+import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -19,13 +19,13 @@ class McpLocalToolCatalogMergerTest {
 
     @Test
     void mergesLocalToolsWithoutOverwritingRemoteTools() {
-        McpCatalogLoader catalogLoader = mock(McpCatalogLoader.class);
+        MergedCatalogResolver catalogResolver = mock(MergedCatalogResolver.class);
         JiraIssueChangelogLocalTool changelogTool = new JiraIssueChangelogLocalTool(mock(StreamableHttpMcpClient.class));
         CompositeMcpLocalToolExtension composite = new CompositeMcpLocalToolExtension(List.of(changelogTool));
-        McpLocalToolCatalogMerger merger = new McpLocalToolCatalogMerger(catalogLoader, composite);
+        McpLocalToolCatalogMerger merger = new McpLocalToolCatalogMerger(catalogResolver, composite);
 
         var entry = McpCatalogTestFixtures.jiraEntry();
-        when(catalogLoader.findById("atlassian-jira")).thenReturn(Optional.of(entry));
+        when(catalogResolver.findById("atlassian-jira", "user-1")).thenReturn(Optional.of(entry));
 
         List<McpTool> remote = List.of(
                 new McpTool("jira.getJiraIssue", "Get issue", "conn-1", "{}"),

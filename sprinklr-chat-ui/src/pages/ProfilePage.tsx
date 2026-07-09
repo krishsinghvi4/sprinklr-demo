@@ -1,19 +1,23 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plug, PlugZap, Unplug } from 'lucide-react'
+import { Plug, PlugZap, Trash2, Unplug } from 'lucide-react'
 import AppHeader from '../components/AppHeader'
 import McpConnectModal from '../components/McpConnectModal'
 import RedQueryPreferencesPanel from '../components/RedQueryPreferencesPanel'
 import {
   completeOAuthCallback,
   connectMcpServer,
+  createUserMcpConfig,
+  deleteUserMcpConfig,
   disconnectMcpServer,
   fetchProfile,
+  fetchUserMcpConfigs,
   startOAuthConnect,
 } from '../services/profileService'
 import {
   AvailableServer,
   ConnectErrorKind,
   ProfileResponse,
+  UserMcpConfigSummary,
   mapApiError,
   resolveConnectMethod,
 } from '../types/profile'
@@ -24,6 +28,29 @@ type ServerActionPhase = 'idle' | 'connecting' | 'disconnecting' | 'redirecting_
 const MCP_CONNECT_SAFETY_TIMEOUT_MS = 35_000
 const MCP_OAUTH_CALLBACK_SAFETY_TIMEOUT_MS = 120_000
 const OAUTH_POPUP_NAME = 'mcp-oauth'
+
+const CUSTOM_MCP_TEMPLATE = `{
+  "displayName": "My Custom MCP",
+  "description": "Describe what this MCP does",
+  "endpointUrl": "https://your-mcp-server.example.com/mcp",
+  "serverIdPrefix": "mycustom",
+  "tokenField": "apiToken",
+  "headerMode": "BEARER",
+  "credentialFields": [
+    {
+      "key": "apiToken",
+      "label": "Access token",
+      "type": "password",
+      "required": true
+    }
+  ],
+  "connectProbe": {
+    "tool": "ping",
+    "arguments": {},
+    "failureMessage": "Invalid access token"
+  },
+  "skillText": "## My Custom MCP\\nDescribe how the assistant should use this MCP."
+}`
 
 interface ServerActionState {
   phase: ServerActionPhase
@@ -37,6 +64,11 @@ export default function ProfilePage() {
   const [connectingServer, setConnectingServer] = useState<AvailableServer | null>(null)
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [serverActions, setServerActions] = useState<Record<string, ServerActionState>>({})
+  const [customConfigs, setCustomConfigs] = useState<UserMcpConfigSummary[]>([])
+  const [customConfigJson, setCustomConfigJson] = useState(CUSTOM_MCP_TEMPLATE)
+  const [showCustomMcpEditor, setShowCustomMcpEditor] = useState(false)
+  const [isSavingCustomMcp, setIsSavingCustomMcp] = useState(false)
+  const [customMcpError, setCustomMcpError] = useState<string | null>(null)
   const oauthPopupRef = useRef<Window | null>(null)
   const oauthPollRef = useRef<number | null>(null)
   const pendingOAuthServerRef = useRef<string | null>(null)
@@ -57,12 +89,13 @@ export default function ProfilePage() {
   const loadProfile = async () => {
     setIsLoading(true)
     setError(null)
-    const data = await fetchProfile()
+    const [data, configs] = await Promise.all([fetchProfile(), fetchUserMcpConfigs()])
     if (!data) {
       setError('Failed to load profile.')
     } else {
       setProfile(data)
     }
+    setCustomConfigs(configs)
     setIsLoading(false)
   }
 
@@ -322,6 +355,42 @@ export default function ProfilePage() {
 
   const isRedServer = (serverId: string) => serverId === 'red-mcp'
 
+  const handleSaveCustomMcp = async () => {
+    setCustomMcpError(null)
+    setIsSavingCustomMcp(true)
+    try {
+      const parsed = JSON.parse(customConfigJson)
+      await createUserMcpConfig(parsed)
+      setActionMessage('Custom MCP configuration saved. Connect it from the MCP Marketplace below.')
+      setShowCustomMcpEditor(false)
+      setCustomConfigJson(CUSTOM_MCP_TEMPLATE)
+      await loadProfile()
+    } catch (err: unknown) {
+      if (err instanceof SyntaxError) {
+        setCustomMcpError('Invalid JSON. Check the syntax and try again.')
+      } else {
+        const mapped = mapApiError(err)
+        setCustomMcpError(mapped.message)
+      }
+    } finally {
+      setIsSavingCustomMcp(false)
+    }
+  }
+
+  const handleDeleteCustomMcp = async (configId: string, displayName: string) => {
+    if (!confirm(`Delete custom MCP "${displayName}"?`)) {
+      return
+    }
+    try {
+      await deleteUserMcpConfig(configId)
+      setActionMessage(`Deleted custom MCP "${displayName}"`)
+      await loadProfile()
+    } catch (err: unknown) {
+      const mapped = mapApiError(err)
+      setError(mapped.message)
+    }
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <AppHeader title="Profile" backLink={{ to: '/', label: '← Back to chats' }} />
@@ -409,6 +478,82 @@ export default function ProfilePage() {
             </section>
 
             <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">Custom MCP Servers</h2>
+              <p className="text-sm text-gray-500 mb-4">
+                Add your own Streamable HTTP MCP servers. Configurations are private to your account.
+              </p>
+
+              {customConfigs.length > 0 && (
+                <ul className="space-y-3 mb-4">
+                  {customConfigs.map((config) => (
+                    <li
+                      key={config.id}
+                      className="border border-gray-200 rounded-lg p-4 flex justify-between items-start gap-4"
+                    >
+                      <div>
+                        <h3 className="text-sm font-medium text-gray-900">{config.displayName}</h3>
+                        <p className="text-xs text-gray-500 mt-1">{config.description}</p>
+                        <p className="text-xs text-gray-400 mt-2">
+                          Prefix: <code>{config.serverIdPrefix}</code> · Endpoint: {config.endpointUrl}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          Added {new Date(config.createdAt).toLocaleDateString()}
+                          {config.hasSkillText ? ' · Has skill guidance' : ''}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => void handleDeleteCustomMcp(config.id, config.displayName)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {showCustomMcpEditor ? (
+                <div className="space-y-3">
+                  <textarea
+                    value={customConfigJson}
+                    onChange={(e) => setCustomConfigJson(e.target.value)}
+                    rows={18}
+                    className="w-full font-mono text-xs border border-gray-300 rounded-lg p-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  {customMcpError && (
+                    <p className="text-xs text-red-600">{customMcpError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => void handleSaveCustomMcp()}
+                      disabled={isSavingCustomMcp}
+                      className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {isSavingCustomMcp ? 'Saving...' : 'Save custom MCP'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowCustomMcpEditor(false)
+                        setCustomMcpError(null)
+                      }}
+                      className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowCustomMcpEditor(true)}
+                  className="px-4 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                >
+                  Add custom MCP
+                </button>
+              )}
+            </section>
+
+            <section className="bg-white rounded-lg border border-gray-200 shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-1">MCP Marketplace</h2>
               <p className="text-sm text-gray-500 mb-4">
                 Connect MCP servers to use their tools in chat.
@@ -445,6 +590,9 @@ export default function ProfilePage() {
                           <div>
                             <h3 className="text-sm font-medium text-gray-900">
                               {server.displayName}
+                              {server.userDefined && (
+                                <span className="ml-2 text-xs font-normal text-blue-600">Custom</span>
+                              )}
                             </h3>
                             <p className="text-xs text-gray-500 mt-1">{server.description}</p>
                             {isConnected && connection && (

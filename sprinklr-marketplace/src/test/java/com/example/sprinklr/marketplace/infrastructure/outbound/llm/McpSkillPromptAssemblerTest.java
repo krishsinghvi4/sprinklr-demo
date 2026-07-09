@@ -14,6 +14,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class McpSkillPromptAssemblerTest {
 
@@ -32,7 +33,8 @@ class McpSkillPromptAssemblerTest {
         McpSkillPromptLoader skillPromptLoader = new McpSkillPromptLoader(catalogLoader, new DefaultResourceLoader());
         CrossWorkflowSkillLoader crossWorkflowSkillLoader =
                 new CrossWorkflowSkillLoader(catalogLoader, new DefaultResourceLoader());
-        assembler = new McpSkillPromptAssembler(systemPromptLoader, skillPromptLoader, crossWorkflowSkillLoader);
+        assembler = new McpSkillPromptAssembler(
+                systemPromptLoader, skillPromptLoader, crossWorkflowSkillLoader, mock(UserMcpSkillProvider.class));
     }
 
     @Test

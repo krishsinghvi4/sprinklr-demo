@@ -53,7 +53,8 @@ public record ProfileResponse(
             String authType,
             String connectMethod,
             List<CredentialFieldDto> credentialFields,
-            boolean connected
+            boolean connected,
+            boolean userDefined
     ) {
         static AvailableServerDto from(McpMarketplaceService.AvailableServerView server) {
             return new AvailableServerDto(
@@ -63,7 +64,8 @@ public record ProfileResponse(
                     server.authType(),
                     server.connectMethod(),
                     server.credentialFields().stream().map(CredentialFieldDto::from).toList(),
-                    server.connected()
+                    server.connected(),
+                    server.userDefined()
             );
         }
     }

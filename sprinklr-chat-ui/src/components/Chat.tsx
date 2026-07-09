@@ -20,22 +20,26 @@ export default function Chat({ userId, conversationId }: ChatProps) {
   const [error, setError] = useState<string | null>(null)
   const [lastPrompt, setLastPrompt] = useState<string | null>(null)
   const [isLoadingHistory, setIsLoadingHistory] = useState(true)
+  const [hasMoreHistory, setHasMoreHistory] = useState(false)
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false)
   const [saveToast, setSaveToast] = useState<{ message: string; link?: string } | null>(null)
   const [savingMessageId, setSavingMessageId] = useState<string | null>(null)
   const [savedMessageIds, setSavedMessageIds] = useState<Set<string>>(new Set())
   const [dashboardConversationId, setDashboardConversationId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const loadHistory = async () => {
       setIsLoadingHistory(true)
-      const [history, savedInfo] = await Promise.all([
+      const [historyResult, savedInfo] = await Promise.all([
         fetchChatHistory(conversationId),
         fetchSavedMessageIds(conversationId),
       ])
-      setMessages(history)
+      setMessages(historyResult.messages)
+      setHasMoreHistory(historyResult.hasMore)
       setSavedMessageIds(new Set(savedInfo.savedMessageIds))
       setDashboardConversationId(savedInfo.dashboardConversationId)
       setIsLoadingHistory(false)
@@ -43,6 +47,30 @@ export default function Chat({ userId, conversationId }: ChatProps) {
     }
     void loadHistory()
   }, [conversationId])
+
+  const handleLoadOlderMessages = async () => {
+    if (!hasMoreHistory || isLoadingOlder || messages.length === 0) {
+      return
+    }
+
+    const container = messagesContainerRef.current
+    const previousScrollHeight = container?.scrollHeight ?? 0
+
+    setIsLoadingOlder(true)
+    const before = messages[0].timestamp.toISOString()
+    const historyResult = await fetchChatHistory(conversationId, 30, before)
+
+    setMessages((prev) => [...historyResult.messages, ...prev])
+    setHasMoreHistory(historyResult.hasMore)
+    setIsLoadingOlder(false)
+
+    requestAnimationFrame(() => {
+      if (container) {
+        const newScrollHeight = container.scrollHeight
+        container.scrollTop = newScrollHeight - previousScrollHeight
+      }
+    })
+  }
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -210,7 +238,19 @@ export default function Chat({ userId, conversationId }: ChatProps) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4 max-w-4xl mx-auto w-full">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-6 space-y-4 max-w-4xl mx-auto w-full">
+        {!isLoadingHistory && hasMoreHistory && (
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => void handleLoadOlderMessages()}
+              disabled={isLoadingOlder}
+              className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              {isLoadingOlder ? 'Loading older messages...' : 'Load older messages'}
+            </button>
+          </div>
+        )}
         {isLoadingHistory ? (
           <div className="h-full flex items-center justify-center">
             <div className="text-center">

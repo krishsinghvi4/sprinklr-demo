@@ -63,7 +63,8 @@ public class ToolSelectionService {
             List<Message> recentHistory,
             List<McpTool> allUserTools,
             List<ToolDependencyGraph> graphs,
-            Optional<PendingWorkflowState> continuation
+            Optional<PendingWorkflowState> continuation,
+            String userId
     ) {
         McpProperties.ToolSelection config = mcpProperties.getToolSelection();
 
@@ -85,7 +86,7 @@ public class ToolSelectionService {
 
         List<Message> routerHistory = trimToRecentTurns(recentHistory, config.getRouterHistoryTurns());
         ToolRouterResult routerResult = toolRouterPort.selectTools(
-                userPrompt, routerHistory, allUserTools, config.getRouterMaxPrimaryTools());
+                userPrompt, routerHistory, allUserTools, config.getRouterMaxPrimaryTools(), userId);
 
         boolean continuationDiscarded = false;
         if (continuation.isPresent()

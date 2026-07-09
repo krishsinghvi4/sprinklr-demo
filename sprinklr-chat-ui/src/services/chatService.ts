@@ -1,5 +1,5 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source'
-import { ChatRequest, ConversationSummary, Message } from '../types/chat'
+import { ChatRequest, ChatHistoryResult, ConversationListResult, ConversationSummary, Message } from '../types/chat'
 
 const CHAT_ENDPOINT = '/api/v1/chat/stream'
 const HISTORY_ENDPOINT = '/api/v1/chat/history'
@@ -76,30 +76,36 @@ export async function streamChat(
   }
 }
 
-export async function fetchConversations(): Promise<ConversationSummary[]> {
+export async function fetchConversations(page: number = 0): Promise<ConversationListResult> {
   try {
-    const response = await fetch(CONVERSATIONS_ENDPOINT, {
+    const response = await fetch(`${CONVERSATIONS_ENDPOINT}?page=${page}&size=20`, {
       method: 'GET',
       headers: getAuthHeaders(),
     })
 
     if (!response.ok) {
       if (handleUnauthorized(response.status)) {
-        return []
+        return { conversations: [], page, pageSize: 20, hasMore: false, totalCount: 0 }
       }
       console.warn(`Failed to fetch conversations: HTTP ${response.status}`)
-      return []
+      return { conversations: [], page, pageSize: 20, hasMore: false, totalCount: 0 }
     }
 
     const data = await response.json()
     if (!data.conversations || !Array.isArray(data.conversations)) {
-      return []
+      return { conversations: [], page, pageSize: 20, hasMore: false, totalCount: 0 }
     }
 
-    return data.conversations as ConversationSummary[]
+    return {
+      conversations: data.conversations as ConversationSummary[],
+      page: data.page ?? page,
+      pageSize: data.pageSize ?? 20,
+      hasMore: Boolean(data.hasMore),
+      totalCount: data.totalCount ?? data.conversations.length,
+    }
   } catch (error) {
     console.warn('Error fetching conversations:', error)
-    return []
+    return { conversations: [], page, pageSize: 20, hasMore: false, totalCount: 0 }
   }
 }
 
@@ -122,34 +128,42 @@ export async function deleteConversation(conversationId: string): Promise<boolea
   }
 }
 
-export async function fetchChatHistory(conversationId: string, limit: number = 50): Promise<Message[]> {
+export async function fetchChatHistory(
+  conversationId: string,
+  limit: number = 30,
+  before?: string,
+): Promise<ChatHistoryResult> {
   try {
+    const params = new URLSearchParams({
+      conversationId,
+      limit: String(limit),
+    })
+    if (before) {
+      params.set('before', before)
+    }
+
     console.log(`Fetching chat history for conversation: ${conversationId}`)
-    const response = await fetch(
-      `${HISTORY_ENDPOINT}?conversationId=${encodeURIComponent(conversationId)}&limit=${limit}`,
-      {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      }
-    )
+    const response = await fetch(`${HISTORY_ENDPOINT}?${params.toString()}`, {
+      method: 'GET',
+      headers: getAuthHeaders(),
+    })
 
     if (!response.ok) {
       if (handleUnauthorized(response.status)) {
-        return []
+        return { messages: [], hasMore: false }
       }
       console.warn(`Failed to fetch chat history: HTTP ${response.status}, treating as new conversation`)
-      return []
+      return { messages: [], hasMore: false }
     }
 
     const data = await response.json()
     console.log(`Received ${data.messages?.length || 0} messages from history`)
-    
+
     if (!data.messages || !Array.isArray(data.messages)) {
       console.warn('No messages in response, starting fresh conversation')
-      return []
+      return { messages: [], hasMore: false }
     }
-    
-    // Map the backend message format to frontend Message format
+
     const messages = data.messages
       .filter((msg: { role?: string; content?: string }) =>
         (msg.role === 'user' || msg.role === 'assistant') && Boolean(msg.content?.trim())
@@ -160,12 +174,12 @@ export async function fetchChatHistory(conversationId: string, limit: number = 5
         content: msg.content || '',
         timestamp: new Date(msg.createdAt),
       }))
-    
+
     console.log(`Successfully loaded ${messages.length} messages`)
-    return messages
+    return { messages, hasMore: Boolean(data.hasMore) }
   } catch (error) {
     console.warn('Error fetching chat history (new conversation?):', error)
-    return []
+    return { messages: [], hasMore: false }
   }
 }
 

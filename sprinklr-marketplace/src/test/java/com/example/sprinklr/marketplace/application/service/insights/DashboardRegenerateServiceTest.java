@@ -88,7 +88,7 @@ class DashboardRegenerateServiceTest {
         DashboardTurn turn = sampleTurn();
         when(mcpRegistryPort.findActiveToolsForUser("user-1")).thenReturn(List.of(gitlabTool, jiraTool));
         when(mcpRegistryPort.findActiveDependencyGraphsForUser("user-1")).thenReturn(List.of());
-        when(toolSelectionService.selectTools(any(), any(), any(), any(), any()))
+        when(toolSelectionService.selectTools(any(), any(), any(), any(), any(), any()))
                 .thenReturn(new ToolSelectionResult(List.of(gitlabTool), List.of("gitlab"), List.of("gitlab.list_pipelines"), null));
 
         ArgumentCaptor<LlmRequest> requestCaptor = ArgumentCaptor.forClass(LlmRequest.class);
@@ -115,7 +115,7 @@ class DashboardRegenerateServiceTest {
         DashboardTurn turn = sampleTurn();
         when(mcpRegistryPort.findActiveToolsForUser("user-1")).thenReturn(List.of(gitlabTool));
         when(mcpRegistryPort.findActiveDependencyGraphsForUser("user-1")).thenReturn(List.of());
-        when(toolSelectionService.selectTools(any(), any(), any(), any(), any()))
+        when(toolSelectionService.selectTools(any(), any(), any(), any(), any(), any()))
                 .thenReturn(new ToolSelectionResult(List.of(gitlabTool), List.of("gitlab"), List.of("gitlab.list_pipelines"), null));
         when(mcpRegistryPort.findByUserIdAndServerIdPrefix("user-1", "gitlab")).thenReturn(Optional.empty());
         when(mcpInvocationPreflightPort.validate(any(), any()))

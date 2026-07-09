@@ -32,16 +32,34 @@ export default function ChatDashboardPage() {
   const { user, logout } = useAuth()
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
 
   useEffect(() => {
     const loadConversations = async () => {
       setIsLoading(true)
-      const list = await fetchConversations()
-      setConversations(list)
+      const result = await fetchConversations(0)
+      setConversations(result.conversations)
+      setPage(result.page)
+      setHasMore(result.hasMore)
       setIsLoading(false)
     }
-    loadConversations()
+    void loadConversations()
   }, [])
+
+  const handleLoadMore = async () => {
+    if (!hasMore || isLoadingMore) {
+      return
+    }
+    setIsLoadingMore(true)
+    const nextPage = page + 1
+    const result = await fetchConversations(nextPage)
+    setConversations((prev) => [...prev, ...result.conversations])
+    setPage(result.page)
+    setHasMore(result.hasMore)
+    setIsLoadingMore(false)
+  }
 
   const handleNewChat = () => {
     navigate(`/chat/${createConversationId()}`)
@@ -146,6 +164,17 @@ export default function ChatDashboardPage() {
               </li>
             ))}
           </ul>
+        )}
+        {!isLoading && hasMore && (
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => void handleLoadMore()}
+              disabled={isLoadingMore}
+              className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              {isLoadingMore ? 'Loading...' : 'Load more conversations'}
+            </button>
+          </div>
         )}
       </main>
     </div>

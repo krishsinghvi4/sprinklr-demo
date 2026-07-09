@@ -60,7 +60,8 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
             String userPrompt,
             List<Message> recentHistory,
             List<McpTool> availableTools,
-            int maxPrimaryTools
+            int maxPrimaryTools,
+            String userId
     ) {
         if (availableTools == null || availableTools.isEmpty()) {
             return ToolRouterResult.noToolsNeeded();
@@ -88,12 +89,12 @@ public class LlmToolRouterAdapter implements ToolRouterPort {
             }
 
             Set<String> skillPrefixes = resolveSkillPrefixes(pass1.toolNames(), userPrompt, availableTools);
-            if (!skillPromptAssembler.hasGuidanceForPrefixes(skillPrefixes)) {
+            if (!skillPromptAssembler.hasGuidanceForPrefixes(skillPrefixes, userId)) {
                 log.info("[ToolRouter] No workflow skills for prefixes {} — skipping pass2", skillPrefixes);
                 return pass1;
             }
 
-            String pass2SystemPrompt = skillPromptAssembler.assembleForPrefixes(baseRouterPrompt, skillPrefixes)
+            String pass2SystemPrompt = skillPromptAssembler.assembleForPrefixes(baseRouterPrompt, skillPrefixes, userId)
                     + catalogSection;
 
             String refinementUserBlock = userBlock + "\n\nInitial tool selection from pass 1:\n"

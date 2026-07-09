@@ -51,6 +51,27 @@ export async function updateRedQueryPreferences(
   return response.data
 }
 
+export async function fetchUserMcpConfigs(): Promise<UserMcpConfigSummary[]> {
+  const response = await axiosInstance.get<{ configs: UserMcpConfigSummary[] }>(
+    '/api/v1/mcp/user-configs'
+  )
+  return response.data.configs ?? []
+}
+
+export async function createUserMcpConfig(
+  request: CreateUserMcpConfigRequest
+): Promise<UserMcpConfigSummary> {
+  const response = await axiosInstance.post<UserMcpConfigSummary>(
+    '/api/v1/mcp/user-configs',
+    request
+  )
+  return response.data
+}
+
+export async function deleteUserMcpConfig(configId: string): Promise<void> {
+  await axiosInstance.delete(`/api/v1/mcp/user-configs/${configId}`)
+}
+
 export async function startOAuthConnect(catalogServerId: string): Promise<string> {
   const response = await axiosInstance.get<{ authorizationUrl: string }>(
     `/api/v1/mcp/oauth/start/${catalogServerId}`,
