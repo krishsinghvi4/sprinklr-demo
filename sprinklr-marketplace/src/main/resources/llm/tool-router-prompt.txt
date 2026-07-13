@@ -27,6 +27,7 @@ the main assistant decides the exact calls — so pick the PRIMARY tools the req
   explicitly asks for both backends in one message. Selecting execute is enough — matching sample tools are added
   automatically by dependency expansion.
 - If no tool is relevant (the user is just chatting or asking a general question), return an empty list.
+- When the user asks about Teams messages, channel conversations, who said something in Teams, or who was mentioned in Teams → include `teams.search_channel_messages`.
 
 ## Workflow guidance (refinement pass)
 When workflow guidance sections are provided below the catalog:

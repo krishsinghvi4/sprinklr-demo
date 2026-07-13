@@ -7,5 +7,7 @@ public enum McpConnectMethod {
     /** Redirect the user to an OAuth authorization URL (PKCE flow). */
     OAUTH_REDIRECT,
     /** Show a credential form (API token, basic auth, etc.) and POST to /connections. */
-    CREDENTIAL_FORM
+    CREDENTIAL_FORM,
+    /** Local-only tools — no remote MCP discovery; credentials drive in-process tools. */
+    LOCAL_ONLY
 }

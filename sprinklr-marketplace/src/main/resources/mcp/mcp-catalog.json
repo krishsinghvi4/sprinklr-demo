@@ -73,7 +73,7 @@
       "id": "red-mcp",
       "llmSkillPath": "classpath:llm/mcp-skills/red.md",
       "displayName": "RED",
-      "description": "RED platform — deployments, queries, Sprinklr ops (51 tools).",
+      "description": "RED platform — deployments, queries, Sprinklr ops ",
       "endpointUrl": "http://127.0.0.1:3344/mcp",
       "serverIdPrefix": "red",
       "authType": "CREDENTIALS",
@@ -110,6 +110,24 @@
           "red.red_execute_audit_log_elasticsearch_query",
           "red.red_execute_mongo_query"
         ]
+      }
+    },
+    {
+      "id": "teams-messages",
+      "llmSkillPath": "classpath:llm/mcp-skills/teams.md",
+      "displayName": "Microsoft Teams Messages",
+      "description": "Search indexed Teams channel messages ingested via Power Automate webhooks.",
+      "endpointUrl": "LOCAL_ONLY",
+      "serverIdPrefix": "teams",
+      "authType": "CREDENTIALS",
+      "connectMethod": "LOCAL_ONLY",
+      "credentialFields": [],
+      "auth": {
+        "kind": "CREDENTIALS",
+        "credentials": {
+          "tokenField": "esApiKey",
+          "headerMode": "BEARER"
+        }
       }
     }
   ]

@@ -6,6 +6,7 @@ import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MCP.Conn
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MCP.McpConnectionResponse;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MCP.RedQueryPreferencesRequest;
 import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MCP.RedQueryPreferencesResponse;
+import com.example.sprinklr.marketplace.infrastructure.inbound.rest.dto.MCP.TeamsWebhookResponse;
 import com.example.sprinklr.marketplace.infrastructure.security.AuthenticatedUserResolver;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -52,6 +53,16 @@ public class McpConnectionController {
     public void disconnect(@PathVariable String connectionId) {
         String userId = authenticatedUserResolver.requireUserId();
         marketplaceService.disconnect(userId, connectionId);
+    }
+
+    @GetMapping("/{connectionId}/teams-webhook")
+    public TeamsWebhookResponse getTeamsWebhook(@PathVariable String connectionId) {
+        String userId = authenticatedUserResolver.requireUserId();
+        String webhookUrl = marketplaceService.getTeamsWebhookUrl(userId, connectionId);
+        if (webhookUrl == null || webhookUrl.isBlank()) {
+            throw new IllegalArgumentException("Webhook URL not found — disconnect and reconnect Teams Messages");
+        }
+        return new TeamsWebhookResponse(webhookUrl);
     }
 
     @GetMapping("/{connectionId}/red-query-preferences")

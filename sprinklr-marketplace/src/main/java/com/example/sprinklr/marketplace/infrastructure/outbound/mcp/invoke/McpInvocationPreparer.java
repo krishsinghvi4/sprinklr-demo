@@ -2,6 +2,7 @@ package com.example.sprinklr.marketplace.infrastructure.outbound.mcp.invoke;
 
 import com.example.sprinklr.marketplace.application.service.mcp.McpOAuthTokenRefreshService;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectMethod;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.StreamableHttpMcpClient;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.auth.CatalogAuthHeaderBuilder;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
@@ -106,6 +107,9 @@ public class McpInvocationPreparer {
             McpCatalogEntry catalogEntry,
             Map<String, String> authHeaders
     ) {
+        if (catalogEntry.connectMethod() == McpConnectMethod.LOCAL_ONLY) {
+            return localOnlySession();
+        }
         log.info("[MCP] Re-initializing session connectionId={}", connection.id());
         StreamableHttpMcpClient.McpSession session = mcpClient.initialize(catalogEntry.endpointUrl(), authHeaders);
         connectionRepository.save(copyWithSession(connection, session));
@@ -117,6 +121,9 @@ public class McpInvocationPreparer {
             McpCatalogEntry catalogEntry,
             Map<String, String> authHeaders
     ) {
+        if (catalogEntry.connectMethod() == McpConnectMethod.LOCAL_ONLY) {
+            return localOnlySession();
+        }
         String sessionId = connection.mcpSessionId();
         if (sessionId == null || sessionId.isBlank()) {
             log.info("[MCP] No stored session, initializing connectionId={} catalog={}",
@@ -151,6 +158,10 @@ public class McpInvocationPreparer {
                 connection.dependencyGraphStatus(),
                 connection.redQueryPreferences()
         );
+    }
+
+    private static StreamableHttpMcpClient.McpSession localOnlySession() {
+        return new StreamableHttpMcpClient.McpSession("local-only", DEFAULT_PROTOCOL_VERSION);
     }
 
     public record PreparedInvocation(

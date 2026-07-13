@@ -205,5 +205,10 @@ class RedQueryPreferencesToolDescriptionAugmenterTest {
         ) {
             throw new UnsupportedOperationException();
         }
+
+        @Override
+        public Optional<String> findEncryptedCredentials(String userId, String connectionId) {
+            throw new UnsupportedOperationException();
+        }
     }
 }

@@ -47,3 +47,11 @@ export GITLAB_MCP_AUTH_HEADER="private-token"
 # export AZURE_TENANT_ID="xxxx"
 # export AZURE_CLIENT_ID="xxxx"
 # export AZURE_CLIENT_SECRET="xxxx"
+
+# --- Teams message ingest (shared signing secret with teams-ingest-service) ---
+export TEAMS_WEBHOOK_SIGNING_SECRET="xxxx"
+# Local: http://localhost:8081 — Production: https://<your-app>.up.railway.app (no trailing slash)
+export TEAMS_INGEST_BASE_URL="http://localhost:8081"
+export ES_URL="https://your-deployment.es.region.cloud.es.io:443"
+export ES_API_KEY="xxxx"
+export ES_INDEX="teams_messages"

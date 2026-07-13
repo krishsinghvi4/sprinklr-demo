@@ -3,6 +3,7 @@ package com.example.sprinklr.marketplace.application.service.mcp;
 import com.example.sprinklr.marketplace.application.service.McpMarketplaceService;
 import com.example.sprinklr.marketplace.domain.model.DependencyGraphStatus;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
+import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectMethod;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpToolSelectionConfig;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpUserConnection;
@@ -90,6 +91,32 @@ public class McpConnectionOrchestrator {
         }
 
         String connectionId = UUID.randomUUID().toString();
+
+        if (catalogEntry.connectMethod() == McpConnectMethod.LOCAL_ONLY) {
+            String encrypted = credentialVault.encrypt(credentials);
+            List<McpTool> localTools = localToolCatalogMerger.merge(catalogEntry, connectionId, List.of());
+            McpUserConnection connection = new McpUserConnection(
+                    connectionId,
+                    userId,
+                    catalogServerId,
+                    McpConnectionStatus.CONNECTED,
+                    null,
+                    null,
+                    localTools,
+                    Instant.now(),
+                    null
+            );
+            McpUserConnection saved = registryPort.saveConnection(
+                    connection,
+                    encrypted,
+                    catalogEntry.serverIdPrefix()
+            );
+            log.info("[MCP] Connected LOCAL_ONLY userId={} connectionId={} toolCount={}",
+                    userId, connectionId, saved.tools().size());
+            generateAndStoreDependencyGraph(saved, catalogEntry);
+            return toConnectionView(saved, catalogEntry);
+        }
+
         Map<String, String> authHeaders = provider.buildAuthHeaders(catalogEntry, credentials);
 
         log.info("[MCP] Connecting userId={} catalogServerId={} connectionId={} authKind={}",

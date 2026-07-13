@@ -42,4 +42,7 @@ public interface McpRegistryPort {
 
     /** Replaces RED query allowlists for a connection (RED connections only). */
     void updateRedQueryPreferences(String userId, String connectionId, RedQueryPreferences preferences);
+
+    /** Encrypted credential blob for a connection, if it exists. */
+    Optional<String> findEncryptedCredentials(String userId, String connectionId);
 }

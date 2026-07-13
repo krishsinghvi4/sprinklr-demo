@@ -3,6 +3,7 @@ import { Plug, PlugZap, Trash2, Unplug } from 'lucide-react'
 import AppHeader from '../components/AppHeader'
 import McpConnectModal from '../components/McpConnectModal'
 import RedQueryPreferencesPanel from '../components/RedQueryPreferencesPanel'
+import TeamsWebhookPanel from '../components/TeamsWebhookPanel'
 import {
   completeOAuthCallback,
   connectMcpServer,
@@ -242,6 +243,29 @@ export default function ProfilePage() {
     }
   }
 
+  const handleDirectConnect = async (server: AvailableServer) => {
+    if (isAnyServerBusy()) return
+    setError(null)
+    setActionMessage(null)
+    setServerAction(server.id, { phase: 'connecting' })
+    try {
+      await connectMcpServer({
+        catalogServerId: server.id,
+        credentials: {},
+      })
+      setActionMessage(`Connected to ${server.displayName}`)
+      clearServerAction(server.id)
+      await loadProfile()
+    } catch (err: unknown) {
+      const mapped = mapApiError(err)
+      setServerAction(server.id, {
+        phase: 'idle',
+        error: mapped,
+      })
+      setError(mapped.message)
+    }
+  }
+
   const handleOAuthConnect = async (server: AvailableServer) => {
     if (isAnyServerBusy()) return
     setError(null)
@@ -317,6 +341,7 @@ export default function ProfilePage() {
       const mapped = mapApiError(err)
       setError(mapped.message)
       clearServerAction(serverId)
+      await loadProfile()
     }
   }
 
@@ -335,8 +360,8 @@ export default function ProfilePage() {
       void handleOAuthConnect(server)
       return
     }
-    if (server.credentialFields.length === 0) {
-      setError(`Connect is not configured for ${server.displayName}.`)
+    if (method === 'LOCAL_ONLY' || server.credentialFields.length === 0) {
+      void handleDirectConnect(server)
       return
     }
     setConnectingServer(server)
@@ -354,6 +379,7 @@ export default function ProfilePage() {
   }
 
   const isRedServer = (serverId: string) => serverId === 'red-mcp'
+  const isTeamsServer = (serverId: string) => serverId === 'teams-messages'
 
   const handleSaveCustomMcp = async () => {
     setCustomMcpError(null)
@@ -605,6 +631,9 @@ export default function ProfilePage() {
                                 connectionId={connection.id}
                                 initiallyConfigured={connection.hasRedQueryPreferences}
                               />
+                            )}
+                            {isConnected && connection && isTeamsServer(server.id) && (
+                              <TeamsWebhookPanel connectionId={connection.id} />
                             )}
                             {serverAction?.error && (
                               <p className="text-xs text-red-600 mt-2">{serverAction.error.message}</p>

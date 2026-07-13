@@ -1,4 +1,4 @@
-export type ConnectMethod = 'OAUTH_REDIRECT' | 'CREDENTIAL_FORM'
+export type ConnectMethod = 'OAUTH_REDIRECT' | 'CREDENTIAL_FORM' | 'LOCAL_ONLY'
 
 export type ConnectErrorKind =
   | 'VALIDATION_ERROR'

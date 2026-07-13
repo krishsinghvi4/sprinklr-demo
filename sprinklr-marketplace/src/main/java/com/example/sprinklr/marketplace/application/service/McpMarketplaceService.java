@@ -2,11 +2,13 @@ package com.example.sprinklr.marketplace.application.service;
 
 import com.example.sprinklr.marketplace.application.service.mcp.AuthFlowRouter;
 import com.example.sprinklr.marketplace.application.service.mcp.CredentialAuthFlowHandler;
+import com.example.sprinklr.marketplace.application.service.mcp.TeamsWebhookTokenService;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpCatalogEntry;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpConnectionStatus;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpCredentialField;
 import com.example.sprinklr.marketplace.domain.model.MCP.McpUserConnection;
 import com.example.sprinklr.marketplace.domain.model.RedQueryPreferences;
+import com.example.sprinklr.marketplace.domain.port.outbound.CredentialVaultPort;
 import com.example.sprinklr.marketplace.domain.port.outbound.MCP.McpRegistryPort;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.MergedCatalogResolver;
 import org.slf4j.Logger;
@@ -30,17 +32,23 @@ public class McpMarketplaceService {
     private final McpRegistryPort registryPort;
     private final CredentialAuthFlowHandler credentialAuthFlowHandler;
     private final AuthFlowRouter authFlowRouter;
+    private final CredentialVaultPort credentialVault;
+    private final TeamsWebhookTokenService teamsWebhookTokenService;
 
     public McpMarketplaceService(
             MergedCatalogResolver catalogResolver,
             McpRegistryPort registryPort,
             CredentialAuthFlowHandler credentialAuthFlowHandler,
-            AuthFlowRouter authFlowRouter
+            AuthFlowRouter authFlowRouter,
+            CredentialVaultPort credentialVault,
+            TeamsWebhookTokenService teamsWebhookTokenService
     ) {
         this.catalogResolver = catalogResolver;
         this.registryPort = registryPort;
         this.credentialAuthFlowHandler = credentialAuthFlowHandler;
         this.authFlowRouter = authFlowRouter;
+        this.credentialVault = credentialVault;
+        this.teamsWebhookTokenService = teamsWebhookTokenService;
     }
 
     /**
@@ -77,6 +85,10 @@ public class McpMarketplaceService {
         registryPort.findByIdAndUserId(connectionId, userId)
                 .orElseThrow(() -> new IllegalArgumentException("Connection not found"));
         registryPort.delete(connectionId, userId);
+        boolean stillExists = registryPort.findByIdAndUserId(connectionId, userId).isPresent();
+        if (stillExists) {
+            throw new IllegalStateException("Failed to delete connection");
+        }
     }
 
     public RedQueryPreferences getRedQueryPreferences(String userId, String connectionId) {
@@ -93,6 +105,38 @@ public class McpMarketplaceService {
         assertRedConnection(userId, connectionId);
         registryPort.updateRedQueryPreferences(userId, connectionId, preferences);
         return preferences;
+    }
+
+    public String getTeamsWebhookUrl(String userId, String connectionId) {
+        McpUserConnection connection = registryPort.findByIdAndUserId(connectionId, userId)
+                .orElseThrow(() -> new IllegalArgumentException("Connection not found"));
+        if (!isTeamsConnection(connection)) {
+            throw new IllegalArgumentException("Teams webhook URL applies only to Teams Messages connections");
+        }
+        String encrypted = registryPort.findEncryptedCredentials(userId, connectionId)
+                .orElseThrow(() -> new IllegalArgumentException("Connection credentials not found"));
+        try {
+            Map<String, String> credentials = credentialVault.decrypt(encrypted);
+            String webhookToken = credentials.get("webhookToken");
+            if (webhookToken != null && !webhookToken.isBlank()) {
+                return teamsWebhookTokenService.buildWebhookUrl(webhookToken);
+            }
+            String webhookUrl = credentials.get("webhookUrl");
+            if (webhookUrl != null && !webhookUrl.isBlank()) {
+                return webhookUrl;
+            }
+        } catch (IllegalStateException exception) {
+            log.warn("[MCP] Could not decrypt Teams credentials connectionId={} — regenerating webhook URL",
+                    connectionId);
+        }
+        String token = teamsWebhookTokenService.generateToken(userId);
+        return teamsWebhookTokenService.buildWebhookUrl(token);
+    }
+
+    private boolean isTeamsConnection(McpUserConnection connection) {
+        return catalogResolver.findById(connection.catalogServerId(), connection.userId())
+                .map(entry -> "teams".equals(entry.serverIdPrefix()))
+                .orElse(false);
     }
 
     private void assertRedConnection(String userId, String connectionId) {

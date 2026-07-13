@@ -215,6 +215,12 @@ public class MongoMcpRegistryAdapter implements McpRegistryPort {
     }
 
     @Override
+    public Optional<String> findEncryptedCredentials(String userId, String connectionId) {
+        return repository.findByIdAndUserId(connectionId, userId)
+                .map(McpConnectionDocument::encryptedCredentials);
+    }
+
+    @Override
     public void updateRedQueryPreferences(String userId, String connectionId, RedQueryPreferences preferences) {
         repository.findByIdAndUserId(connectionId, userId).ifPresentOrElse(existing -> {
             if (!"red".equals(existing.serverIdPrefix())) {

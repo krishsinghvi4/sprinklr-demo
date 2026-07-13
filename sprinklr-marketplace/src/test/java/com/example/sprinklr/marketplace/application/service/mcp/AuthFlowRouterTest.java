@@ -10,7 +10,7 @@ class AuthFlowRouterTest {
 
     private final AuthFlowRouter router = new AuthFlowRouter(
             new OAuthAuthFlowHandler(null, null, null, null, null, null, null),
-            new CredentialAuthFlowHandler(null, null)
+            new CredentialAuthFlowHandler(null, null, null, null, null, null)
     );
 
     @Test

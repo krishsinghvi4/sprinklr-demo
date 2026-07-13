@@ -1,9 +1,11 @@
 import axiosInstance from '../api/axiosInstance'
 import {
   ConnectMcpServerRequest,
+  CreateUserMcpConfigRequest,
   McpConnection,
   ProfileResponse,
   RedQueryPreferences,
+  UserMcpConfigSummary,
 } from '../types/profile'
 
 export async function fetchProfile(): Promise<ProfileResponse | null> {
@@ -49,6 +51,13 @@ export async function updateRedQueryPreferences(
     preferences
   )
   return response.data
+}
+
+export async function fetchTeamsWebhookUrl(connectionId: string): Promise<string> {
+  const response = await axiosInstance.get<{ webhookUrl: string }>(
+    `/api/v1/mcp/connections/${connectionId}/teams-webhook`
+  )
+  return response.data.webhookUrl
 }
 
 export async function fetchUserMcpConfigs(): Promise<UserMcpConfigSummary[]> {

@@ -58,6 +58,15 @@ class McpCatalogLoaderTest {
 
         assertEquals("classpath:llm/mcp-skills/jira.md", jira.llmSkillPath());
         assertEquals("classpath:llm/mcp-skills/gitlab.md", gitlab.llmSkillPath());
-        assertEquals(3, loader.getAll().size());
+
+        var teams = loader.findById("teams-messages").orElseThrow();
+        assertEquals(McpConnectMethod.LOCAL_ONLY, teams.connectMethod());
+        assertEquals("teams", teams.serverIdPrefix());
+        assertEquals("LOCAL_ONLY", teams.endpointUrl());
+        assertEquals("classpath:llm/mcp-skills/teams.md", teams.llmSkillPath());
+        assertTrue(teams.credentialFields().isEmpty());
+        assertNull(teams.connectProbe());
+
+        assertEquals(4, loader.getAll().size());
     }
 }
