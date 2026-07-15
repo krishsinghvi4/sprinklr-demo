@@ -45,14 +45,25 @@ export const PieDataSchema = z.object({
   ),
 })
 
+const TimelineEventInputSchema = z
+  .object({
+    date: z.string().optional(),
+    timestamp: z.string().optional(),
+    author: z.string().optional(),
+    summary: z.string().optional(),
+    label: z.string().optional(),
+  })
+  .transform((event) => ({
+    date: event.date ?? event.timestamp ?? '',
+    author: event.author,
+    summary: event.summary ?? event.label ?? '',
+  }))
+  .refine((event) => event.date.length > 0 && event.summary.length > 0, {
+    message: 'Timeline events require date (or timestamp) and summary (or label)',
+  })
+
 export const TimelineDataSchema = z.object({
-  events: z.array(
-    z.object({
-      date: z.string(),
-      author: z.string().optional(),
-      summary: z.string(),
-    }),
-  ),
+  events: z.array(TimelineEventInputSchema),
 })
 
 export const TableDataSchema = z.object({

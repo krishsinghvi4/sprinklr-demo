@@ -26,6 +26,7 @@ import com.example.sprinklr.marketplace.domain.port.outbound.PendingWorkflowPort
 import com.example.sprinklr.marketplace.infrastructure.config.Chat.ChatProperties;
 import com.example.sprinklr.marketplace.infrastructure.config.MCP.McpProperties;
 import com.example.sprinklr.marketplace.infrastructure.outbound.llm.LlmErrorFormatter;
+import com.example.sprinklr.marketplace.infrastructure.outbound.llm.SprPiiPlaceholderRestorer;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.catalog.McpCatalogToolSelectionSupport;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.preflight.UserPromptValueMatcher;
 import com.example.sprinklr.marketplace.infrastructure.outbound.mcp.red.RedQueryPreferencesToolDescriptionAugmenter;
@@ -426,19 +427,19 @@ public class ChatOrchestrator implements ChatUseCase {
             List<String> executedToolNames,
             List<String> executedToolSummaries
     ) {
+        List<ToolCall> toolCalls = restoreToolCallArguments(llmResponse.toolCalls(), history, request.prompt());
         Message assistantToolCallMessage = new Message(
                 newId(),
                 conversationId,
                 MessageRole.ASSISTANT,
                 null,
-                llmResponse.toolCalls(),
+                toolCalls,
                 List.of(),
                 Instant.now()
         );
         // chatHistoryPort.saveMessage(assistantToolCallMessage); // debug: skip DB persist for tool calls
         history.add(assistantToolCallMessage);
 
-        List<ToolCall> toolCalls = llmResponse.toolCalls();
         List<McpInvocation> invocations = toolCalls.stream()
                 .map(toolCall -> toInvocation(request.userId(), toolCall))
                 .peek(invocation -> usedConnections.add(invocation.serverId()))
@@ -717,6 +718,39 @@ public class ChatOrchestrator implements ChatUseCase {
         String connectionId = connection.map(McpUserConnection::id).orElse(prefix);
 
         return new McpInvocation(connectionId, toolName, toolCall.argumentsJson(), toolCall.id());
+    }
+
+    private List<ToolCall> restoreToolCallArguments(List<ToolCall> toolCalls, List<Message> history, String prompt) {
+        if (toolCalls == null || toolCalls.isEmpty()) {
+            return toolCalls == null ? List.of() : toolCalls;
+        }
+        List<String> sources = piiRestoreSources(history, prompt);
+        return toolCalls.stream()
+                .map(toolCall -> {
+                    String restored = SprPiiPlaceholderRestorer.restoreEmailPlaceholders(
+                            toolCall.argumentsJson(), sources);
+                    if (restored == null || restored.equals(toolCall.argumentsJson())) {
+                        return toolCall;
+                    }
+                    return new ToolCall(toolCall.id(), toolCall.name(), restored);
+                })
+                .toList();
+    }
+
+    private static List<String> piiRestoreSources(List<Message> history, String prompt) {
+        List<String> sources = new ArrayList<>();
+        if (prompt != null && !prompt.isBlank()) {
+            sources.add(prompt);
+        }
+        if (history != null) {
+            for (Message message : history) {
+                if (message != null && message.role() == MessageRole.USER
+                        && message.content() != null && !message.content().isBlank()) {
+                    sources.add(message.content());
+                }
+            }
+        }
+        return sources;
     }
 
     private ToolResult toToolResult(McpInvocationResult result) {

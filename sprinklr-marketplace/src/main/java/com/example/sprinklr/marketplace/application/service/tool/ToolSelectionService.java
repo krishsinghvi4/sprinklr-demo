@@ -177,8 +177,9 @@ public class ToolSelectionService {
         expandedPrimary.addAll(jiraRedAuditToolSelectionSupport.bridgeTools(
                 primary, userPrompt, toolsByName.keySet()));
         for (String toolName : expandedPrimary) {
-            if (jiraLocalToolSelectionSupport.hasLocalPrerequisites(toolName)) {
-                for (String expandedTool : jiraLocalToolSelectionSupport.prerequisitesFor(toolName, toolsByName.keySet())) {
+            if (jiraLocalToolSelectionSupport.hasLocalPrerequisites(toolName, userPrompt)) {
+                for (String expandedTool : jiraLocalToolSelectionSupport.prerequisitesFor(
+                        toolName, toolsByName.keySet(), userPrompt)) {
                     if (satisfied.contains(expandedTool)) {
                         continue;
                     }

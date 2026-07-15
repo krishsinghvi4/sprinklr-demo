@@ -85,9 +85,13 @@ function chartValues(data: { labels: string[]; values: number[] }) {
   }))
 }
 
+function isAllZero(values: number[]) {
+  return values.length === 0 || values.every((value) => value === 0)
+}
+
 function BarChartWidget({ widget }: { widget: WidgetSpec }) {
   const parsed = ChartDataSchema.safeParse(widget.data)
-  if (!parsed.success || parsed.data.values.length === 0) {
+  if (!parsed.success || isAllZero(parsed.data.values)) {
     return <FallbackWidget widget={widget} />
   }
   const data = chartValues(parsed.data)
@@ -109,7 +113,7 @@ function BarChartWidget({ widget }: { widget: WidgetSpec }) {
 
 function LineChartWidget({ widget }: { widget: WidgetSpec }) {
   const parsed = ChartDataSchema.safeParse(widget.data)
-  if (!parsed.success || parsed.data.values.length === 0) {
+  if (!parsed.success || isAllZero(parsed.data.values)) {
     return <FallbackWidget widget={widget} />
   }
   const data = chartValues(parsed.data)
@@ -131,7 +135,7 @@ function LineChartWidget({ widget }: { widget: WidgetSpec }) {
 
 function AreaChartWidget({ widget }: { widget: WidgetSpec }) {
   const parsed = ChartDataSchema.safeParse(widget.data)
-  if (!parsed.success || parsed.data.values.length === 0) {
+  if (!parsed.success || isAllZero(parsed.data.values)) {
     return <FallbackWidget widget={widget} />
   }
   const data = chartValues(parsed.data)
@@ -153,7 +157,8 @@ function AreaChartWidget({ widget }: { widget: WidgetSpec }) {
 
 function PieChartWidget({ widget, donut }: { widget: WidgetSpec; donut?: boolean }) {
   const parsed = PieDataSchema.safeParse(widget.data)
-  if (!parsed.success) {
+  const sliceValues = parsed.success ? parsed.data.slices.map((slice) => slice.value) : []
+  if (!parsed.success || isAllZero(sliceValues)) {
     return <FallbackWidget widget={widget} />
   }
 

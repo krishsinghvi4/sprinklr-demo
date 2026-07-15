@@ -1,13 +1,21 @@
 ## Jira MCP guidance
 
+**Assignee resolution:** Always call `lookupJiraAccountId` when resolving another person's identity (display name or email). Users often misspell names — confirm the account id before search/edit.
+
 **Cloud ID rule (all Jira tools):** Always call `getAccessibleAtlassianResources` first in every turn before any other Jira tool — including create, edit, search, transition, and comment. Never reuse a `cloudId` from conversation history or a prior turn; fetch it fresh each time.
 
 ### Required-field rule (search, edit, transition tools)
 For search, edit, transition, and comment tools: if a required parameter (issue key, assignee name, etc.) is missing from the user's message, respond with text only and ask for it. **This rule does not apply to create** — see the create workflow below.
 
 ### Fetch assigned tickets
+When listing tickets for **someone else** (especially if an email is given), always resolve the account with `lookupJiraAccountId` **before** search — never put a raw email into JQL `assignee` first.
+
 1. `getAccessibleAtlassianResources` → get `cloudId`
-2. `searchJiraIssuesUsingJql` with JQL like `assignee = currentUser() ORDER BY updated DESC`.
+2. Resolve the assignee if it is not the current user:
+   - If the user gives a **display name**, call `lookupJiraAccountId` with that name.
+   - If the user gives an **email** (e.g. `parvat.singh@sprinklr.com` or `vaibhav.aggarwal@sprinklr.com`), derive a name from the local part by replacing `.` / `_` with spaces (`parvat singh`, `vaibhav aggarwal`), then call `lookupJiraAccountId` with that name. Use the returned `accountId`.
+   - Stop and ask the user if the assignee is not found.
+3. Search with JQL using `assignee = currentUser()` for the current user's tickets, or `assignee = "<accountId>"` (from step 2) for someone else's — **not** the email string.
 
 ### Query ticket details
 - `getAccessibleAtlassianResources` first, then `getJiraIssue` with the issue key (e.g. ITOPS-123) from the user's message or a prior search in the current turn.
@@ -25,24 +33,38 @@ When the user asks to debug, investigate, find root cause, or check audit logs f
 - `getAccessibleAtlassianResources` first, then `getJiraIssueChangelog` with `cloudId` + issue key.
 - Use when the user asks about status history, who changed fields, assignee/priority changes, or what happened on a ticket.
 - **Default:** plain markdown — bullets or a short chronological summary.
-- **Widgets:** use only when quantitative patterns (status durations, change distributions, activity over time) are clearer as charts than prose (see below).
+- **Widgets:** use only for ticket analytics requests (see below).
 
-### Ticket analytics (widgets — when useful)
-Use widgets when changelog data supports meaningful quantitative comparison — e.g. time in each status, changes by author, or activity trends. Do **not** use widgets for simple "what changed" narratives or single-fact lookups.
+### Ticket analytics (single ticket — widgets)
+Use widgets when the user asks for analytics, insights, or a dashboard for a **specific Jira ticket**. Do **not** use widgets for simple "what changed" narratives or single-fact lookups.
 
-When widgets add insight:
+**Required tools (call both):**
+1. `getAccessibleAtlassianResources` → fresh `cloudId`
+2. `getJiraIssue` with `cloudId` + issue key — for story points, comment count, fix version, current status, created date
+3. `getJiraIssueChangelog` with `cloudId` + issue key — for status durations and transition history
 
-1. `getAccessibleAtlassianResources` → get fresh `cloudId`
-2. `getJiraIssueChangelog` with `cloudId` + issue key
-3. Read the changelog JSON (`issueKey`, `histories[]` with `created`, `author`, `changes[]`)
-4. Compute metrics **only** from that data and pick **1–3** widgets (do not pad):
-   - Status durations → `bar` (with xAxisLabel/yAxisLabel)
-   - Change counts by author or field → `pie` or `donut`
-   - Activity over time → `line` or `area` (with xAxisLabel/yAxisLabel)
-   - Headline counts → optional `kpi` row
-5. Respond with a short markdown summary + a single ` ```widget ` fence (see system prompt) **only if** a chart is more useful than prose.
+**Prescribed widget set (emit 1–3; omit any whose data is missing — never pad):**
 
-**Anti-hallucination:** Every value in widget JSON must be traceable to the changelog tool result. If the changelog is empty or missing a field, say so in prose — do not invent data or force charts.
+| Widget | When to include | Data source |
+|--------|----------------|-------------|
+| `kpi` (always) | Always | Story Points, Days Open (from created → now or resolved), Comment Count, Fix Version from `getJiraIssue` |
+| `bar` | Changelog has ≥2 distinct statuses | Time in each status (days) from changelog timestamps; `xAxisLabel: "Status"`, `yAxisLabel: "Days"` |
+| `timeline` | Changelog has ≥3 status-change events | Status transitions only — collapse rapid automation events into one entry; max ~5 events |
+
+**Timeline field names (mandatory):** Each event must use `{ "date": "...", "author": "...", "summary": "..." }` — never `timestamp` or `label`. Dates must be human-readable (e.g. `2026-07-13 18:31 UTC`).
+
+**Do not emit for single-ticket analytics:**
+- `pie` / `donut` for change counts by author (not useful for one ticket)
+- `line` / `area` for activity over time (cluttered for single tickets)
+- Charts where every numeric value is `0`
+
+**Workflow:**
+1. Fetch issue + changelog (steps above).
+2. Compute metrics **only** from tool results in the current turn.
+3. Write a short markdown summary with one actionable insight (e.g. "Spent 10 days in In Progress").
+4. Emit a single ` ```widget ` fence with the prescribed widgets (see system prompt example).
+
+**Anti-hallucination:** Every value in widget JSON must be traceable to `getJiraIssue` or `getJiraIssueChangelog` results. If a field is missing (e.g. no fix version), omit that KPI metric or show `"—"` — do not invent data.
 
 ### Actions
 - **Update status:** `getAccessibleAtlassianResources` → `getTransitionsForJiraIssue` → `transitionJiraIssue`

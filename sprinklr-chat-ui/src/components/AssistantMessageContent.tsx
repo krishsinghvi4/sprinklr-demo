@@ -18,6 +18,7 @@ const ALLOWED_TAGS = [
   'ol',
   'li',
   'a',
+  'b',
   'p',
   'pre',
   'strong',
@@ -25,10 +26,22 @@ const ALLOWED_TAGS = [
   'div',
   'h3',
   'h4',
+  'code',
 ]
 
+/** Opening tag must match its closing tag — mismatched closers (e.g. </h3> inside <ul>) truncate early and leave orphaned </li>/</ul> in markdown. */
 const INLINE_HTML_BLOCK_PATTERN =
-  /<(?:pre|table|ul|ol|div|h3|h4)\b[^>]*>[\s\S]*?<\/(?:pre|table|ul|ol|div|h3|h4)>/gi
+  /<(pre|table|ul|ol|div|h3|h4)\b[^>]*>[\s\S]*?<\/\1>/gi
+
+const INLINE_HTML_ELEMENT_PATTERN =
+  /<(a|b|strong|span|p|li|code)\b(?:\s[^>]*)?>[\s\S]*?<\/\1>/gi
+
+const ASSISTANT_HTML_TAG_PATTERN =
+  /<\/?(?:a|b|strong|span|p|li|ul|ol|table|div|h3|h4|pre|td|th|tr|thead|tbody|code)\b/i
+
+/** Text that is only orphan closing tags (plus whitespace) — discard entirely. */
+const PURE_ORPHAN_CLOSERS_PATTERN =
+  /^(?:\s*<\/(?:li|ul|ol|div|p|h3|h4|pre|table|thead|tbody|tr|td|th|a|b|strong|span|code)\s*>)+\s*$/i
 
 export interface ContentSegment {
   type: 'markdown' | 'html' | 'widget'
@@ -67,7 +80,90 @@ export function splitAssistantContent(content: string): ContentSegment[] {
   return segments
 }
 
-/** Pulls block-level HTML the LLM placed outside ```html fences into renderable segments. */
+function promoteIfContainsHtml(text: string): ContentSegment[] {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return []
+  }
+  // Orphan </li>/</ul> left after extracting complete elements — drop so they never show as raw text.
+  if (PURE_ORPHAN_CLOSERS_PATTERN.test(trimmed)) {
+    return []
+  }
+  if (ASSISTANT_HTML_TAG_PATTERN.test(trimmed)) {
+    return [{ type: 'html', value: trimmed }]
+  }
+  return [{ type: 'markdown', value: trimmed }]
+}
+
+/** Splits inline HTML elements (e.g. <a>, <b>, <li>) out of markdown prose. */
+function splitInlineHtmlElements(text: string): ContentSegment[] {
+  const trimmed = text.trim()
+  if (!trimmed) {
+    return []
+  }
+
+  const inlinePattern = new RegExp(INLINE_HTML_ELEMENT_PATTERN.source, INLINE_HTML_ELEMENT_PATTERN.flags)
+  const result: ContentSegment[] = []
+  let lastIndex = 0
+  let foundInline = false
+
+  for (const match of trimmed.matchAll(inlinePattern)) {
+    foundInline = true
+    const matchIndex = match.index ?? 0
+    if (matchIndex > lastIndex) {
+      result.push(...promoteIfContainsHtml(trimmed.slice(lastIndex, matchIndex)))
+    }
+    const html = match[0]?.trim()
+    if (html) {
+      result.push({ type: 'html', value: html })
+    }
+    lastIndex = matchIndex + match[0].length
+  }
+
+  if (!foundInline) {
+    return promoteIfContainsHtml(trimmed)
+  }
+
+  const trailing = trimmed.slice(lastIndex).trim()
+  if (trailing) {
+    result.push(...promoteIfContainsHtml(trailing))
+  }
+
+  return result
+}
+
+function processMarkdownSegment(value: string): ContentSegment[] {
+  const blockPattern = new RegExp(INLINE_HTML_BLOCK_PATTERN.source, INLINE_HTML_BLOCK_PATTERN.flags)
+  const result: ContentSegment[] = []
+  let lastIndex = 0
+  let foundBlock = false
+
+  for (const match of value.matchAll(blockPattern)) {
+    foundBlock = true
+    const matchIndex = match.index ?? 0
+    if (matchIndex > lastIndex) {
+      result.push(...splitInlineHtmlElements(value.slice(lastIndex, matchIndex)))
+    }
+    const html = match[0]?.trim()
+    if (html) {
+      result.push({ type: 'html', value: html })
+    }
+    lastIndex = matchIndex + match[0].length
+  }
+
+  if (!foundBlock) {
+    return splitInlineHtmlElements(value)
+  }
+
+  const trailing = value.slice(lastIndex).trim()
+  if (trailing) {
+    result.push(...splitInlineHtmlElements(trailing))
+  }
+
+  return result
+}
+
+/** Pulls block-level and inline HTML the LLM placed outside ```html fences into renderable segments. */
 export function expandMarkdownSegments(segments: ContentSegment[]): ContentSegment[] {
   const expanded: ContentSegment[] = []
 
@@ -77,35 +173,7 @@ export function expandMarkdownSegments(segments: ContentSegment[]): ContentSegme
       continue
     }
 
-    const inlinePattern = new RegExp(INLINE_HTML_BLOCK_PATTERN.source, INLINE_HTML_BLOCK_PATTERN.flags)
-    let lastIndex = 0
-    let foundInline = false
-
-    for (const match of segment.value.matchAll(inlinePattern)) {
-      foundInline = true
-      const matchIndex = match.index ?? 0
-      if (matchIndex > lastIndex) {
-        const markdown = segment.value.slice(lastIndex, matchIndex).trim()
-        if (markdown) {
-          expanded.push({ type: 'markdown', value: markdown })
-        }
-      }
-      const html = match[0]?.trim()
-      if (html) {
-        expanded.push({ type: 'html', value: html })
-      }
-      lastIndex = matchIndex + match[0].length
-    }
-
-    if (!foundInline) {
-      expanded.push(segment)
-      continue
-    }
-
-    const trailing = segment.value.slice(lastIndex).trim()
-    if (trailing) {
-      expanded.push({ type: 'markdown', value: trailing })
-    }
+    expanded.push(...processMarkdownSegment(segment.value))
   }
 
   return expanded
